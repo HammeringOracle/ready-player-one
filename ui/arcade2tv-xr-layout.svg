@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 760" role="img" aria-labelledby="title desc">
+  <title id="title">Arcade2TV-XR Controller Layout</title>
+  <desc id="desc">Clean top-down Arcade2TV-XR style control deck with two players, trackball, mode strip, and side buttons.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#f3f6fa"/>
+      <stop offset="1" stop-color="#e2e7ee"/>
+    </linearGradient>
+    <linearGradient id="deck" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#202934"/>
+      <stop offset="0.5" stop-color="#141a22"/>
+      <stop offset="1" stop-color="#080c12"/>
+    </linearGradient>
+    <linearGradient id="deckEdge" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#303b48"/>
+      <stop offset="1" stop-color="#04070b"/>
+    </linearGradient>
+    <linearGradient id="buttonWhite" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c9d3df"/>
+    </linearGradient>
+    <linearGradient id="ball" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.42" stop-color="#d8e2ee"/>
+      <stop offset="1" stop-color="#8799ad"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-18%" width="124%" height="145%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0b1118" flood-opacity="0.28"/>
+    </filter>
+    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#4f93ff" flood-opacity="0.55"/>
+    </filter>
+    <style>
+      .title { font-family: "Segoe UI", Arial, sans-serif; font-weight: 900; fill: #182231; letter-spacing: 0; }
+      .caption { font-family: "Segoe UI", Arial, sans-serif; font-weight: 800; fill: #718096; letter-spacing: 0; }
+      .deckLabel { font-family: "Segoe UI", Arial, sans-serif; font-weight: 900; fill: #edf4ff; letter-spacing: 0; }
+      .small { font-size: 15px; }
+      .tiny { font-size: 11px; }
+      .key { font-family: "Segoe UI", Arial, sans-serif; font-weight: 900; fill: #ffffff; font-size: 14px; text-anchor: middle; dominant-baseline: central; }
+      .darkKey { fill: #182231; }
+      .guide { stroke: rgba(255,255,255,.13); stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="760" fill="url(#page)"/>
+  <text x="700" y="54" text-anchor="middle" class="title" font-size="31">Arcade2TV-XR Layout</text>
+  <text x="700" y="82" text-anchor="middle" class="caption" font-size="14">controller reference for Batocera Warehouse</text>
+
+  <g id="controller" filter="url(#shadow)">
+    <path d="M178 250
+             L318 250 L348 202 L500 202 L530 250
+             L870 250 L900 202 L1052 202 L1082 250
+             L1222 250
+             L1268 556
+             L1058 620
+             L342 620
+             L132 556 Z"
+          fill="url(#deck)" stroke="#05070b" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M178 250 L1222 250 L1268 556 L1058 620 L342 620 L132 556 Z"
+          fill="none" stroke="#303c4a" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M132 556 L342 620 L1058 620 L1268 556 L1248 584 L1058 642 L342 642 L152 584 Z"
+          fill="url(#deckEdge)" opacity=".95"/>
+
+    <g id="top-badges">
+      <path d="M338 214 L492 214 L516 250 L314 250 Z" fill="#0d131b" stroke="#465365" stroke-width="3"/>
+      <path d="M908 214 L1062 214 L1086 250 L884 250 Z" fill="#0d131b" stroke="#465365" stroke-width="3"/>
+      <text x="415" y="238" text-anchor="middle" class="deckLabel small">X-Arcade</text>
+      <text x="985" y="238" text-anchor="middle" class="deckLabel small">X-Arcade</text>
+    </g>
+
+    <g id="mode-strip">
+      <rect x="592" y="258" width="216" height="42" rx="17" fill="#101720" stroke="#566579" stroke-width="3"/>
+      <circle cx="626" cy="279" r="9" fill="#d64740"/>
+      <circle cx="654" cy="279" r="9" fill="#3b82f6"/>
+      <circle cx="682" cy="279" r="6" fill="#22c55e"/>
+      <rect x="722" y="267" width="33" height="22" rx="6" fill="#e9eef5"/>
+      <rect x="765" y="267" width="33" height="22" rx="6" fill="#e9eef5"/>
+    </g>
+
+    <line x1="210" y1="318" x2="1190" y2="318" class="guide"/>
+    <line x1="210" y1="538" x2="1190" y2="538" class="guide"/>
+
+    <g id="trackball">
+      <circle cx="700" cy="472" r="74" fill="#0b1118" stroke="#4d5a6c" stroke-width="5"/>
+      <circle cx="700" cy="472" r="54" fill="url(#ball)" stroke="#ffffff" stroke-width="5"/>
+      <circle cx="676" cy="450" r="13" fill="#ffffff" opacity=".76"/>
+    </g>
+
+    <g id="player-1">
+      <text x="318" y="348" text-anchor="middle" class="deckLabel" font-size="19">PLAYER 1</text>
+      <g id="p1-start">
+        <circle cx="472" cy="350" r="23" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+      </g>
+      <g id="p1-stick">
+        <circle cx="298" cy="446" r="66" fill="#111924" stroke="#65758a" stroke-width="5"/>
+        <line x1="298" y1="384" x2="298" y2="508" stroke="#9caabd" stroke-width="5"/>
+        <line x1="236" y1="446" x2="360" y2="446" stroke="#9caabd" stroke-width="5"/>
+        <polygon points="298,382 282,412 314,412" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="298,510 282,480 314,480" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="234,446 264,430 264,462" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="362,446 332,430 332,462" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="298" cy="446" r="30" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="4"/>
+        <circle cx="298" cy="446" r="18" fill="url(#buttonWhite)"/>
+      </g>
+      <g id="p1-buttons">
+        <circle cx="456" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="520" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="584" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="456" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="520" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="584" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="488" cy="552" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="552" cy="552" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+      </g>
+    </g>
+
+    <g id="player-2">
+      <text x="1082" y="348" text-anchor="middle" class="deckLabel" font-size="19">PLAYER 2</text>
+      <g id="p2-start">
+        <circle cx="928" cy="350" r="23" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+      </g>
+      <g id="p2-buttons">
+        <circle cx="1018" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1082" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1146" cy="423" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1018" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1082" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1146" cy="490" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1050" cy="552" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="1114" cy="552" r="27" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+      </g>
+      <g id="p2-stick">
+        <circle cx="850" cy="446" r="66" fill="#111924" stroke="#65758a" stroke-width="5"/>
+        <line x1="850" y1="384" x2="850" y2="508" stroke="#9caabd" stroke-width="5"/>
+        <line x1="788" y1="446" x2="912" y2="446" stroke="#9caabd" stroke-width="5"/>
+        <polygon points="850,382 834,412 866,412" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="850,510 834,480 866,480" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="786,446 816,430 816,462" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <polygon points="914,446 884,430 884,462" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+        <circle cx="850" cy="446" r="30" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="4"/>
+        <circle cx="850" cy="446" r="18" fill="url(#buttonWhite)"/>
+      </g>
+    </g>
+
+    <g id="side-buttons">
+      <rect x="100" y="398" width="72" height="34" rx="17" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+      <rect x="1228" y="398" width="72" height="34" rx="17" fill="url(#buttonWhite)" stroke="#ffffff" stroke-width="3"/>
+    </g>
+  </g>
+</svg>

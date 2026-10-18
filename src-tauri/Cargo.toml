@@ -1,0 +1,16 @@
+[package]
+name = "ready-player-one"
+version = "1.0.202"
+description = "Ready Player One desktop application"
+authors = ["Ready Player One"]
+edition = "2021"
+
+[lib]
+name = "ready_player_one_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

@@ -1,0 +1,17 @@
+{
+  "name": "ready-player-one",
+  "version": "1.0.348",
+  "description": "Ready Player One desktop game library manager",
+  "scripts": {
+    "backend": "node ui/start-server.js",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4"
+  }
+}

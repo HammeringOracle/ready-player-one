@@ -1,0 +1,52 @@
+# Dependencies and build output
+node_modules/
+src-tauri/target/
+dist/
+build/
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.pyc
+__pycache__/
+
+# Private game-system content
+roms/
+covers/
+bios-cache/
+firmware/
+installers/
+extensions/
+tools/
+scraper-cache/
+system-art-cache/
+USB Images/
+*.img
+*.img.gz
+*.rpl
+*.keys
+
+# Local machine state and credentials
+*-credentials.json
+*-credentials.js
+*-credentials.ps1
+.rec-room-credential-key
+device-settings.json
+controller-settings.json
+keypad-layouts.json
+scraper-settings.json
+uefi-settings.json
+soft-reset-state.json
+pending-artwork.json
+transfer-activity*.json
+console-scrape-status.json
+*.log
+
+# Local/generated media and reports
+*-current-screen.png
+*-selector-*.png
+*-icon-check.png
+*-preview-test.png
+*-renames-*.json
+*-deleted-*.json
+

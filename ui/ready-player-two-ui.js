@@ -1,0 +1,8 @@
+(() => {
+  const dialog=document.createElement('dialog');dialog.id='readyPlayerTwoDialog';dialog.className='ready-player-companion';
+  dialog.innerHTML='<header><h2>Ready Player Two</h2><button class="companion-close" aria-label="Close">×</button></header><p>Ready Player Two automatically prepares every supported Windows library it finds: RetroBat, RetroArch, ES-DE, and Emu-Station. Ready Player One also recognizes Batocera, Recalbox, Lakka, and RetroPie directly.</p><p class="companion-status" role="status"></p><footer><button class="companion-create">Create Ready Player Two</button></footer>';
+  document.body.append(dialog);const status=dialog.querySelector('.companion-status'),create=dialog.querySelector('.companion-create');let busy=false;
+  const close=()=>{if(!busy)dialog.close();};dialog.querySelector('.companion-close').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
+  create.onclick=async()=>{busy=true;dialog.querySelectorAll('button').forEach(button=>button.disabled=true);status.textContent='Creating Ready Player Two in Downloads…';try{const response=await fetch('/api/companion/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companion:'two'})});const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'Could not create the companion.');status.textContent='Created:\n'+result.path;}catch(error){status.textContent=error.message;}finally{busy=false;dialog.querySelectorAll('button').forEach(button=>button.disabled=false);}};
+  document.querySelector('#openReadyPlayerTwo').onclick=()=>{document.querySelector('#advancedFeatures')?.classList.remove('open');status.textContent='';dialog.showModal();};
+})();
