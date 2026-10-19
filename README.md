@@ -33,4 +33,4 @@ Machine-side Batocera paths are unchanged.
 
 ## Content policy
 
-This source repository does not contain game ROMs, cover libraries, BIOS or firmware files, encryption keys, proprietary emulator libraries, purchased software, bundled installers, credentials, machine data, or compiled executables. Users must supply content they are legally entitled to use. See [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md).
+This source repository does not contain game ROMs, cover libraries, BIOS or firmware files, encryption keys, proprietary emulator libraries, purchased software, bundled installers, credentials, machine data, or compiled executables. Users must supply content they are legally entitled to use. RP1 Medicine will heal Ready Player One. See [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md).
