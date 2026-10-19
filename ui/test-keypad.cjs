@@ -37,12 +37,12 @@ const create=require('./keypad');
     let discoveryRequests=0,learnCount=0;
     page.on('request',request=>{if(request.url().includes('/api/devices/status'))discoveryRequests++;});
     await page.route('http://keypad.test/**',async route=>{
-      if(route.request().url().endsWith('/api/devices/status'))return route.fulfill({json:{ok:true,devices:{one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.0.2.10'},two:{online:true,platform:'batocera',displayName:'BATOCERA 23',host:'192.0.2.11'},other:{online:true,platform:'lakka'},offline:{online:false,platform:'batocera'}}}});
+      if(route.request().url().endsWith('/api/devices/status'))return route.fulfill({json:{ok:true,devices:{one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.0.2.10'},two:{online:true,platform:'batocera',displayName:'BATOCERA 23',host:'192.0.2.12'},other:{online:true,platform:'lakka'},offline:{online:false,platform:'batocera'}}}});
       if(route.request().url().endsWith('/api/keypad')){const b=route.request().postDataJSON();if(b.action==='volume-status')return route.fulfill({json:{ok:true,installed:false}});if(b.action==='load')return route.fulfill({json:{ok:true,mappings:[]}});if(b.action==='save')return route.fulfill({json:{ok:true}});calls.push(b);if(b.action==='learn')learnCount++;return route.fulfill({json:b.action==='learn'?{ok:true,key:learnCount===3?'KEY_B':'KEY_A',token:'ui-token'}:{ok:true,installed:true}});}
       return route.fulfill({contentType:'text/html',body:'<div id="advancedFeatures"><button id="advancedToggle"></button><button id="openKeypad">Open</button></div>'});
     });
     await page.goto('http://keypad.test');await page.addScriptTag({content:fs.readFileSync('ui/keypad-ui.js','utf8')});
-    await page.evaluate(()=>{window.getDiscoveredMachineStatuses=()=>({one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.0.2.10'},two:{online:true,platform:'batocera',displayName:'BATOCERA 23',host:'192.0.2.11'},other:{online:true,platform:'lakka'},offline:{online:false,platform:'batocera'}});});
+    await page.evaluate(()=>{window.getDiscoveredMachineStatuses=()=>({one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.0.2.10'},two:{online:true,platform:'batocera',displayName:'BATOCERA 23',host:'192.0.2.12'},other:{online:true,platform:'lakka'},offline:{online:false,platform:'batocera'}});});
     await page.click('#openKeypad');await page.waitForSelector('.layout-machine-card');assert.equal(await page.locator('.layout-machine-card').count(),2);
     assert.equal(discoveryRequests,0,'Picker must use the existing discovery snapshot without fetching machines again');
     await page.locator('.layout-machine-card').first().click();await page.locator('.layout-machine-card').nth(1).click();

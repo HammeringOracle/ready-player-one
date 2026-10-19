@@ -1,12 +1,14 @@
 {
   "name": "ready-player-one",
   "version": "1.0.348",
+  "private": true,
   "description": "Ready Player One desktop game library manager",
   "scripts": {
     "backend": "node ui/start-server.js",
-    "tauri": "tauri",
+    "tauri": "node ui/launch-desktop.js",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "build:rp2": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ready-player-two.ps1"
   },
   "dependencies": {
     "ssh2": "^1.17.0"

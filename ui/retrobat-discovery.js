@@ -21,7 +21,14 @@ function inspect(host) {
 function createDiscovery({settingsPath, getHosts, arpEntries, isOnLan, portOpen, ping=async()=>false, hostName, inspectHost=inspect, inspectSsh=async()=>null}) {
   let known = {};
   try {known=JSON.parse(fs.readFileSync(settingsPath,'utf8'));} catch {}
-  let statuses={}, pending=null, last=0;
+  // Known machines must remain visible immediately after RP1 starts. Network
+  // verification upgrades these red/offline placeholders in the background;
+  // a slow scan must never make established machine cards disappear.
+  let statuses=Object.fromEntries(Object.entries(known).map(([id,machine]) => {
+    const platform=machine.platform||'retrobat';
+    const label={retrobat:'RetroBat',recalbox:'Recalbox',lakka:'Lakka',retroarch:'RetroArch',retropie:'RetroPie',esde:'ES-DE',emustation:'Emu-Station'}[platform]||'EmulationStation';
+    return [id,{host:machine.host||'',displayName:machine.displayName||label,platform,identity:platform,suggestedUsername:machine.username||'',access:'',online:false,reachable:false,searching:true,libraryAccessible:false,credentialsRequired:false,libraryStatus:'checking',checks:{ping:false,smb:false,ssh:false},resolvedFrom:`Checking previously identified ${label}`}];
+  })), pending=null, last=0;
   async function scan() {
     const arp=await arpEntries();
     const hosts=[...new Set([...Object.values(known).map(x=>x.host),...arp.map(x=>x.host),...(await getHosts())])].filter(isOnLan);

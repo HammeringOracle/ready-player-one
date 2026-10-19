@@ -1,0 +1,16 @@
+[package]
+name = "ready-player-two"
+version = "1.0.12"
+description = "Ready Player Two sharing assistant for RetroBat, RetroArch, ES-DE, and Emu-Station"
+authors = ["Ready Player One"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

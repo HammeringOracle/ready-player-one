@@ -22,8 +22,20 @@ if (!source.includes("Number(finalStats.size) === fileSize") || !source.includes
   throw new Error("Existing same-size ROMs are not protected from retransmission.");
 }
 
-if (!starter.includes('"EACCES", "EPERM"')) {
-  throw new Error("The source-backend launcher still aborts on a recoverable Windows loopback probe failure.");
+if (!starter.includes("readHealthWithRetry") || !starter.includes("await findWindowsPortOwner()")) {
+  throw new Error("The source-backend launcher can still start a duplicate listener after a slow health probe.");
+}
+
+if (!source.includes("job.device === deviceName && (job.running || job.dispatching)")) {
+  throw new Error("Dispatching transfers do not count against the per-machine concurrency limit.");
+}
+
+if (source.includes("concurrency - running.length")) {
+  throw new Error("The queue watchdog can over-dispatch while loopback requests are still starting.");
+}
+
+if (!source.includes("job.dispatching ? { ...job, dispatching: false } : job")) {
+  throw new Error("A stale dispatch hand-off can still strand a queued transfer after restart.");
 }
 
 console.log("Backend-owned transfer restart watchdog checks passed.");

@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ready Player Two</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="picker.css"><link rel="stylesheet" href="icon.css"><script src="app.js" defer></script></head><body><main>
+<header><img class="app-mark" src="rp2-icon.png" alt="Ready Player Two"><div><small>READY PLAYER ONE COMPANION · v1.0.8</small><h1>Ready Player Two</h1></div></header>
+<p class="intro">Connect your library. <span>Keep the setup simple.</span></p>
+<div class="notice">Run this app on the Windows PC with RetroBat, RetroArch, ES-DE, or Emu-Station. It configures that PC only.</div>
+<section><div class="section-heading"><h2>Sharing setup</h2><span id="machine">Checking this PC…</span></div>
+<div class="included"><span>AUTO-CONFIGURED HERE</span><strong>RetroBat</strong><strong>RetroArch</strong><strong>ES-DE</strong><strong>Emu-Station</strong></div>
+<div class="included recognized"><span>RECOGNIZED BY RP1</span><strong>Batocera</strong><strong>Recalbox</strong><strong>Lakka</strong><strong>RetroPie</strong></div>
+<label for="account">Windows account allowed to access the share</label><input id="account" spellcheck="false" placeholder="COMPUTER\username"><p class="hint">Use this account’s Windows password when connecting—not its PIN. No passwords are collected here.</p>
+<label for="network">Trusted home network</label><select id="network"></select>
+<label class="check"><input id="private" type="checkbox"><span>This is a trusted network. Set it to Private if needed.</span></label>
+<label class="check"><input id="blank" type="checkbox"><span>Allow accounts with blank passwords to connect</span></label>
+<p class="warning">Less secure: allows blank-password network logins and switches Guest-only to named-user authentication PC-wide. Especially risky for Administrator. Tests one empty-password login. No password is removed. Unchecked leaves these policies unchanged.</p>
+<div class="actions"><button id="check">Check status</button><button id="setup" class="primary">Set up sharing <span>↗</span></button></div><p class="hint">Setup requests administrator approval. Cancelling approval makes no changes.</p></section>
+<section class="results"><h2 id="resultTitle" aria-live="polite">Ready to check</h2><pre id="result">Checking this computer…</pre><nav class="pages"><button id="previous">Previous</button><span id="page">1 / 1</span><button id="next">Next</button></nav><div class="explanation"><h2>Scoped sharing</h2><p>Shares the selected application with Modify access for the chosen account. Removes broad share grants; preserves other named access.</p><p>Enables the sharing service and a Private LAN firewall rule (TCP 445). No ROMs are moved. No SMB1 or guest access. Existing unrelated firewall rules stay unchanged.</p></div></section>
+<footer>This app prepares Windows sharing for Ready Player One. RetroPie remains an SSH/SFTP target and is intentionally excluded here.</footer></main></body></html>

@@ -5,9 +5,9 @@ const { version } = require("../package.json");
 const host = "127.0.0.1";
 const port = 8789;
 
-function readHealth() {
+function readHealth(timeout = 5000) {
   return new Promise(resolve => {
-    const request = http.get({ hostname: host, port, path: "/api/health", timeout: 1200 }, response => {
+    const request = http.get({ hostname: host, port, path: "/api/health", timeout }, response => {
       let body = "";
       response.setEncoding("utf8");
       response.on("data", chunk => { if (body.length < 8192) body += chunk; });
@@ -19,6 +19,15 @@ function readHealth() {
     request.on("timeout", () => { request.destroy(); resolve(null); });
     request.on("error", () => resolve(null));
   });
+}
+
+async function readHealthWithRetry() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const health = await readHealth();
+    if (health) return health;
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return null;
 }
 
 function findWindowsPortOwner() {
@@ -59,7 +68,7 @@ async function waitForBackendExit() {
 }
 
 (async () => {
-  const health = await readHealth();
+  const health = await readHealthWithRetry();
   if (health?.status === 200 && health.body?.app === "ready-player-one") {
     if (health.body.version === version) {
       console.log(`Ready Player One ${version} backend is already running on http://localhost:${port}`);
@@ -70,6 +79,11 @@ async function waitForBackendExit() {
     await waitForBackendExit();
   } else if (health) {
     throw new Error(`Port ${port} is occupied by a program that is not Ready Player One. It was not stopped.`);
+  } else if (process.platform === "win32" && await findWindowsPortOwner()) {
+    // A busy RP1 backend can occasionally take longer than a health probe,
+    // especially during large transfer batches. Never blindly start another
+    // listener when Windows confirms that the port is already occupied.
+    throw new Error(`Port ${port} is already in use and its health check did not answer. Close the existing program or wait a moment, then try again.`);
   }
   require("./server");
 })().catch(error => {

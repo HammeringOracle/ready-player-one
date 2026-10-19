@@ -237,6 +237,7 @@ function newBatoceraDevice(host = null, mac = "") {
 const devices = {};
 
 let discoveryCache = { at: 0, devices: null };
+let fastDeviceStatusCache = { at: 0, devices: null };
 let discoveryNetworkSignature = "";
 let usbDiscoveryCache = { at: 0, devices: [] };
 const verifiedOnlineUntil = new Map();
@@ -293,12 +294,15 @@ function readTransferJobs() {
         return {
           ...job,
           running: false,
+          dispatching: false,
           completed: false,
           cancelled: false,
           error: "Transfer interrupted when Ready Player One closed. Right-click to resume."
         };
       }
-      return job;
+      // A loopback request cannot remain in flight across a backend restart.
+      // Clear its transient hand-off flag so the durable queue may resume it.
+      return job.dispatching ? { ...job, dispatching: false } : job;
     }).filter(Boolean);
   } catch {
     return [];
@@ -306,11 +310,18 @@ function readTransferJobs() {
 }
 
 const transferJobs = new Map(readTransferJobs().map(job => [JSON.stringify([job.device, job.system, job.fileName]), job]));
+// Completed transfer history is display-only; retaining thousands of old rows
+// made every queue watchdog pass and persistence update needlessly expensive.
+// Preserve every unfinished job and only the newest completed records.
+const completedTransferHistory = [...transferJobs.entries()]
+  .filter(([, job]) => job.completed)
+  .sort((left, right) => Date.parse(right[1].finishedAt || 0) - Date.parse(left[1].finishedAt || 0));
+for (const [key] of completedTransferHistory.slice(200)) transferJobs.delete(key);
 const removalJobs = new Map();
 const gamelistUpdateLocks = new Map();
 let transferPersistTimer = null;
 function persistTransferJobs() {
-  fs.writeFileSync(transferActivityPath, `${JSON.stringify([...transferJobs.values()], null, 2)}\n`, "utf8");
+  fs.writeFileSync(transferActivityPath, `${JSON.stringify([...transferJobs.values()])}\n`, "utf8");
 }
 function scheduleTransferPersistence(immediate = false) {
   if (transferPersistTimer) clearTimeout(transferPersistTimer);
@@ -2209,7 +2220,11 @@ async function installPiKaraoke(device) {
 }
 
 const sftpSessionCache = new Map();
-const sftpTransferOptions = { concurrency: 64, chunkSize: 128 * 1024 };
+// Multiple ROMs can copy at once. Giving every file 64 concurrent SFTP writes
+// created hundreds of encrypted callbacks on Node's UI server, starving HTML
+// and image requests for many seconds. One larger in-flight chunk keeps LAN
+// throughput useful while leaving the application responsive.
+const sftpTransferOptions = { concurrency: 1, chunkSize: 512 * 1024 };
 
 function closeSftpSession(host) {
   const cached = sftpSessionCache.get(host);
@@ -2914,21 +2929,39 @@ function localCoverTitleKeys(value) {
   return keys;
 }
 
-function findLocalConsoleCover(system, fileName) {
+const localCoverIndexCache = new Map();
+async function listLocalCoverFiles(directory, extensions, base = directory) {
+  let entries = [];
+  try { entries = await fs.promises.readdir(directory, { withFileTypes: true }); }
+  catch { return []; }
+  const groups = await Promise.all(entries.map(async entry => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return listLocalCoverFiles(absolute, extensions, base);
+    if (!entry.isFile() || !extensions.has(path.extname(entry.name).toLowerCase())) return [];
+    return [path.relative(base, absolute).replace(/\\/g, "/")];
+  }));
+  return groups.flat();
+}
+
+async function findLocalConsoleCover(system, fileName) {
   if (system === "3dsen") system = "nes";
   const coversRoot = path.join(root, "covers");
   if (!fs.existsSync(coversRoot)) return "";
   const systemKeys = [system, systemFolders[system], systemLabels[system]].map(localCoverKey).filter(Boolean);
-  const systemDir = fs.readdirSync(coversRoot, { withFileTypes: true })
+  const systemDir = (await fs.promises.readdir(coversRoot, { withFileTypes: true }))
     .find(entry => entry.isDirectory() && systemKeys.includes(localCoverKey(entry.name)));
   if (!systemDir) return "";
   const gameKeys = localCoverTitleKeys(fileName);
   const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
   const coverDirectory = path.join(coversRoot, systemDir.name);
-  const files = listLocalFilesRecursive(coverDirectory, imageExtensions)
-    .filter(name => !/^defgame(?:\.[^.]+)?$/i.test(path.basename(name)))
-    .map(name => ({ name, baseName: path.basename(name) }));
-  const orderedFiles = [...files].sort((a, b) => {
+  const cacheKey = `${system}\u0000${coverDirectory}`;
+  const cachedIndex = localCoverIndexCache.get(cacheKey);
+  let orderedFiles = cachedIndex && Date.now() - cachedIndex.at < 600000
+    ? cachedIndex.files
+    : (await listLocalCoverFiles(coverDirectory, imageExtensions))
+      .filter(name => !/^defgame(?:\.[^.]+)?$/i.test(path.basename(name)))
+      .map(name => ({ name, baseName: path.basename(name) }));
+  if (!cachedIndex || Date.now() - cachedIndex.at >= 600000) orderedFiles = [...orderedFiles].sort((a, b) => {
     // NES/SNES cartridge packs are the canonical artwork. Old Cover Project
     // files such as "Solomon's Key front.jpg" may still be present from an
     // earlier RP1 version; never let that descriptor make legacy box/front
@@ -2943,11 +2976,14 @@ function findLocalConsoleCover(system, fileName) {
       return legacyDescriptor ? 0 : 1;
     };
     return preferred(a) - preferred(b) || a.name.localeCompare(b.name);
-  });
+  }).map(entry => ({ ...entry, titleKeys: [...localCoverTitleKeys(entry.baseName)] }));
+  if (!cachedIndex || Date.now() - cachedIndex.at >= 600000) {
+    localCoverIndexCache.set(cacheKey, { at: Date.now(), files: orderedFiles });
+  }
   const match = orderedFiles.find(entry => {
     // Use the same cleanup as ROM names so region/revision suffixes such as
     // "(USA)" do not prevent a local cartridge image from matching.
-    const coverKeys = localCoverTitleKeys(entry.baseName);
+    const coverKeys = new Set(entry.titleKeys || localCoverTitleKeys(entry.baseName));
     for (const coverKey of [...coverKeys]) {
       for (const systemKey of systemKeys) {
         if (coverKey.startsWith(systemKey)) coverKeys.add(coverKey.slice(systemKey.length));
@@ -3508,11 +3544,11 @@ async function scrapeConsoleGame(settings, system, fileName) {
   // matched original from the local covers folder, or RP1's generated default.
   // No provider/web lookup is permitted for any system in this set.
   if (usesLocalOnlyArtwork(system)) {
-    const localImagePath = findLocalConsoleCover(system, fileName);
+    const localImagePath = await findLocalConsoleCover(system, fileName);
     return localImagePath ? { name: displayGameTitle(system, fileName), desc: "", releasedate: "", rating: "", players: "", localImagePath, provider: `Local covers/${system} only` } : null;
   }
   if (settings.provider === "This PC") {
-    const localImagePath = findLocalConsoleCover(system, fileName);
+    const localImagePath = await findLocalConsoleCover(system, fileName);
     return localImagePath ? { name: cleanRomName(fileName), desc: "", releasedate: "", rating: "", players: "", localImagePath, provider: "This PC" } : null;
   }
   if (settings.provider === "The Cover Project") return scrapeCoverProject(system, fileName);
@@ -3632,6 +3668,14 @@ if os.path.exists(gamelist_path):
    except ET.ParseError: pass
 else:
  gamelist=ET.Element("gameList"); tree=ET.ElementTree(gamelist)
+# PS4 installs need a payload directory plus one .ps4 launcher. Older RP1
+# metadata could retain the payload directory as a second visible game. The
+# launcher is the only frontend entry; keep the required payload on disk but
+# remove every non-launcher PS4 record from Batocera's durable game list.
+if system=="ps4":
+ for game in list(gamelist.findall("game")):
+  relative=(game.findtext("path") or "").strip().lower()
+  if not relative.endswith(".ps4"): gamelist.remove(game)
 by_relative={g.findtext("path"):g for g in gamelist.findall("game")}
 for entry in entries:
  relative=entry.findtext("path")
@@ -4920,8 +4964,22 @@ function listLocalLibrary() {
   }));
 }
 
+// Building the local library walks every console folder and can approach a
+// megabyte of JSON. The UI polls for changes, so never repeat that synchronous
+// disk walk for every poll. A short TTL still notices files added outside RP1
+// quickly while keeping startup and the event loop responsive during transfers.
+let localLibraryCache = { at: 0, value: null };
+function cachedLocalLibrary({ fresh = false } = {}) {
+  if (!fresh && localLibraryCache.value && Date.now() - localLibraryCache.at < 10000) {
+    return localLibraryCache.value;
+  }
+  const value = listLocalLibrary();
+  localLibraryCache = { at: Date.now(), value };
+  return value;
+}
+
 function listLocalLibrarySizes(system) {
-  const library = listLocalLibrary()[system];
+  const library = cachedLocalLibrary()[system];
   if (!library) throw new Error("Unknown system.");
   const sizes = {};
   const trackSizes = {};
@@ -4952,7 +5010,7 @@ async function listLocalLibrarySizesAsync(system) {
   const cached = librarySizeResultCache.get(system);
   if (cached && Date.now() - cached.at < 30000) return cached.value;
   if (librarySizeJobs.has(system)) return librarySizeJobs.get(system);
-  const library = listLocalLibrary()[system];
+  const library = cachedLocalLibrary()[system];
   if (!library) throw new Error("Unknown system.");
   const job = new Promise((resolve, reject) => {
     const worker = new Worker(path.join(uiRoot, "library-size-worker.js"), {
@@ -7176,7 +7234,9 @@ const server = http.createServer(async (req, res) => {
         "Content-Type": isSupplemental ? "image/png" : "image/svg+xml",
         "Cache-Control": "public, max-age=604800"
       });
-      fs.createReadStream(cached).pipe(res);
+      // Console icons are small UI assets. Send each in one response instead
+      // of a file stream whose chunks can be starved by active SFTP callbacks.
+      res.end(fs.readFileSync(cached));
       return;
     }
 
@@ -7455,9 +7515,53 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/devices/status") {
       const mode = url.searchParams.get("mode") || "fast";
+      if (mode === "fast" && fastDeviceStatusCache.devices && Date.now() - fastDeviceStatusCache.at < 15000) {
+        sendJson(res, 200, { ok: true, devices: fastDeviceStatusCache.devices });
+        return;
+      }
       const retroBatStatuses = mode === "deep" ? await retroBatDiscovery.scan() : retroBatDiscovery.refresh();
-      const statuses = await getDeviceStatuses({ deep: mode === "deep", background: mode !== "deep" });
-      const usbDevices = await detectBatoceraUsbDevices({ fresh: true });
+      let statuses;
+      if (mode === "deep") {
+        statuses = await getDeviceStatuses({ deep: true, background: false });
+      } else {
+        // Card polling must stay responsive even while a full subnet scan,
+        // hostname lookup, or transfer batch is busy. Verify each saved SSH
+        // address directly and let the comprehensive discovery update the
+        // cache in the background.
+        const quickEntries = await Promise.all(Object.entries(devices).map(async ([name, device]) => {
+          const host = device.discoveredHost || device.host || "";
+          const ssh = Boolean(host) && await isTcpPortOpen(host, 22, 500);
+          const batoceraSsh = ssh && /dropbear/i.test(await sshServerBanner(host, 500));
+          const cached = discoveryCache.devices?.[name] || {};
+          const online = batoceraSsh && device.discoveredAccess === "ssh";
+          return [name, {
+            ...cached,
+            host: online ? host : (cached.host || host),
+            configuredHost: device.host,
+            resolvedFrom: online ? "saved Batocera SSH connection" : (cached.resolvedFrom || "background discovery"),
+            online: online || Boolean(cached.online),
+            reachable: ssh || Boolean(cached.reachable),
+            searching: !(online || cached.online),
+            access: online ? "ssh" : (cached.access || ""),
+            checks: { ...(cached.checks || {}), ssh },
+            identity: online ? "batocera" : (cached.identity || "")
+          }];
+        }));
+        statuses = Object.fromEntries(quickEntries);
+        // The direct saved-host checks above are sufficient for the frequent
+        // UI poll. Starting subnet discovery here blocks Node's event loop and
+        // makes every unrelated startup request appear frozen. Full discovery
+        // remains available through the explicit Find Machines action.
+      }
+      // The frequent card-status poll must never wait on Windows CIM/USB
+      // enumeration. A slow removable drive used to hold the whole response,
+      // leaving live network machines red and hiding RetroBat until the scan
+      // eventually returned. Deep scans may await fresh USB data; fast polls
+      // return the accessible cache and refresh it in the background.
+      const usbDevices = mode === "deep"
+        ? await detectBatoceraUsbDevices({ fresh: true })
+        : accessibleCachedUsbDevices();
+      if (mode !== "deep") detectBatoceraUsbDevices({ fresh: true }).catch(() => {});
       const usbStatuses = Object.fromEntries(usbDevices.map(device => [device.name, {
         host: device.drive,
         configuredHost: device.drive,
@@ -7481,7 +7585,24 @@ const server = http.createServer(async (req, res) => {
       let knownPlatforms={};try{knownPlatforms=JSON.parse(fs.readFileSync(path.join(root,'retrobat-machines.json'),'utf8'));}catch{}
       const otherHosts=new Set(Object.values(knownPlatforms).map(m=>m.host));
       const batoceraStatuses = Object.fromEntries(Object.entries(statuses).filter(([,item]) => !retroBatHosts.has(item.host)&&(!otherHosts.has(item.host)||item.identity==='batocera')));
-      sendJson(res, 200, { ok: true, devices: { ...await refreshMachineDisplayNames(batoceraStatuses), ...retroBatStatuses, ...usbStatuses } });
+      const namedBatoceraStatuses = mode === "deep"
+        ? await refreshMachineDisplayNames(batoceraStatuses)
+        : Object.fromEntries(Object.entries(batoceraStatuses).map(([id, status]) => {
+            const settings = readDeviceSettings();
+            const displayName = savedMachineDisplayName(settings[id], id);
+            return [id, {
+              ...status,
+              displayName,
+              hostName: displayName,
+              mac: String(devices[id]?.mac || settings[id]?.mac || "").toLowerCase(),
+              instanceId: settings[id]?.installationId && settings[id]?.installationDisplayName === displayName
+                ? `batocera-installation:${settings[id].installationId}`
+                : `batocera-provisional:${status.mac || status.host || id}:${displayName}`
+            }];
+          }));
+      const deviceStatuses = { ...namedBatoceraStatuses, ...retroBatStatuses, ...usbStatuses };
+      if (mode === "fast") fastDeviceStatusCache = { at: Date.now(), devices: deviceStatuses };
+      sendJson(res, 200, { ok: true, devices: deviceStatuses });
       return;
     }
 
@@ -7799,7 +7920,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/library") {
-      sendJson(res, 200, { ok: true, library: listLocalLibrary() });
+      sendJson(res, 200, { ok: true, library: cachedLocalLibrary() });
       return;
     }
 
@@ -8131,6 +8252,11 @@ ${check}
       let destination = path.join(downloads, fileName), suffix = 1;
       while (fs.existsSync(destination)) destination = path.join(downloads, `${path.basename(fileName, ".exe")} (${suffix++}).exe`);
       fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
+      // A byte-for-byte companion copy can retain the bundled executable's old
+      // modified timestamp on Windows. Stamp the newly created PE so Explorer
+      // correctly groups it under Today in Downloads.
+      const createdAt = new Date();
+      fs.utimesSync(destination, createdAt, createdAt);
       sendJson(res, 200, { ok: true, path: destination, fileName: path.basename(destination) });
       return;
     }
@@ -8561,7 +8687,7 @@ ${check}
       const unmatchedFiles = [];
       for (const system of requested) {
         for (const fileName of installedFiles.get(system) || []) {
-          (findLocalConsoleCover(system, fileName) ? matchedFiles : unmatchedFiles).push({ system, fileName });
+          (await findLocalConsoleCover(system, fileName) ? matchedFiles : unmatchedFiles).push({ system, fileName });
         }
       }
       sendJson(res, 200, { ok: true, systems: requested, matchedFiles, unmatchedFiles, job: consoleScrapeJob });
@@ -8628,7 +8754,12 @@ ${check}
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*"
     });
-    fs.createReadStream(absolute).pipe(res);
+    const fileSize = fs.statSync(absolute).size;
+    // HTML, CSS, JavaScript, and interface artwork should paint atomically.
+    // Streaming these small assets allowed transfer callbacks to delay later
+    // chunks for many seconds, leaving legacy/half-painted UI on screen.
+    if (fileSize <= 2 * 1024 * 1024) res.end(fs.readFileSync(absolute));
+    else fs.createReadStream(absolute).pipe(res);
   } catch (error) {
     let message = error.message || "Request failed.";
     if (/ECONNREFUSED .*:22/.test(message) || /Timed out while waiting for handshake/.test(message)) {
@@ -8672,7 +8803,12 @@ function requestQueuedTransfer(job) {
 }
 
 let queuedTransferDispatchRunning = false;
+const backendStartedAt = Date.now();
 async function dispatchPersistedTransferQueue() {
+  // Let the UI, library, and saved-machine cards become usable before an old
+  // bulk queue opens up to ten encrypted transfer streams. The watchdog below
+  // will resume the same durable jobs after this short grace period.
+  if (Date.now() - backendStartedAt < 8000) return;
   if (queuedTransferDispatchRunning) return;
   queuedTransferDispatchRunning = true;
   try {
@@ -8690,12 +8826,22 @@ async function dispatchPersistedTransferQueue() {
 
     const deviceNames = [...new Set(candidates.map(job => job.device))];
     for (const deviceName of deviceNames) {
-      const running = [...transferJobs.values()].filter(job => job.device === deviceName && job.running);
+      // A queued request is marked dispatching before the loopback POST has
+      // entered /api/roms/add and replaced it with a running job. Count that
+      // hand-off against the device limit too. Otherwise each watchdog tick
+      // can launch another full batch while the previous batch is still at
+      // 0%, producing dozens of apparent simultaneous transfers.
+      const activeSlots = [...transferJobs.values()].filter(job =>
+        job.device === deviceName && (job.running || job.dispatching));
       const queued = candidates.filter(job => job.device === deviceName);
       const smallQueued = queued.filter(job => Number(job.totalBytes || localTransferSize(job.system, job.fileName).totalBytes || 0) <= 50 * 1024 * 1024);
       const selectedPool = smallQueued.length ? smallQueued : queued;
-      const concurrency = smallQueued.length ? 10 : 4;
-      const available = Math.max(0, concurrency - running.length);
+      // SFTP encryption and progress callbacks execute in this same Node
+      // process as the desktop UI. More sessions made the window and artwork
+      // requests wait 8-30 seconds. Keep useful parallelism without starving
+      // the application itself.
+      const concurrency = 1;
+      const available = Math.max(0, concurrency - activeSlots.length);
       for (const job of selectedPool.slice(0, available)) {
         job.dispatching = true;
         job.current = "Restarting";
@@ -8719,15 +8865,15 @@ async function dispatchPersistedTransferQueue() {
 
 server.listen(port, () => {
   console.log(`Ready Player One: http://localhost:${port}`);
-  startDeepDiscovery();
-  retroBatDiscovery.scan().catch(error => console.error('Startup multi-platform discovery failed:', error));
+  // Saved machines are checked by the fast status endpoint. Do not launch a
+  // subnet-wide discovery here: parts of discovery are synchronous and used
+  // to stall the entire UI during startup. Find Machines remains the explicit
+  // path for discovering new hardware.
   // Resume durable bulk queues even when the UI has not loaded yet.  The
   // backend owns this watchdog so closing/reopening RP1 cannot strand work.
   dispatchPersistedTransferQueue().catch(error => console.error("Queued transfer startup failed:", error));
 });
 
-const automaticMachineScan = setInterval(() => startDeepDiscovery(), 90 * 1000);
-automaticMachineScan.unref();
 const automaticTransferResume = setInterval(() => {
   dispatchPersistedTransferQueue().catch(error => console.error("Queued transfer restart failed:", error));
 }, 1500);

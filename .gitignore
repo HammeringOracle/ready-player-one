@@ -1,6 +1,8 @@
 # Dependencies and build output
 node_modules/
-src-tauri/target/
+**/target/
+**/src-tauri/gen/
+**/tests/*.png
 dist/
 build/
 *.exe

@@ -54,7 +54,6 @@
       <p class="settings-intro">Personalize RP1 and manage every machine from one place.</p>
       <div class="settings-card-grid">
         <button class="appearance-tour" id="openAppearance" type="button"><span class="appearance-tour-icon" aria-hidden="true">◐</span><span><strong>Appearance</strong><small>Choose colors and warmth</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
-        <button class="appearance-tour" id="openMachineBehavior" type="button"><span class="appearance-tour-icon machine-behavior-icon" aria-hidden="true">⌁</span><span><strong>Machine Behavior</strong><small>Sleep, screensaver, and idle settings</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
         <button class="appearance-tour" id="openRemoveMachine" type="button"><span class="appearance-tour-icon remove-machine-icon" aria-hidden="true">−</span><span><strong>Remove Machine</strong><small>Remove an offline saved machine</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
       </div>
       <div class="appearance-bottom"><span></span><button class="appearance-done">Done</button></div>
@@ -66,8 +65,7 @@
     behavior.className = 'appearance-dialog machine-behavior-dialog';
     behavior.setAttribute('aria-labelledby','machineBehaviorTitle');
     behavior.innerHTML = `<div class="appearance-content">
-      <div class="appearance-head"><div><p class="appearance-eyebrow">PER-MACHINE CONTROL</p><h2 id="machineBehaviorTitle">Machine Behavior</h2></div><button class="appearance-close" aria-label="Close machine behavior">×</button></div>
-      <p class="appearance-description">Choose a machine, then decide how its interface behaves while idle.</p>
+      <div class="appearance-head"><h2 id="machineBehaviorTitle">Machine Behavior</h2><button class="appearance-close" aria-label="Close machine behavior">×</button></div>
       <div class="machine-behavior-layout">
         <nav class="machine-behavior-machines" aria-label="Machines"><div class="machine-behavior-loading">Loading machines…</div></nav>
         <section class="machine-behavior-panel" aria-live="polite">
@@ -94,6 +92,7 @@
     const behaviorStatus = behavior.querySelector('.machine-behavior-status');
     let behaviorDevice = '';
     let behaviorMachinesById = {};
+    let returnBehaviorToSettings = false;
     const setBehaviorBusy = busy => {
       behaviorForm.querySelectorAll('select,button').forEach(control => { control.disabled = busy; });
       behavior.classList.toggle('busy',busy);
@@ -130,7 +129,7 @@
         behaviorStatus.textContent = 'Could not load settings';
       }
     };
-    const loadBehaviorMachines = async () => {
+    const loadBehaviorMachines = async preferredDevice => {
       behaviorMachines.innerHTML = '<div class="machine-behavior-loading">Finding machines…</div>';
       try {
         const response = await fetch('/api/devices/status',{cache:'no-store'});
@@ -151,7 +150,7 @@
           button.addEventListener('click',() => showBehaviorMachine(id));
         }
         if (!entries.length) behaviorMachines.innerHTML = '<div class="machine-behavior-loading">No saved machines found.</div>';
-        else await showBehaviorMachine(entries.find(([,machine]) => machine.online)?.[0] || entries[0][0]);
+        else await showBehaviorMachine(behaviorMachinesById[preferredDevice] ? preferredDevice : (entries.find(([,machine]) => machine.online)?.[0] || entries[0][0]));
       } catch (error) { behaviorMachines.innerHTML = `<div class="machine-behavior-loading"></div>`; behaviorMachines.firstElementChild.textContent = error.message; }
     };
     behaviorForm.addEventListener('submit',async event => {
@@ -173,14 +172,21 @@
       } catch (error) { behaviorStatus.textContent = error.message; } finally { setBehaviorBusy(false); }
     });
     behavior.querySelectorAll('.appearance-close,.machine-behavior-done').forEach(button => button.addEventListener('click',() => behavior.close()));
-    behavior.addEventListener('close',() => { settings.showModal(); settings.querySelector('#openMachineBehavior').focus(); });
+    behavior.addEventListener('close',() => {
+      if (!returnBehaviorToSettings) return;
+      returnBehaviorToSettings = false;
+      settings.showModal();
+    });
+    window.openMachineBehavior = device => {
+      returnBehaviorToSettings = false;
+      if (behavior.open) behavior.close();
+      behavior.showModal();
+      loadBehaviorMachines(device);
+    };
     settings.querySelectorAll('.appearance-close,.appearance-done').forEach(button => button.addEventListener('click', () => settings.close()));
     tour.addEventListener('click', () => settings.close());
     settings.querySelector('#openAppearance').addEventListener('click', () => {
       settings.close(); apply(); dialog.showModal();
-    });
-    settings.querySelector('#openMachineBehavior').addEventListener('click', () => {
-      settings.close(); behavior.showModal(); loadBehaviorMachines();
     });
     settings.querySelector('#openRemoveMachine').addEventListener('click', async () => {
       settings.close();

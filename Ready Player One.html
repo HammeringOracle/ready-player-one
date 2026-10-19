@@ -1010,9 +1010,36 @@
       text-shadow: 0 0 7px rgba(184, 145, 24, 0.34);
     }
 
+    .systems-list .row.console-transfer-active > span:nth-child(2)::after {
+      content: "";
+      width: 12px;
+      height: 12px;
+      flex: 0 0 12px;
+      margin-left: 7px;
+      box-sizing: border-box;
+      border: 2px solid rgba(184, 145, 24, 0.32);
+      border-top-color: #f2ca45;
+      border-right-color: #f2ca45;
+      border-radius: 50%;
+      animation: console-transfer-spin .7s linear infinite;
+    }
+
+    @keyframes console-transfer-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .systems-list .row.console-transfer-active > span:nth-child(2)::after {
+        animation-duration: 1.4s;
+      }
+    }
+
     .systems-list .row > .count {
       align-self: center;
     }
+
+    .systems-list .row > .count::before { content: "("; }
+    .systems-list .row > .count::after { content: ")"; }
 
     .row[hidden] {
       display: none;
@@ -1074,6 +1101,17 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+    }
+
+    .initial-library-message {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
     }
 
     .game {
@@ -2765,80 +2803,14 @@
       <section class="panel games">
         <div class="panel-title" id="warehouseTitle"><span class="warehouse-heading"><span>MAME Games</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span></div>
         <div class="game-list" id="warehouseList">
-          <div class="game active">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">No Valid MAME ROMs Found</div>
-              <div class="game-meta">Use zipped MAME romsets in /userdata/roms/mame</div>
-            </div>
-            <span class="badge">MAME</span>
-          </div>
-          <div class="game">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">pacman.zip</div>
-              <div class="game-meta">Example romset / ready when present</div>
-            </div>
-            <span class="badge">ZIP</span>
-          </div>
-          <div class="game">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">galaga.zip</div>
-              <div class="game-meta">Example romset / ready when present</div>
-            </div>
-            <span class="badge">ZIP</span>
-          </div>
-          <div class="game">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">dkong.zip</div>
-              <div class="game-meta">Example romset / ready when present</div>
-            </div>
-            <span class="badge">ZIP</span>
-          </div>
-          <div class="game">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">sf2.zip</div>
-              <div class="game-meta">Example romset / ready when present</div>
-            </div>
-            <span class="badge">ZIP</span>
-          </div>
-          <div class="game">
-            <div class="cover"></div>
-            <div>
-              <div class="game-name">mslug.zip</div>
-              <div class="game-meta">Example romset / ready when present</div>
-            </div>
-            <span class="badge">ZIP</span>
-          </div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">simpsons.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">tmnt.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">outrun.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">digdug.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">contra.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">1942.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">bubblebobble.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
-          <div class="game"><div class="cover"></div><div><div class="game-name">nba_jam.zip</div><div class="game-meta">Example romset / ready when present</div></div><span class="badge">ZIP</span></div>
+          <div class="initial-library-message">Loading this computer's games…</div>
         </div>
       </section>
 
       <aside class="panel details">
         <div class="panel-title" id="activeTitle"><span class="active-heading"><span class="active-machine-name">On Batocera</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="storage-count" id="storageCount">Free: --</span><span class="count">MAME</span></span></div>
         <div class="active-device-list" id="activeList">
-          <div class="device-game"><span>2048(tone).nes<small>/userdata/roms/nes</small></span><span class="badge">NES</span></div>
-          <div class="device-game"><span>1942.nes<small>/userdata/roms/nes</small></span><span class="badge">NES</span></div>
-          <div class="device-game"><span>Abadox.nes<small>/userdata/roms/nes</small></span><span class="badge">NES</span></div>
-          <div class="device-game"><span>Super Mario World.smc<small>/userdata/roms/snes</small></span><span class="badge">SNES</span></div>
-          <div class="device-game"><span>F-Zero X.z64<small>/userdata/roms/n64</small></span><span class="badge">N64</span></div>
-          <div class="device-game"><span>GoldenEye 007.z64<small>/userdata/roms/n64</small></span><span class="badge">N64</span></div>
-          <div class="device-game"><span>Mario Kart 64.z64<small>/userdata/roms/n64</small></span><span class="badge">N64</span></div>
-          <div class="device-game"><span>Pokemon Stadium.z64<small>/userdata/roms/n64</small></span><span class="badge">N64</span></div>
-          <div class="device-game"><span>ActRaiser.smc<small>/userdata/roms/snes</small></span><span class="badge">SNES</span></div>
-          <div class="device-game"><span>Axelay.smc<small>/userdata/roms/snes</small></span><span class="badge">SNES</span></div>
-          <div class="device-game"><span>Breath of Fire.smc<small>/userdata/roms/snes</small></span><span class="badge">SNES</span></div>
-          <div class="device-game"><span>Sonic The Hedgehog.bin<small>/userdata/roms/megadrive</small></span><span class="badge">Mega Drive</span></div>
+          <div class="initial-library-message">Loading this machine's games…</div>
         </div>
       </aside>
     </section>
@@ -3399,7 +3371,6 @@
     </footer>
   </main>
 
-  <script src="ui/library-data.js"></script>
   <script>
     const rows = document.querySelectorAll(".systems-list .row");
     const openSystemPicker = document.querySelector("#openSystemPicker");
@@ -3911,7 +3882,24 @@
       }
     })();
     let librarySignature = "";
-    let currentStorageFree = "--";
+    const storageFreeCacheKey = "readyPlayerOne.storageFreeByMachine.v1";
+    const storageFreeByDevice = new Map((() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageFreeCacheKey) || "[]");
+        return Array.isArray(saved) ? saved : [];
+      } catch {
+        return [];
+      }
+    })());
+    let currentStorageFree = storageFreeByDevice.get(selectedDevice) || "--";
+
+    function rememberStorageFree(device, value) {
+      if (!device || !value || value === "--") return;
+      storageFreeByDevice.set(device, value);
+      try {
+        localStorage.setItem(storageFreeCacheKey, JSON.stringify([...storageFreeByDevice.entries()]));
+      } catch {}
+    }
     let pendingKaraokeInstallDevice = "Batocera";
     let pendingPs1BiosFile = null;
     let pendingPs1BiosCached = false;
@@ -4668,9 +4656,17 @@
               && Date.parse(job.finishedAt || 0) > softResetAcknowledgedAt(job.device))
               .forEach(job => setSoftResetNeeded(true, job.device));
           }
-          if (newlyCompleted.some(job => job.device === selectedDevice && job.system === selectedSystem)) {
+          const completedForOpenPane = newlyCompleted.filter(job =>
+            job.device === selectedDevice && job.system === selectedSystem && completedGameUpload(job));
+          completedForOpenPane.forEach(promoteCompletedTransferToActiveList);
+          if (completedForOpenPane.length) {
             transferInstalledCache = { device: "", at: 0, systems: {} };
-            loadActiveList(selectedSystem);
+            // The transfer endpoint confirms completion before Batocera's
+            // directory inventory always reflects it. Keep the newly finished
+            // ROM visible immediately, then reconcile once the remote listing
+            // has had time to settle. Repeated completions coalesce into one
+            // refresh instead of continually superseding each other.
+            scheduleActiveInventoryReconcile(requestDevice, requestSystem);
             loadDeviceStorage();
           }
         }
@@ -5012,7 +5008,9 @@
     transferActivityModal.addEventListener("click", event => {
       if (event.target === transferActivityModal) transferActivityModal.classList.remove("open");
     });
-    setInterval(refreshTransferActivity, 1000);
+    // Progress remains live, but a slow backend request must not turn the UI
+    // into a continuous polling workload while files are being copied.
+    setInterval(refreshTransferActivity, 1500);
     const remapDraftKey = controller => `batoceraWarehouse.remaps.${controller}`;
     const mappingLayerHtml = `
       <div class="mapping-layer" id="mappingLayer">
@@ -5163,6 +5161,15 @@
       }
     };
 
+    // Never expose the old demonstration ROMs while the live library is
+    // loading or temporarily unavailable. They use legacy markup and can be
+    // mistaken for real machine inventory. The backend is the only source of
+    // game rows; the fallback supplies labels only.
+    Object.values(fallbackLibrary).forEach(system => {
+      system.warehouse = [];
+      system.active = [];
+    });
+
     function romPlayableOnSelectedMachine(item, systemKey = selectedSystem) {
       return item?.[3] !== "BAD" && !systemUnsupportedOnDevice(systemKey, selectedDevice);
     }
@@ -5253,15 +5260,28 @@
       return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span>${displayName}<small>${item[1]}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
     }
 
+    function compareNaturalGameTitles(leftTitle, rightTitle) {
+      const left = String(leftTitle || "").trim();
+      const right = String(rightTitle || "").trim();
+      const leftStartsWithNumber = /^\d/.test(left);
+      const rightStartsWithNumber = /^\d/.test(right);
+      if (leftStartsWithNumber !== rightStartsWithNumber) return leftStartsWithNumber ? -1 : 1;
+      return left.localeCompare(right, undefined, { sensitivity: "base", numeric: true });
+    }
+
     function compareActiveGameNames(left, right) {
-      return gameTitleWithoutExtension(left?.[6] || left?.[0] || "")
-        .localeCompare(gameTitleWithoutExtension(right?.[6] || right?.[0] || ""), undefined, { sensitivity: "base", numeric: true });
+      return compareNaturalGameTitles(
+        gameTitleWithoutExtension(left?.[6] || left?.[0] || ""),
+        gameTitleWithoutExtension(right?.[6] || right?.[0] || "")
+      );
     }
 
     function sortActiveGameRows() {
       [...activeList.querySelectorAll(':scope > .device-game')]
-        .sort((left, right) => gameTitleWithoutExtension(left.dataset.name || "")
-          .localeCompare(gameTitleWithoutExtension(right.dataset.name || ""), undefined, { sensitivity: "base", numeric: true }))
+        .sort((left, right) => compareNaturalGameTitles(
+          gameTitleWithoutExtension(left.dataset.name || ""),
+          gameTitleWithoutExtension(right.dataset.name || "")
+        ))
         .forEach(row => activeList.append(row));
     }
 
@@ -5286,6 +5306,69 @@
     }
 
     const remoteLibrarySnapshots = new Map();
+    const remoteLibrarySnapshotStoragePrefix = 'readyPlayerOne.remoteLibrarySnapshot.v1.';
+    const activeInventoryReconcileTimers = new Map();
+    function readRemoteLibrarySnapshot(scope) {
+      if (remoteLibrarySnapshots.has(scope)) return remoteLibrarySnapshots.get(scope);
+      try {
+        const saved = JSON.parse(localStorage.getItem(`${remoteLibrarySnapshotStoragePrefix}${encodeURIComponent(scope)}`) || 'null');
+        if (Array.isArray(saved) && saved.every(item => Array.isArray(item) && typeof item[0] === 'string')) {
+          remoteLibrarySnapshots.set(scope, saved);
+          return saved;
+        }
+      } catch {}
+      return null;
+    }
+    function saveRemoteLibrarySnapshot(scope, items) {
+      const safeItems = Array.isArray(items) ? items.filter(item => Array.isArray(item) && typeof item[0] === 'string') : [];
+      remoteLibrarySnapshots.set(scope, safeItems);
+      try {
+        localStorage.setItem(`${remoteLibrarySnapshotStoragePrefix}${encodeURIComponent(scope)}`, JSON.stringify(safeItems));
+      } catch {}
+      return safeItems;
+    }
+    function updateRemoteLibrarySnapshot(device, system, fileName, item = null) {
+      const scope = `${device}\u0000${system}`;
+      const snapshot = [...(readRemoteLibrarySnapshot(scope) || [])].filter(entry => entry[0] !== fileName);
+      if (item) snapshot.push(item);
+      snapshot.sort(compareActiveGameNames);
+      saveRemoteLibrarySnapshot(scope, snapshot);
+    }
+    function completedTransferActiveItem(job) {
+      const library = window.warehouseLibrary || fallbackLibrary;
+      const source = (library[job.system]?.warehouse || []).find(item => item[0] === job.fileName);
+      if (source) {
+        const item = [...source];
+        item[1] = `/userdata/roms/${job.system}`;
+        return item;
+      }
+      const extension = String(job.fileName || '').match(/\.([^./\\]+)$/)?.[1]?.toUpperCase() || 'ROM';
+      return [job.fileName, `/userdata/roms/${job.system}`, extension, 'OK', 'file', null, job.fileName];
+    }
+    function promoteCompletedTransferToActiveList(job) {
+      if (!completedGameUpload(job)) return;
+      const scope = pendingResetScope(job.device, job.system);
+      const item = completedTransferActiveItem(job);
+      updateRemoteLibrarySnapshot(job.device, job.system, job.fileName, item);
+      const installed = transferInstalledCache.systems[job.system];
+      if (transferInstalledCache.device === job.device && installed instanceof Set) installed.add(job.fileName);
+      if (job.device !== selectedDevice || job.system !== selectedSystem || activeListScope !== scope) return;
+      activeNames.add(job.fileName);
+      rememberPendingResetGame(job.device, job.system, job.fileName);
+      const currentItems = readRemoteLibrarySnapshot(scope) || [];
+      activeList.classList.remove('empty-state');
+      activeList.innerHTML = currentItems.map(activeRow).join('');
+      bindActiveRemoves();
+      markWarehouseChecks();
+    }
+    function scheduleActiveInventoryReconcile(device, system) {
+      const scope = pendingResetScope(device, system);
+      clearTimeout(activeInventoryReconcileTimers.get(scope));
+      activeInventoryReconcileTimers.set(scope, setTimeout(() => {
+        activeInventoryReconcileTimers.delete(scope);
+        if (device === selectedDevice && system === selectedSystem) loadActiveList(system);
+      }, 1800));
+    }
     let activeListNeedsRetry = false;
     function showLibraryConnectionMessage(message) {
       const reconnecting = message.startsWith("Reconnecting") || message.startsWith("Checking connection");
@@ -5331,7 +5414,7 @@
         activeList.dataset.device = requestDevice;
         activeList.dataset.system = key;
         activeNames = new Set();
-        const snapshot = remoteLibrarySnapshots.get(requestScope);
+        const snapshot = readRemoteLibrarySnapshot(requestScope);
         activeList.classList.remove("empty-state");
         activeList.innerHTML = snapshot ? snapshot.map(activeRow).join("") : "";
         showLibraryConnectionMessage(snapshot ? "Checking connection — showing the last confirmed list for this machine." : "Loading this machine’s library…");
@@ -5354,7 +5437,7 @@
         }
         if (requestGeneration !== activeLoadGeneration || selectedDevice !== requestDevice || selectedSystem !== key) return;
 
-        const visibleItems = (result.items || []).filter(item => {
+        let visibleItems = (result.items || []).filter(item => {
           const name = String(item?.[0] || '').toLowerCase();
           const base = name.split(/[\\/]/).pop();
           return base && !base.startsWith('.') && !base.endsWith('.bw-part') &&
@@ -5362,8 +5445,23 @@
             !base.startsWith('theme.xml.') && !/^readme(?:\.|$)/.test(base) &&
             !['.xml','.txt','.nfo','.cfg','.ini','.log','.md'].some(ext => base.endsWith(ext));
         });
-        activeNames = new Set(visibleItems.map(item => item[0]));
         pendingResetGamesByScope.set(requestScope, new Set(Array.isArray(result.pendingResetGames) ? result.pendingResetGames : []));
+        // Remote directory listings can lag a completed upload briefly. Merge
+        // locally confirmed downloads and current transfers into the live
+        // inventory so the pane always shows the complete growing list instead
+        // of collapsing to only the rows currently copying.
+        const visibleNames = new Set(visibleItems.map(item => item[0]));
+        const preserveNames = new Set([
+          ...pendingResetGames(requestDevice, key),
+          ...(transferDisplayJobs.get(requestScope) || []).map(job => job.fileName)
+        ]);
+        for (const item of readRemoteLibrarySnapshot(requestScope) || []) {
+          if (preserveNames.has(item[0]) && !visibleNames.has(item[0])) {
+            visibleItems.push(item);
+            visibleNames.add(item[0]);
+          }
+        }
+        activeNames = new Set(visibleItems.map(item => item[0]));
         if (key === "music") {
           visibleItems.forEach(item => {
             if (item[4] === "folder" && Array.isArray(item[5])) {
@@ -5381,7 +5479,7 @@
         // leaving the startup 0/total placeholder until a transfer poll runs.
         updateFooterFromCurrentInventory(requestDevice, key);
         const displayItems = [...visibleItems].sort(compareActiveGameNames);
-        remoteLibrarySnapshots.set(requestScope, displayItems);
+        saveRemoteLibrarySnapshot(requestScope, displayItems);
         activeListNeedsRetry = false;
         activeList.classList.remove("empty-state");
         activeList.innerHTML = displayItems.map(activeRow).join("");
@@ -5407,12 +5505,19 @@
       }
 
       if (!selectedDeviceOnline) {
-        currentStorageFree = "--";
-        badge.textContent = "Free: --";
+        const lastKnown = storageFreeByDevice.get(requestDevice);
+        if (lastKnown) {
+          currentStorageFree = lastKnown;
+          badge.textContent = `Free: ${lastKnown}`;
+        }
         return;
       }
 
-      badge.textContent = "Free: checking";
+      const lastKnown = storageFreeByDevice.get(requestDevice);
+      if (lastKnown) {
+        currentStorageFree = lastKnown;
+        badge.textContent = `Free: ${lastKnown}`;
+      }
       try {
         const response = await fetch(`${apiBase}/api/device/storage?device=${encodeURIComponent(requestDevice)}`);
         const result = await response.json();
@@ -5422,12 +5527,13 @@
         }
 
         currentStorageFree = result.storage?.free || "--";
+        rememberStorageFree(requestDevice, currentStorageFree);
         badge.textContent = result.storage?.display || `Free: ${currentStorageFree}`;
       } catch (error) {
         if (selectedDevice !== requestDevice || !badge.isConnected) return;
         console.error(error);
-        currentStorageFree = "--";
-        badge.textContent = "Free: --";
+        // Keep the last confirmed value visible when a background refresh
+        // times out or the machine is briefly unreachable.
       }
     }
 
@@ -5561,7 +5667,9 @@
       }
       const filter = warehouseFilter.value.trim().toLowerCase();
       warehouseFilter.classList.toggle("has-filter", filter.length > 0);
-      let warehouseItems = data.warehouse.filter(item => matchesWarehouseFilter(item, filter));
+      let warehouseItems = data.warehouse
+        .filter(item => matchesWarehouseFilter(item, filter))
+        .sort(compareActiveGameNames);
       let folderHeader = "";
       if (key === "music" && musicFolderView) {
         const folder = data.warehouse.find(item => item[4] === "folder" && item[0] === musicFolderView);
@@ -5569,7 +5677,8 @@
         const trackSizes = folder?.[8] || {};
         warehouseItems = tracks
           .map(track => [`${musicFolderView}/${track}`, `This computer / music / ${musicFolderView}`, track.split(".").pop().toUpperCase(), "OK", "file", null, track, trackSizes[track] || 0])
-          .filter(item => matchesWarehouseFilter(item, filter));
+          .filter(item => matchesWarehouseFilter(item, filter))
+          .sort(compareActiveGameNames);
         folderHeader = `<button class="layout-button" id="musicFolderBack" type="button">← Music Folders</button>`;
       }
       warehouseTitle.innerHTML = `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span>`;
@@ -6724,13 +6833,16 @@
       // Force the next status pass to read the machine again rather than using
       // a five-second inventory cache after a completed upload.
       transferInstalledCache = { device: "", at: 0, systems: {} };
+      const fallbackPath = targetSystem === "music" ? "/userdata/music" : `/userdata/roms/${targetSystem}`;
+      const confirmedItem = result.item || [fileName, fallbackPath, type];
+      updateRemoteLibrarySnapshot(targetDevice, targetSystem, fileName, confirmedItem);
+      transferInstalledCache = { device: "", at: 0, systems: {} };
       if (targetDevice !== selectedDevice || targetSystem !== selectedSystem) return true;
       activeNames.add(fileName);
       updateFooterFromCurrentInventory(targetDevice, targetSystem);
       syncStatus.textContent = `Added ${fileName}`;
       if (targetSystem !== "music" && ![...activeList.querySelectorAll(".device-game")].some(item => item.dataset.name === fileName)) {
-        const fallbackPath = targetSystem === "music" ? "/userdata/music" : `/userdata/roms/${targetSystem}`;
-        activeList.insertAdjacentHTML("beforeend", activeRow(result.item || [fileName, fallbackPath, type]));
+        activeList.insertAdjacentHTML("beforeend", activeRow(confirmedItem));
         bindActiveRemoves();
       }
       markWarehouseChecks();
@@ -6807,6 +6919,7 @@
       removeReconnectRetry(targetDevice, targetSystem, fileName);
       if (targetDevice === selectedDevice) setLayoutSelection(targetSystem, fileName, false);
       activeNames.delete(fileName);
+      updateRemoteLibrarySnapshot(targetDevice, targetSystem, fileName);
       syncStatus.textContent = result.queued
         ? `Deletion queued for ${fileName}. Boot this USB in Batocera to remove the installed game and free its space.`
         : `Removed ${fileName}`;
@@ -6817,6 +6930,7 @@
         const badge = document.querySelector("#storageCount");
         if (badge && result.storage) {
           currentStorageFree = result.storage.free || "--";
+          rememberStorageFree(targetDevice, currentStorageFree);
           badge.textContent = result.storage.display || `Free: ${currentStorageFree}`;
         }
         if (!scope.deferStorageRefresh) {
@@ -6900,13 +7014,21 @@
       });
     });
 
+    // Replace the legacy static examples before the first asynchronous fetch.
+    // This prevents their obsolete row structure from overlapping under the
+    // current compact shared row CSS on every console.
+    warehouseList.innerHTML = '<div class="initial-library-message">Loading this computer\u2019s games\u2026</div>';
+    activeList.innerHTML = '';
+    showLibraryConnectionMessage('Loading this machine\u2019s games\u2026');
     refreshLocalLibrary({ forceRender: true });
-    setInterval(() => refreshLocalLibrary(), 3000);
+    // The backend caches this expensive all-console scan. Ten seconds is fast
+    // enough to discover files added outside RP1 without re-reading the entire
+    // warehouse several times during startup.
+    setInterval(() => refreshLocalLibrary(), 10000);
     async function startStartupMachineDiscovery() {
-      try { await fetch(`${apiBase}/api/devices/rescan`, {method:'POST'}); } catch {}
-      refreshDeviceStatuses();
-      // Surface discoveries as each network probe finishes without blocking startup.
-      for (const delay of [2500, 7000, 14000, 24000]) setTimeout(() => refreshDeviceStatuses({ quiet: true }), delay);
+      // Startup checks the saved machines only. A full subnet scan can tie up
+      // the backend for many seconds and belongs behind Find Machines.
+      await refreshDeviceStatuses();
     }
     findMachines.addEventListener('click', async () => {
       if (findMachines.disabled) return;
@@ -7118,11 +7240,11 @@
       activeNames = new Set();
       activeList.classList.remove("empty-state");
       activeList.innerHTML = "";
-      currentStorageFree = "--";
+      currentStorageFree = storageFreeByDevice.get(selectedDevice) || "--";
       const activeMachineName = activeTitle.querySelector('.active-machine-name');
       if (activeMachineName) activeMachineName.textContent = `On ${machineDisplayName(selectedDevice)}`;
       const storageBadge = document.querySelector('#storageCount');
-      if (storageBadge) storageBadge.textContent = 'Free: --';
+      if (storageBadge) storageBadge.textContent = `Free: ${currentStorageFree}`;
       transferLayoutSelections = readDeviceTransferSelections(selectedDevice);
       selectedDeviceOnline = card.dataset.online === "true";
       selectedDeviceHost = card.dataset.host || "";
@@ -7840,7 +7962,19 @@
       button.textContent = 'Add / Update Credentials';
       button.addEventListener('click', () => {closeRetroBatMachineMenu();openRetroBatMachineCredentials(card);});
       menu.append(button);
+      const behaviorButton = document.createElement('button');
+      behaviorButton.type = 'button';
+      behaviorButton.className = 'advanced-item';
+      behaviorButton.setAttribute('role', 'menuitem');
+      behaviorButton.textContent = 'Machine Behavior';
+      behaviorButton.addEventListener('click', () => {
+        closeRetroBatMachineMenu();
+        if (typeof window.openMachineBehavior === 'function') window.openMachineBehavior(card.dataset.device);
+      });
+      menu.append(behaviorButton);
       document.body.append(menu);
+      menu.style.boxSizing = 'border-box';
+      menu.style.width = `${Math.round(menu.getBoundingClientRect().width * 0.72)}px`;
       menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
       menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
       retroBatMachineMenu = menu;
