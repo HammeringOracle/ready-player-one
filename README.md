@@ -1,6 +1,6 @@
 # Ready Player One
 
-Ready Player One is a Tauri desktop game-library manager with a local Node backend. It discovers supported machines, manages console libraries, and transfers user-supplied games and artwork.
+Ready Player One is a Tauri desktop game-library manager with a local Node backend. It discovers supported machines, manages console libraries, and transfers user-supplied games and artwork. Wired mostly for Batocera, it will also discover Recalbox, Lakka, Retrobat, RetroArch, RetroPie, ES-DE and Emu-Station.
 
 ## Development
 
