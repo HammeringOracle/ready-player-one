@@ -1,17 +1,17 @@
 (() => {
   const style=document.createElement('style');
   style.textContent=`
-    #keypadDialog{width:760px;max-width:none;max-height:none;box-sizing:border-box;overflow:hidden;border:1px solid #56647b;border-radius:22px;padding:22px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa);box-shadow:0 24px 80px #0008}
+    #keypadDialog{width:760px;max-width:none;max-height:none;box-sizing:border-box;overflow:hidden;border:1px solid #56647b;border-radius:10px;padding:11px 14px 10px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa);box-shadow:0 24px 80px #0008}
     #keypadDialog::backdrop{background:#0009;backdrop-filter:blur(5px)}
-    #keypadDialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    #keypadDialog footer{display:grid;grid-template-columns:1fr auto auto 1fr;align-items:center;gap:10px}
+    #keypadDialog header{display:flex;min-height:30px;align-items:center;justify-content:space-between;gap:10px}
+    #keypadDialog footer{display:grid;grid-template-columns:1fr auto auto 1fr;align-items:center;gap:8px;margin-top:3px}
     #keypadDialog footer .kp-back{grid-column:1;justify-self:start} #keypadDialog footer .kp-profile{grid-column:2;justify-self:center} #keypadDialog footer .kp-profile-load{grid-column:3;justify-self:center} #keypadDialog footer .kp-next{grid-column:4;justify-self:end}
-    #keypadDialog h2{margin:0;font-size:24px} #keypadDialog p{line-height:1.5}
+    #keypadDialog h2{margin:0;font-size:20px} #keypadDialog p{line-height:1.35}
     #keypadDialog button{cursor:pointer} #keypadDialog button:disabled{cursor:default;opacity:.5}
     #keypadDialog .kp-action[hidden]{display:none}
     #keypadDialog .kp-action{display:inline-flex;align-items:center;justify-content:center;min-height:32px;box-sizing:border-box;padding:7px 13px;border-radius:12px;border:1px solid #719ae5;background:#294c85;color:white;font:12px inherit;line-height:1;font-size:12px}
     #keypadDialog .kp-close{width:29px;height:29px;display:grid;place-items:center;padding:0;border-radius:50%;font:18px sans-serif;border:1px solid #8994a8;background:transparent;color:inherit}
-    #keypadDialog .kp-machines{display:grid;grid-template-columns:repeat(auto-fit,180px);gap:12px;margin:18px 0}
+    #keypadDialog .kp-machines{display:grid;grid-template-columns:repeat(auto-fit,180px);gap:10px;margin:10px 0}
     #keypadDialog .layout-machine-card{position:relative;width:180px;height:42px;box-sizing:border-box;text-align:left;grid-template-columns:minmax(0,1fr);padding:5px 20px 5px 52px}
     #keypadDialog .layout-machine-card > span:not(.mini-pc){min-width:0;width:100%}
     #keypadDialog .layout-machine-card .device-meta{width:auto;max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap}
@@ -40,7 +40,7 @@
     #keypadDialog .kp-picker-tools .kp-clear{grid-column:1/-1;justify-self:start}
     #keypadDialog .kp-picker-tools label{display:inline-flex;align-items:center;gap:5px;font:12px sans-serif;cursor:pointer}
     #keypadDialog .kp-picker-tools input{margin:0;width:14px;height:14px;accent-color:#8db7ff}
-    #keypadDialog .kp-key strong{font:600 10px/1.2 sans-serif;max-width:100%;overflow-wrap:anywhere} #keypadDialog .kp-key span{font:9px/1.2 sans-serif;max-width:100%;overflow-wrap:anywhere} #keypadDialog .kp-key[data-assigned="false"] strong{font-weight:400;font-size:9px} #keypadDialog .kp-status{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;min-height:24px}
+    #keypadDialog .kp-key strong{font:600 10px/1.2 sans-serif;max-width:100%;overflow-wrap:anywhere} #keypadDialog .kp-key span{font:9px/1.2 sans-serif;max-width:100%;overflow-wrap:anywhere} #keypadDialog .kp-key[data-assigned="false"] strong{font-weight:400;font-size:9px} #keypadDialog .kp-status{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.25;min-height:15px;margin:4px 0}
     #keypadDialog .kp-body.kp-preview{display:grid;grid-template-columns:240px minmax(0,1fr);gap:0 24px;align-items:start}
     #keypadDialog .kp-preview .kp-targets{grid-column:1/-1;margin:12px 0}
     #keypadDialog .kp-preview .kp-board{grid-column:1;grid-row:2/6;align-self:center;width:240px;margin:0;padding:14px}
@@ -79,20 +79,20 @@
     #keypadDialog .kp-preview > p:not(.kp-targets),#keypadDialog .kp-preview > label,#keypadDialog .kp-preview > button{grid-column:2;margin:0 0 12px}
     #keypadDialog .kp-preview > label{display:grid;gap:8px}
     #keypadDialog .kp-source{width:100%;min-width:0;padding:8px;border:1px solid #65748b;border-radius:8px;background:var(--panel,#1c2028);color:inherit;font:inherit}
-    #mechanicalSelect{box-sizing:border-box;width:min(460px,92vw);border:1px solid #65748b;border-radius:18px;padding:22px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
+    #mechanicalSelect{box-sizing:border-box;width:min(460px,92vw);border:1px solid #65748b;border-radius:10px;padding:16px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     #mechanicalSelect::backdrop{background:#0009;backdrop-filter:blur(4px)}
     #mechanicalSelect h3{margin:0 0 14px;font-size:20px}
     #mechanicalSelect p{font-size:14px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap}
     #mechanicalSelect footer{display:flex;justify-content:space-between;gap:12px}
     #mechanicalSelect button{display:inline-flex;align-items:center;justify-content:center;width:auto;height:auto;min-height:32px;padding:7px 13px;font:12px/1 sans-serif;border:1px solid #719ae5;border-radius:10px;background:#294c85;color:white}
-    #remapperListen{box-sizing:border-box;width:min(480px,92vw);border:1px solid #65748b;border-radius:18px;padding:24px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa);text-align:center}
+    #remapperListen{box-sizing:border-box;width:min(480px,92vw);border:1px solid #65748b;border-radius:10px;padding:16px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa);text-align:center}
     #remapperListen::backdrop{background:#000b;backdrop-filter:blur(5px)}
     #remapperListen h3{margin:0 0 12px;font-size:22px} #remapperListen p{margin:8px 0;line-height:1.55}
     #remapperListen .remapper-listen-pulse{width:82px;height:82px;margin:20px auto;border:3px solid #76d59c;border-radius:50%;display:grid;place-items:center;color:#c3f5d5;font-size:32px;box-shadow:0 0 0 0 #76d59c66;animation:remapperPulse 1.35s infinite}
     #remapperListen footer{display:flex;justify-content:center;margin-top:18px}
     #remapperListen button{min-height:34px;padding:8px 18px;border:1px solid #719ae5;border-radius:10px;background:#294c85;color:white}
     #remapperListen .remapper-device-tag{display:inline-flex;align-items:center;justify-content:center;min-height:38px;line-height:1.2;text-align:center;box-sizing:border-box}
-    #remapperProfileSave{box-sizing:border-box;width:min(430px,92vw);border:1px solid #65748b;border-radius:18px;padding:22px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
+    #remapperProfileSave{box-sizing:border-box;width:min(430px,92vw);border:1px solid #65748b;border-radius:10px;padding:16px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     #remapperProfileSave::backdrop{background:#0009;backdrop-filter:blur(4px)}
     #remapperProfileSave h3{margin:0 0 8px;font-size:21px} #remapperProfileSave p{margin:0 0 14px;font-size:13px;line-height:1.5}
     #remapperProfileSave input{box-sizing:border-box;width:100%;height:42px;padding:8px 11px;border:1px solid #65748b;border-radius:9px;background:#151a22;color:inherit;font:14px inherit}
@@ -102,7 +102,7 @@
     #keypadDialog .kp-keyboard-open{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;height:34px;padding:4px 9px;border:1px solid #76d59c;border-radius:8px;background:#20352e;color:#c3f5d5}
     #keypadDialog .kp-keyboard-open svg{width:24px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}
     #keypadDialog .kp-functions-open{width:100%}
-    #functionSelect{box-sizing:border-box;width:min(560px,94vw);max-height:86vh;overflow:auto;border:1px solid #65748b;border-radius:18px;padding:20px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
+    #functionSelect{box-sizing:border-box;width:min(560px,94vw);max-height:86vh;overflow:auto;border:1px solid #65748b;border-radius:10px;padding:16px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     #functionSelect::backdrop{background:#0009;backdrop-filter:blur(4px)}
     #functionSelect h3{margin:0 0 12px;font-size:21px} #functionSelect .fn-categories{display:flex;gap:16px;margin-bottom:14px}
     #functionSelect .fn-categories label{display:flex;align-items:center;gap:6px;font-size:13px}
@@ -111,7 +111,7 @@
     #functionSelect .fn-option strong{font:700 12px/1.15 sans-serif}
     #functionSelect .fn-option span{font:10px/1.15 sans-serif;color:#aebed4}
     #functionSelect footer{display:flex;justify-content:flex-end;margin-top:14px}
-    #keyboardSelect{box-sizing:border-box;width:min(820px,96vw);max-height:90vh;overflow:auto;border:1px solid #65748b;border-radius:18px;padding:20px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
+    #keyboardSelect{box-sizing:border-box;width:min(820px,96vw);max-height:90vh;overflow:auto;border:1px solid #65748b;border-radius:10px;padding:16px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     #keyboardSelect::backdrop{background:#0009;backdrop-filter:blur(4px)}
     #keyboardSelect h3{margin:0 0 6px;font-size:20px} #keyboardSelect p{margin:0 0 14px;font-size:13px}
     #keyboardSelect .kb-board{display:grid;gap:6px;padding:10px;border:1px solid #4d596d;border-radius:10px;background:#151a22;min-width:690px}
@@ -277,6 +277,10 @@
   const hasChanges=()=>layoutValue(slots.map((s,slot)=>({...s.learned,slot,action:s.action})))!==appliedLayout;
   const position=i=>activeDeviceType==='ps4'?ps4Labels[i]:['Top-left','Top-middle','Top-right','Middle-left','Center','Middle-right','Bottom-left','Bottom-middle','Bottom-right','Left knob counterclockwise','Left knob clockwise','Left knob press','Right knob counterclockwise','Right knob clockwise','Right knob press'][i];
   const actionLabel=action=>actions.find(([value])=>value===action)?.[1]||(action?.startsWith('key:')?action.slice(8).replaceAll('_',' '):'Selected button');
+  const inputKeyLabel=key=>String(key||'').split(' + ').map(part=>{
+    const names={KEY_ESC:'Esc',KEY_SPACE:'Space',KEY_ENTER:'Enter',KEY_LEFTCTRL:'Left Ctrl',KEY_RIGHTCTRL:'Right Ctrl',KEY_LEFTALT:'Left Alt',KEY_RIGHTALT:'Right Alt',KEY_LEFTSHIFT:'Left Shift',KEY_RIGHTSHIFT:'Right Shift',KEY_UP:'Up',KEY_DOWN:'Down',KEY_LEFT:'Left',KEY_RIGHT:'Right',BTN_SOUTH:'South / Cross',BTN_EAST:'East / Circle',BTN_NORTH:'North / Triangle',BTN_WEST:'West / Square'};
+    return names[part]||part.replace(/^(?:KEY|BTN)_/,'').replaceAll('_',' ').toLowerCase().replace(/\b\w/g,letter=>letter.toUpperCase());
+  }).join(' + ');
   const buttonLabel=i=>slots[i]?.action ? actionLabel(slots[i].action) : 'Selected button';
   const signalId=s=>s.learned?JSON.stringify([s.learned.name,s.learned.eventType||'key',s.learned.codes||s.learned.key,s.learned.direction||0]):null;
   const conflicts=()=>slots.map((s,i)=>s.action&&s.learned&&slots.some((other,j)=>j!==i&&other.action&&other.action!==s.action&&signalId(other)===signalId(s))?i:null).filter(i=>i!==null);
@@ -385,8 +389,11 @@
         const title=document.createElement('strong');title.textContent=ps4?(i<8?ps4Labels[i].split(' ')[0]:ps4Labels[i]):i<9?label:['↶','↷','↓'][(i-9)%3];
         const shortLabel={volumeup:'Vol +',volumedown:'Vol −',volumemute:'Mute',next_slot:'Slot +',previous_slot:'Slot −'}[slot.action]||label;
         const shortcutLabel={exit:'Alt + F4',escape:'Esc',menu:'Space / Tab'}[slot.action];
-        const code=document.createElement('span');code.textContent=ps4?(slot.action?label:'—'):i<9?(slot.action?(shortcutLabel||(slot.learned?'Identified':'Press to identify')):''):(slot.action?shortLabel:'—');
-        key.title=(ps4?position(i)+' — ':'')+label+(shortcutLabel?' — '+shortcutLabel+' (depends on emulator)':'')+(slot.action?(slot.learned?' — Identified':' — Press to identify'):'');
+        const detectedInput=slot.learned?.key?inputKeyLabel(slot.learned.key):'';
+        const code=document.createElement('span');code.textContent=slot.action
+          ? (detectedInput?`Input: ${detectedInput}`:(ps4?'Press to identify':i<9?(shortcutLabel||'Press to identify'):shortLabel))
+          : (ps4||i>=9?'—':'');
+        key.title=(ps4?position(i)+' — ':'')+label+(shortcutLabel?' — Output: '+shortcutLabel:'')+(slot.action?(detectedInput?` — Input: ${detectedInput} (${slot.learned.key})`:' — Press to identify'):'');
         key.append(title,code);key.dataset.assigned=String(!!slot.action);key.setAttribute('aria-pressed',String(i===activeKey));key.disabled=busy;
         if(slot.action){
           const saved=installedEntries.find(entry=>entry.slot===i);
@@ -395,14 +402,14 @@
           const state=document.createElement('span');state.className='kp-install-state';state.textContent=isInstalled?'Applied':'Not applied';key.append(state);
         } else delete key.dataset.applied;
       });
-      body.querySelector('.kp-selection').textContent=buttonLabel(activeKey);
+      body.querySelector('.kp-selection').textContent=buttonLabel(activeKey)+(slots[activeKey]?.learned?.key?` · Input: ${inputKeyLabel(slots[activeKey].learned.key)}`:'');
       
       next.textContent=slots.filter(s=>s.action).length>1?'Apply Functions':'Apply Function';
       next.hidden=!hasChanges();
       next.disabled=busy||!hasChanges();
       const pending=slots.map((s,i)=>s.action&&!s.learned?buttonLabel(i):null).filter(Boolean);
       next.title=busy?'Waiting for button detection…':'Apply mapping changes';
-      body.querySelector('.kp-selection').textContent=buttonLabel(activeKey)+(!busy&&pending.length?' — waiting for: '+pending.join(', '):'');
+      body.querySelector('.kp-selection').textContent=buttonLabel(activeKey)+(slots[activeKey]?.learned?.key?` · Input: ${inputKeyLabel(slots[activeKey].learned.key)}`:'')+(!busy&&pending.length?' — waiting for: '+pending.join(', '):'');
     }
     renderEditor=render;
     function choose(i,showMenu){
@@ -461,8 +468,8 @@
           await saveDraft();
           if(cancelled)return;
           const duplicate=conflicts();
-          message.textContent=buttonLabel(i)+' has been identified.'+(draftSaveError?' Edits could not be saved.':'');
-          status.textContent=draftSaveError?'Edits could not be saved: '+draftSaveError.message:buttonLabel(i)+' has been identified.'+(!duplicate.length&&ready()?' Ready to Apply.':'');
+          message.textContent=buttonLabel(i)+' identified as '+inputKeyLabel(captured.key)+'.'+(draftSaveError?' Edits could not be saved.':'');
+          status.textContent=draftSaveError?'Edits could not be saved: '+draftSaveError.message:buttonLabel(i)+' input: '+inputKeyLabel(captured.key)+'.'+(!duplicate.length&&ready()?' Ready to Apply.':'');
           start.textContent='Done';cancel.hidden=true;
         }catch(e){if(!cancelled){message.textContent='Button not identified.\n'+e.message;start.textContent='Try Again';}}
         finally{listening=false;start.disabled=false;cancel.disabled=false;if(cancelled)dismiss();}

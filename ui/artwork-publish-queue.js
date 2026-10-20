@@ -2,9 +2,19 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // Persist metadata, not passwords/API keys. Resolve the machine again on each retry.
-module.exports = function createArtworkQueue(file, publish) {
+module.exports = function createArtworkQueue(file, publish, afterPublish = async () => {}) {
   let jobs = [];
-  if (fs.existsSync(file)) jobs = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (fs.existsSync(file)) {
+    try {
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      jobs = Array.isArray(saved) ? saved.filter(job => job && job.id && job.deviceName && job.system && Array.isArray(job.entries) && Array.isArray(job.artwork)) : [];
+    } catch {
+      // A partial write must never prevent RP1 from starting. Preserve the
+      // damaged file for diagnosis and begin with a valid empty queue.
+      try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch {}
+      jobs = [];
+    }
+  }
   // A restart usually means RP1's publisher code or the machine connection has
   // changed. Do not preserve an old exponential-backoff delay across restarts.
   for (const job of jobs) job.nextAttempt = 0;
@@ -23,6 +33,9 @@ module.exports = function createArtworkQueue(file, publish) {
   return {
     list: () => jobs.map(job => ({ ...job })),
     add(data) {
+      if (!data?.deviceName || !data?.system || !Array.isArray(data.entries) || !data.entries.length || !Array.isArray(data.artwork)) {
+        throw new Error('Artwork publish job is incomplete.');
+      }
       const job = { ...data, id: crypto.randomUUID(), attempts: 0, nextAttempt: 0, error: '' };
       jobs.push(job);
       save();
@@ -68,6 +81,7 @@ module.exports = function createArtworkQueue(file, publish) {
       };
       try {
         await publish(combined);
+        await afterPublish(combined);
         jobs = jobs.filter(item => !idSet.has(item.id));
         save();
         return true;

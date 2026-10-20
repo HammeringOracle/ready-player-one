@@ -61,6 +61,7 @@ const transferActivityPath = path.join(root, "transfer-activity.json");
 const softResetStatePath = path.join(root, "soft-reset-state.json");
 const systemArtCachePath = path.join(root, "system-art-cache");
 const batoceraSystemArtFolders = new Set([
+  "c64",
   "mame", "nes", "snes", "megadrive", "gba", "psx", "ps2", "n64", "gb", "gbc", "nds", "3ds", "gc", "wii",
   "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "pcengine",
   "wiiu", "ps3", "ps4", "xbox", "xbox360"
@@ -249,6 +250,9 @@ let deepDiscoveryPromise = null;
 let fullSubnetScanRequested = true;
 let lastFullSubnetScanAt = 0;
 const fullSubnetScanIntervalMs = 15 * 60 * 1000;
+let lastAutomaticRediscoveryAt = 0;
+const automaticRediscoveryIntervalMs = 60 * 1000;
+const automaticFullSubnetIntervalMs = 2 * 60 * 1000;
 let musicScrapeJob = {
   running: false,
   total: 0,
@@ -361,6 +365,8 @@ async function withGamelistUpdateLock(key, operation) {
 }
 
 const systemFolders = {
+  c64: "c64",
+  steam: "steam",
   ports: "ports", pygame: "pygame", windows: "windows",
   mame: "mame",
   nes: "nes",
@@ -403,6 +409,8 @@ const systemFolders = {
 };
 
 const localFolders = {
+  c64: "c64",
+  steam: "steam",
   ports: "ports", pygame: "pygame", windows: "windows",
   mame: "mame",
   nes: "nes",
@@ -450,6 +458,8 @@ for (const system of Object.keys(localFolders)) {
 }
 
 const systemLabels = {
+  c64: "Commodore 64",
+  steam: "Steam",
   ports: "Ports", pygame: "Pygame", windows: "Windows (Wine)",
   mame: "MAME",
   nes: "NES",
@@ -492,6 +502,8 @@ const systemLabels = {
 };
 
 const localExtensions = {
+  c64: [".d64", ".d81", ".crt", ".prg", ".tap", ".t64", ".m3u", ".zip", ".7z"],
+  steam: [".steam"],
   ports: [".sh"], pygame: [".pygame"], windows: [".pc", ".exe", ".msi", ".iso", ".wine", ".wsquashfs", ".wtgz"],
   mame: [".zip", ".7z"],
   nes: [".nes", ".zip", ".7z"],
@@ -1550,6 +1562,16 @@ function startDeepDiscovery({ full = false } = {}) {
   })();
 }
 
+function startAutomaticRediscovery() {
+  const now = Date.now();
+  if (now - lastAutomaticRediscoveryAt < automaticRediscoveryIntervalMs) return;
+  lastAutomaticRediscoveryAt = now;
+  // A Batocera address can change immediately after a router or machine
+  // restart. Periodically repopulate the neighbor table instead of waiting
+  // for the manual Find Machines action or the normal 15-minute sweep.
+  startDeepDiscovery({ full: now - lastFullSubnetScanAt >= automaticFullSubnetIntervalMs });
+}
+
 async function discoverBatoceraOnLocalNetwork(device, { all = false, fullSubnet = true } = {}) {
   const arpHosts = await arpEntries();
   const resolvedHosts = await resolveDeviceHosts(device, { includeAliases: true });
@@ -2584,6 +2606,21 @@ function xboxVideoModeChoice(value) {
   return /^1280x720(?:\.|$)/i.test(mode) ? "1280x720" : mode || "AUTO";
 }
 
+const wifiPowerSaverBlock = `# READY PLAYER ONE WIFI STABILITY BEGIN
+case "$1" in
+  start)
+    (for attempt in $(seq 1 30); do iw dev wlan0 set power_save off 2>/dev/null && exit 0; sleep 1; done) &
+    ;;
+esac
+# READY PLAYER ONE WIFI STABILITY END`;
+
+function setWifiPowerSaverStartup(content, enabled) {
+  const withoutBlock = String(content || "").replace(/\n?# READY PLAYER ONE WIFI STABILITY BEGIN[\s\S]*?# READY PLAYER ONE WIFI STABILITY END\n?/g, "\n").trim();
+  if (enabled) return withoutBlock ? `${withoutBlock}\n` : "#!/bin/bash\n";
+  const base = withoutBlock || "#!/bin/bash";
+  return `${base}\n${wifiPowerSaverBlock}\n`;
+}
+
 async function supportedXbox720Mode(client) {
   const modes = await execOnSshClient(client, "DISPLAY=:0 batocera-resolution listModes");
   const names = modes.split(/\r?\n/).map(line => line.split(":", 1)[0].trim());
@@ -2595,10 +2632,11 @@ async function supportedXbox720Mode(client) {
 async function getMachineBehavior(device) {
   const spec = machineBehaviorSpec(device);
   if (spec.kind === "unsupported" || device?.access !== "ssh") return { supported: false, platform: spec.platform, reason: "This machine does not expose remote behavior controls through RP1." };
-  return sftpWithDevice(device, async sftp => {
-    const [content, batoceraConfig] = await Promise.all([
+  return sftpWithDevice(device, async (sftp, client) => {
+    const [content, batoceraConfig, wifiPowerState] = await Promise.all([
       readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : ""),
-      spec.platform === "batocera" ? readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : Promise.resolve("")
+      spec.platform === "batocera" ? readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : Promise.resolve(""),
+      spec.platform === "batocera" ? execOnSshClient(client, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : Promise.resolve("")
     ]);
     if (spec.kind === "retroarch") {
       const timeout = Number(retroarchSetting(content, "menu_screensaver_timeout") || 0);
@@ -2612,7 +2650,8 @@ async function getMachineBehavior(device) {
       powerSaver: xmlSetting(content, "PowerSaverMode") || "default",
       xboxRenderer: String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase(),
       xboxVideoMode: xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")),
-      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera" }
+      wifiPowerSaver: /power save:\s*on/i.test(wifiPowerState),
+      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera" }
     };
   });
 }
@@ -2631,9 +2670,13 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
   if (!restore && spec.platform === "batocera" && !new Set(["AUTO", "VULKAN", "OPENGL"]).has(xboxRenderer)) throw new Error("Choose a supported Xbox renderer.");
   const xboxVideoMode = String(values.xboxVideoMode || "AUTO").toUpperCase() === "720P" ? "1280x720" : String(values.xboxVideoMode || "AUTO");
   if (!restore && spec.platform === "batocera" && !new Set(["AUTO", "1280x720"]).has(xboxVideoMode)) throw new Error("Choose a supported Xbox display resolution.");
+  const wifiPowerSaver = values.wifiPowerSaver === true;
   return sftpWithDevice(device, async (sftp, client) => {
     let content = await readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : "");
     let batoceraConfig = spec.platform === "batocera" ? await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : "";
+    let customSh = spec.platform === "batocera" ? await readSftpFile(sftp, "/userdata/system/custom.sh").catch(() => "") : "";
+    const currentWifiPowerState = spec.platform === "batocera" ? await execOnSshClient(client, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : "";
+    let appliedWifiPowerSaver = wifiPowerSaver;
     const state = readMachineBehaviorState();
     const identity = softResetMachineIdentity(deviceName);
     if (!state[identity]) {
@@ -2641,13 +2684,15 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
         ScreenSaverTime: xmlSetting(content, "ScreenSaverTime"), SystemSleepTime: xmlSetting(content, "SystemSleepTime"),
         ScreenSaverBehavior: xmlSetting(content, "ScreenSaverBehavior"), PowerSaverMode: xmlSetting(content, "PowerSaverMode"),
         XboxRenderer: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.xemu_api") : null,
-        XboxVideoMode: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.videomode") : null
+        XboxVideoMode: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.videomode") : null,
+        WifiPowerSaver: spec.platform === "batocera" ? /power save:\s*on/i.test(currentWifiPowerState) : null
       } : { menu_screensaver_timeout: retroarchSetting(content, "menu_screensaver_timeout") };
       writeMachineBehaviorState(state);
-    } else if (spec.platform === "batocera" && !Object.hasOwn(state[identity], "XboxVideoMode")) {
+    } else if (spec.platform === "batocera" && (!Object.hasOwn(state[identity], "XboxVideoMode") || !Object.hasOwn(state[identity], "WifiPowerSaver"))) {
       // Existing restore snapshots predate this control. Preserve the machine's
       // current video mode as the restore baseline instead of deleting it.
       state[identity].XboxVideoMode = batoceraSetting(batoceraConfig, "xbox.videomode");
+      state[identity].WifiPowerSaver = /power save:\s*on/i.test(currentWifiPowerState);
       writeMachineBehaviorState(state);
     }
     if (restore) {
@@ -2658,8 +2703,10 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
           content = original[name] == null ? removeXmlSetting(content, name) : setXmlSetting(content, type, name, original[name]);
         }
         if (spec.platform === "batocera") {
+          appliedWifiPowerSaver = original.WifiPowerSaver !== false;
           batoceraConfig = original.XboxRenderer == null ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", original.XboxRenderer);
           batoceraConfig = original.XboxVideoMode == null ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", original.XboxVideoMode);
+          customSh = setWifiPowerSaverStartup(customSh, original.WifiPowerSaver !== false);
         }
       } else if (original.menu_screensaver_timeout != null) content = setRetroarchSetting(content, "menu_screensaver_timeout", original.menu_screensaver_timeout);
       else content = String(content).replace(/^\s*menu_screensaver_timeout\s*=.*(?:\r?\n|$)/mi, "");
@@ -2673,6 +2720,7 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       if (spec.platform === "batocera") {
         batoceraConfig = xboxRenderer === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", xboxRenderer);
         batoceraConfig = xboxVideoMode === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", await supportedXbox720Mode(client));
+        customSh = setWifiPowerSaverStartup(customSh, wifiPowerSaver);
       }
     } else content = setRetroarchSetting(content, "menu_screensaver_timeout", screenSaverMinutes * 60);
     if (spec.kind === "emulationstation") await execOnSshClient(client, "/etc/init.d/S31emulationstation stop >/dev/null 2>&1 || true", 30000);
@@ -2683,6 +2731,10 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       await writeSftpFile(sftp, "/userdata/system/batocera.conf.rp1-upload", batoceraConfig);
       await new Promise(resolve => sftp.unlink("/userdata/system/batocera.conf", () => resolve()));
       await new Promise((resolve, reject) => sftp.rename("/userdata/system/batocera.conf.rp1-upload", "/userdata/system/batocera.conf", error => error ? reject(error) : resolve()));
+      await writeSftpFile(sftp, "/userdata/system/custom.sh.rp1-upload", customSh);
+      await new Promise(resolve => sftp.unlink("/userdata/system/custom.sh", () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename("/userdata/system/custom.sh.rp1-upload", "/userdata/system/custom.sh", error => error ? reject(error) : resolve()));
+      await execOnSshClient(client, `chmod 755 /userdata/system/custom.sh; iw dev wlan0 set power_save ${appliedWifiPowerSaver ? "on" : "off"} 2>/dev/null || true`, 5000);
     }
     await execOnSshClient(client, `sync${spec.kind === "emulationstation" ? "; /etc/init.d/S31emulationstation start >/dev/null 2>&1 || true" : ""}`, 30000);
     return {
@@ -2693,8 +2745,44 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       powerSaver: spec.kind === "emulationstation" ? xmlSetting(content, "PowerSaverMode") || "default" : "default",
       xboxRenderer: spec.platform === "batocera" ? String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase() : "AUTO",
       xboxVideoMode: spec.platform === "batocera" ? xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")) : "AUTO",
-      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation", xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera" }
+      wifiPowerSaver: spec.platform === "batocera" ? appliedWifiPowerSaver : false,
+      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation", xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera" }
     };
+  });
+}
+
+async function getMachineDisplay(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    return { supported: false, reason: "This machine does not expose a compatible performance HUD." };
+  }
+  return sftpWithDevice(device, async (sftp, client) => {
+    const config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
+    const processState = await execOnSshClient(client, "if pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' >/dev/null 2>&1; then game=1; else game=0; fi; if pgrep -f '[m]angohud' >/dev/null 2>&1; then hud=1; else hud=0; fi; echo GAME=$game,HUD=$hud", 10000);
+    return {
+      supported: true,
+      hud: String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf",
+      gameRunning: /GAME=1/.test(processState),
+      hudAttached: /HUD=1/.test(processState)
+    };
+  });
+}
+
+async function setMachineDisplay(device, values) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("This machine does not expose a compatible performance HUD.");
+  }
+  const enabled = values.hud === true;
+  return sftpWithDevice(device, async (sftp, client) => {
+    let config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
+    config = enabled ? setBatoceraSetting(config, "global.hud", "perf") : removeBatoceraSetting(config, "global.hud");
+    const temporary = "/userdata/system/batocera.conf.rp1-display";
+    await writeSftpFile(sftp, temporary, config);
+    await new Promise(resolve => sftp.unlink("/userdata/system/batocera.conf", () => resolve()));
+    await new Promise((resolve, reject) => sftp.rename(temporary, "/userdata/system/batocera.conf", error => error ? reject(error) : resolve()));
+    const processState = await execOnSshClient(client, "sync; if pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' >/dev/null 2>&1; then game=1; else game=0; fi; if pgrep -f '[m]angohud' >/dev/null 2>&1; then attached=1; else attached=0; fi; echo GAME=$game,HUD=$attached", 10000);
+    const gameRunning = /GAME=1/.test(processState);
+    const hudAttached = /HUD=1/.test(processState);
+    return { supported: true, hud: enabled, gameRunning, hudAttached, requiresRelaunch: gameRunning && !hudAttached };
   });
 }
 
@@ -3761,6 +3849,19 @@ function consoleGameXml(fileName, metadata, remoteImage, remoteThumbnail = "", r
   return `  <game>\n${fields}\n  </game>`;
 }
 
+function consoleArtworkRomPath(system, fileName) {
+  if (system !== "xbox360") return fileName;
+  try {
+    const gameRoot = safeLocalRomPath(system, fileName);
+    if (!fs.statSync(gameRoot).isDirectory()) return fileName;
+    const launchers = listLocalFilesRecursive(gameRoot, new Set([".xbox360"]));
+    if (launchers.length !== 1) return fileName;
+    return path.posix.join(fileName.replace(/\\/g, "/"), launchers[0]);
+  } catch {
+    return fileName;
+  }
+}
+
 async function downloadConsoleArtwork(url, system, fileName) {
   if (!url) return null;
   if (["nes", "snes"].includes(system)) throw new Error(`${system.toUpperCase()} artwork is restricted to the local covers folder.`);
@@ -3862,6 +3963,14 @@ if system=="ps4":
  for game in list(gamelist.findall("game")):
   relative=(game.findtext("path") or "").strip().lower()
   if not relative.endswith(".ps4"): gamelist.remove(game)
+# Xbox 360 XBLA folders contain the real .xbox360 launcher below the outer
+# transfer directory. Remove RP1's older folder-level metadata when the same
+# entry is now being published against its actual launcher.
+if system=="xbox360":
+ launcher_roots={(e.findtext("path") or "").replace("\\\\","/").split("/",2)[1] for e in entries if (e.findtext("path") or "").lower().endswith(".xbox360") and "/" in (e.findtext("path") or "")}
+ for game in list(gamelist.findall("game")):
+  relative=(game.findtext("path") or "").replace("\\\\","/").rstrip("/")
+  if relative.startswith("./") and "/" not in relative[2:] and relative[2:] in launcher_roots: gamelist.remove(game)
 by_relative={g.findtext("path"):g for g in gamelist.findall("game")}
 for entry in entries:
  relative=entry.findtext("path")
@@ -3884,15 +3993,11 @@ os.replace(temporary,gamelist_path)
 for entry in entries:
  try:
   p=os.path.normpath(os.path.join(root,entry.findtext("path")))
-  if p not in known:
-   wrapper=ET.Element("gameList"); wrapper.append(entry)
-   request("/addgames/"+system,ET.tostring(wrapper),"application/xml")
-   known=games()
-  if p not in known: continue
-  game=known[p]
-  route="/systems/"+system+"/games/"+game["id"]
-  fields={e.tag:e.text or "" for e in entry if e.tag not in ("path","image","thumbnail","marquee","scraper") and game.get(e.tag)!=(e.text or "")}
-  if fields: request(route,json.dumps(fields).encode())
+  # addgames also refreshes metadata for a ROM already present in the live
+  # registry. Batocera's per-game route is not available on every release.
+  wrapper=ET.Element("gameList"); wrapper.append(entry)
+  request("/addgames/"+system,ET.tostring(wrapper),"application/xml")
+  known=games()
  except Exception: pass
 `;
   // Large batches can exceed Batocera/dropbear's exec-command limit. Upload the
@@ -4079,10 +4184,27 @@ const artworkPublishQueue = require('./artwork-publish-queue')(
     const device = await getRuntimeDevice(job.deviceName);
     if (!device) throw new Error('Scraper destination machine is unavailable.');
     await publishConsoleSystem(device, job.system, job.entries, job.artwork, job.ensurePresentation !== false);
+  },
+  async job => {
+    const device = await getRuntimeDevice(job.deviceName);
+    if (!device || device.access !== 'ssh') return;
+    // Batocera's addgames API is absent or incomplete on some releases. The
+    // durable gamelist is already verified; refresh EmulationStation when it
+    // is idle so delayed queue recovery becomes visible without user action.
+    await execSsh(device, `if pgrep -f '[r]etroarch|[x]enia|[r]pcs3|[c]emu|[d]olphin|[p]csx2' >/dev/null 2>&1; then exit 0; fi
+sh -c '(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 &'`, 15000);
+    if (job.transferFileName) {
+      const transfer = transferJobs.get(JSON.stringify([job.deviceName, job.system, job.transferFileName]));
+      if (transfer?.completed) {
+        transfer.artwork = { ...(transfer.artwork || {}), status: 'published', artwork: true };
+        transfer.artworkPercent = 100;
+        scheduleTransferPersistence(true);
+      }
+    }
   }
 );
 let retryingArtwork = false;
-const artworkRetryTimer = setInterval(async () => {
+async function retryPendingArtwork() {
   if (retryingArtwork || consoleScrapeJob.running) return;
   retryingArtwork = true;
   try {
@@ -4099,8 +4221,11 @@ const artworkRetryTimer = setInterval(async () => {
     }
   } catch (error) { console.error('Artwork publishing retry:', error.message); }
   finally { retryingArtwork = false; }
-}, 15000);
+}
+const artworkRetryTimer = setInterval(retryPendingArtwork, 15000);
 artworkRetryTimer.unref();
+const artworkStartupRetry = setTimeout(retryPendingArtwork, 1000);
+artworkStartupRetry.unref();
 
 async function existingScrapedRomNames(device, system) {
   try {
@@ -4198,7 +4323,7 @@ async function runConsoleScrape(device, requestedSystems, overwrite, deviceName,
         if (!metadata && usesLocalOnlyArtwork(system)) {
           const image = await cacheNintendoFallbackArtwork(system, item.fileName);
           artwork.push(image);
-          entries.push(consoleGameXml(item.fileName, { name: displayGameTitle(system, item.fileName), desc: "", releasedate: "", rating: "", players: "" }, `./media/images/${image.fileName}`));
+          entries.push(consoleGameXml(consoleArtworkRomPath(system, item.fileName), { name: displayGameTitle(system, item.fileName), desc: "", releasedate: "", rating: "", players: "" }, `./media/images/${image.fileName}`));
           consoleScrapeJob.matched += 1;
           if (entries.length >= 10) await publishBatch();
         } else if (!metadata) { consoleScrapeJob.skipped += 1; }
@@ -4229,7 +4354,7 @@ async function runConsoleScrape(device, requestedSystems, overwrite, deviceName,
           if (image) artwork.push(image);
           if (background && background.localPath !== image?.localPath) artwork.push(background);
           if (!image && !metadata.imageUrl && !metadata.localImagePath) consoleScrapeJob.errors.push(`${system}/${item.fileName}: provider matched the game but supplied no artwork.`);
-          entries.push(consoleGameXml(item.fileName, metadata,
+          entries.push(consoleGameXml(consoleArtworkRomPath(system, item.fileName), metadata,
             image ? `./media/images/${image.fileName}` : ""));
           consoleScrapeJob.matched += 1;
           if (entries.length >= 10) await publishBatch();
@@ -4291,8 +4416,8 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
       ? await cacheNintendoFallbackArtwork(fallbackSystem, fileName)
       : await cacheGenericConsoleFallbackArtwork(system, fileName);
     const fallbackMetadata = { name: displayGameTitle(system, fileName), desc: "", releasedate: "", rating: "", players: "" };
-    const entries = [consoleGameXml(fileName, fallbackMetadata, `./media/images/${image.fileName}`)];
-    const id = artworkPublishQueue.add({ deviceName, system, entries, artwork: [image], ensurePresentation: false });
+    const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), fallbackMetadata, `./media/images/${image.fileName}`)];
+    const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork: [image], ensurePresentation: false });
     progress(75, "No Picture Matches — copying default picture");
     const published = await artworkPublishQueue.retry(id);
     progress(100, "No Picture Matches");
@@ -4323,8 +4448,8 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
     else image = downloaded;
   } else image = await cacheCartridgePlaceholder(system, fileName);
   const artwork = [image, background].filter((item, index, all) => item && all.findIndex(other => other?.localPath === item.localPath) === index);
-  const entries = [consoleGameXml(fileName, metadata, image ? `./media/images/${image.fileName}` : "")];
-  const id = artworkPublishQueue.add({ deviceName, system, entries, artwork, ensurePresentation: false });
+  const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), metadata, image ? `./media/images/${image.fileName}` : "")];
+  const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork, ensurePresentation: false });
   progress(75, "Copying picture");
   const published = await artworkPublishQueue.retry(id);
   if (published && system === "ps1" && [".cue", ".m3u"].includes(path.posix.extname(fileName).toLowerCase())) {
@@ -4788,6 +4913,11 @@ const largeBiosInstallers = {
   }
 };
 
+const medicinePs2Bios = require('./medicine-ps2-bios')({
+  root, cachePath: biosCachePath, spec: largeBiosInstallers.ps2,
+  execSsh, installCached: installCachedLargeBios
+});
+
 const xboxBiosInstallers = {
   "mcpx_1.0.bin": { md5: "d49c52a4102f6df7bcf8d0617ac475ed", maxBytes: 1024 },
   "complex_4627.bin": { md5: "39cee882148a87f93cb440b99dde3ceb", maxBytes: 2 * 1024 * 1024, fileName: "Complex_4627.bin" }
@@ -4869,6 +4999,7 @@ async function installLargeBios(req, device, system) {
 }
 
 function cachedBiosStatus() {
+  medicinePs2Bios.cache();
   fs.mkdirSync(biosCachePath, { recursive: true });
   const ps1File = Object.values(ps1BiosByMd5).find(fileName => fs.existsSync(path.join(biosCachePath, fileName))) || "";
   const wiiuKeysPath = path.join(biosCachePath, "cemu", "keys.txt");
@@ -4901,6 +5032,7 @@ function medicineDownloadFiles() {
       else if (entry.isFile()) files.push({ name: entry.name, path: fullPath, size: fs.statSync(fullPath).size });
     }
   };
+  visit(path.join(path.dirname(root), 'RP1 Medicine', 'roms'));
   visit(downloads);
   return { downloads, files };
 }
@@ -4946,6 +5078,7 @@ async function installCachedPs1Bios(device) {
 }
 
 async function installCachedLargeBios(device, system) {
+  if (system === 'ps2') medicinePs2Bios.cache();
   const installer = largeBiosInstallers[system];
   if (!installer) throw new Error("Unknown BIOS system.");
   const cachedPath = path.join(biosCachePath, installer.fileName);
@@ -5733,16 +5866,17 @@ async function setupXbox360Xenia(device) {
     "set -e",
     "prefix=/userdata/system/wine-bottles/xbox360",
     "wine64=''",
-    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64; do [ -x \"$candidate\" ] && { wine64=\"$candidate\"; break; }; done",
+    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && { wine64=\"$candidate\"; break; }; done",
     "[ -n \"$wine64\" ] || { echo MISSING_WINE; exit 20; }",
     "xenia=$(find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | head -n 1)",
     "[ -n \"$xenia\" ] || { echo MISSING_XENIA; exit 21; }",
     "mkdir -p \"$prefix\" /userdata/saves/xbox360",
     "if [ -s \"$prefix/system.reg\" ]; then echo ALREADY_READY; exit 0; fi",
-    "runner=$(dirname \"$(dirname \"$wine64\")\")",
+    "runner=${wine64%%/bin/*}; case \"$wine64\" in */lib/wine/*) runner=${wine64%%/lib/wine/*};; esac",
     "export WINEPREFIX=\"$prefix\" WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES='mscoree=d;mshtml=d'",
     "export PATH=\"$runner/bin:$PATH\" LD_LIBRARY_PATH=\"/usr/lib:/lib32:$runner/lib/wine\"",
-    "\"$wine64\" wineboot --update >/tmp/bw-xenia-wineboot.log 2>&1",
+    "if [ -z \"$DISPLAY\" ]; then for socket in /tmp/.X11-unix/X*; do [ -S \"$socket\" ] && { export DISPLAY=:\"${socket##*/X}\"; break; }; done; fi",
+    "if ! \"$wine64\" wineboot --update >/tmp/bw-xenia-wineboot.log 2>&1; then echo 'Xbox 360 Wine initialization failed:' >&2; tail -n 20 /tmp/bw-xenia-wineboot.log >&2; exit 22; fi",
     "wineserver=\"$runner/bin/wineserver\"; [ -x \"$wineserver\" ] && \"$wineserver\" -w >/dev/null 2>&1 || true",
     "[ -s \"$prefix/system.reg\" ] || { echo INIT_FAILED; exit 22; }",
     "touch \"$prefix/.batocera-warehouse-initialized\"",
@@ -5763,7 +5897,7 @@ async function getXbox360XeniaStatus(device) {
   if (device.access !== "ssh") return { installed: false, xenia: false, wine: false, bottle: false };
   const command = [
     "wine=0; xenia=0; bottle=0",
-    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64; do [ -x \"$candidate\" ] && wine=1; done",
+    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && wine=1; done",
     "find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | grep -q . && xenia=1 || true",
     "[ -s /userdata/system/wine-bottles/xbox360/system.reg ] && bottle=1",
     "echo WINE=$wine,XENIA=$xenia,BOTTLE=$bottle"
@@ -5773,6 +5907,33 @@ async function getXbox360XeniaStatus(device) {
   const xenia = /XENIA=1/.test(output);
   const bottle = /BOTTLE=1/.test(output);
   return { installed: wine && xenia && bottle, wine, xenia, bottle };
+}
+
+async function openXbox360XeniaProfile(device) {
+  if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("Xenia profile setup requires an online Batocera machine with SSH access.");
+  }
+  await setupXbox360Xenia(device);
+  const command = [
+    "set -e",
+    "if pgrep -f '[x]enia.*(exe|edge)' >/dev/null 2>&1; then echo XENIA_RUNNING; exit 23; fi",
+    "preferred=$(batocera-settings-get xbox360.emulator 2>/dev/null || true)",
+    "case \"$preferred\" in xenia-canary) helper=batocera-config-xenia-canary;; xenia-edge) helper=batocera-config-xenia-edge;; *) helper=batocera-config-xenia;; esac",
+    "command -v \"$helper\" >/dev/null 2>&1 || { for candidate in batocera-config-xenia batocera-config-xenia-canary batocera-config-xenia-edge; do command -v \"$candidate\" >/dev/null 2>&1 && { helper=$candidate; break; }; done; }",
+    "command -v \"$helper\" >/dev/null 2>&1 || { echo MISSING_XENIA_CONFIG; exit 24; }",
+    "export DISPLAY=${DISPLAY:-$(getLocalXDisplay)}",
+    "nohup \"$helper\" >/userdata/system/logs/rp1-xenia-profile.log 2>&1 </dev/null &",
+    "echo STARTED=$helper"
+  ].join("; ");
+  try {
+    const output = (await execSsh(device, command, 30000)).trim();
+    return { opened: /STARTED=/.test(output), helper: output.match(/STARTED=([^\s]+)/)?.[1] || "" };
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (message.includes("XENIA_RUNNING")) throw new Error("Exit the Xbox 360 game first, then open profile setup.");
+    if (message.includes("MISSING_XENIA_CONFIG")) throw new Error("Batocera's Xenia configuration tool is missing.");
+    throw error;
+  }
 }
 
 async function getWindowsWineStatus(device) {
@@ -6200,6 +6361,7 @@ with open(os.path.join(destination,'autorun.cmd'),'w',newline='\\n') as output: 
 }
 
 async function uploadRom(device, system, fileName, progress = null, registerCancel = null) {
+  if (system === 'ps2') await medicinePs2Bios.ensure(device, progress);
   if (device.access === "usb") {
     return uploadRomUsb(device, system, fileName, progress);
   }
@@ -7521,7 +7683,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
       sendJson(res, 200, {ok:true, app:'ready-player-one', version:require('../package.json').version,
-        sourceHash: runningSourceHash,
+        sourceHash: runningSourceHash, pid: process.pid,
         capabilities:['usb-controller-v1','usb-deletions-v1','versioned-backend-v1']});
       return;
     }
@@ -7857,30 +8019,42 @@ const server = http.createServer(async (req, res) => {
         // hostname lookup, or transfer batch is busy. Verify each saved SSH
         // address directly and let the comprehensive discovery update the
         // cache in the background.
+        const neighbors = await arpEntries();
         const quickEntries = await Promise.all(Object.entries(devices).map(async ([name, device]) => {
-          const host = device.discoveredHost || device.host || "";
+          const savedMac = String(device.mac || "").toLowerCase();
+          const macHost = savedMac
+            ? neighbors.find(entry => entry.mac === savedMac && isAddressOnActiveLan(entry.host))?.host || ""
+            : "";
+          const host = macHost || device.discoveredHost || device.host || "";
           const ssh = Boolean(host) && await isTcpPortOpen(host, 22, 500);
           const batoceraSsh = ssh && /dropbear/i.test(await sshServerBanner(host, 500));
           const cached = discoveryCache.devices?.[name] || {};
+          const cachedOnline = Boolean(cached.online) && cached.host === host
+            && Date.now() - discoveryCache.at < 15000;
           const online = batoceraSsh && device.discoveredAccess === "ssh";
+          if (online && macHost && macHost !== device.discoveredHost) {
+            saveDiscoveredHost(name, macHost, "ssh", savedMac);
+          }
           return [name, {
             ...cached,
             host: online ? host : (cached.host || host),
             configuredHost: device.host,
             resolvedFrom: online ? "saved Batocera SSH connection" : (cached.resolvedFrom || "background discovery"),
-            online: online || Boolean(cached.online),
-            reachable: ssh || Boolean(cached.reachable),
-            searching: !(online || cached.online),
-            access: online ? "ssh" : (cached.access || ""),
+            online: online || cachedOnline,
+            reachable: ssh || (cachedOnline && Boolean(cached.reachable)),
+            searching: !(online || cachedOnline) && Boolean(deepDiscoveryPromise),
+            access: online ? "ssh" : (cachedOnline ? cached.access || "" : ""),
             checks: { ...(cached.checks || {}), ssh },
             identity: online ? "batocera" : (cached.identity || "")
           }];
         }));
         statuses = Object.fromEntries(quickEntries);
-        // The direct saved-host checks above are sufficient for the frequent
-        // UI poll. Starting subnet discovery here blocks Node's event loop and
-        // makes every unrelated startup request appear frozen. Full discovery
-        // remains available through the explicit Find Machines action.
+        // Keep card polling quick, but recover automatically when DHCP gives a
+        // saved machine another address. Discovery is asynchronous and updates
+        // the persisted host by MAC after Batocera identity is verified.
+        if (quickEntries.some(([, status]) => !status.online)) {
+          startAutomaticRediscovery();
+        }
       }
       // The frequent card-status poll must never wait on Windows CIM/USB
       // enumeration. A slow removable drive used to hold the whole response,
@@ -8136,13 +8310,18 @@ const server = http.createServer(async (req, res) => {
         const listed = JSON.parse(output);
         if (!Array.isArray(listed)) throw new Error("Cannot read this machine's systems yet.");
         const names = new Set(listed.map(item => item.name));
+        // Steam can be installed before its first game shortcut is created.
+        if (!names.has('steam') && (!device.platform || device.platform === 'batocera')) {
+          const steam = await execSsh(device, "if flatpak info com.valvesoftware.Steam >/dev/null 2>&1 || su - batocera -c 'flatpak --user info com.valvesoftware.Steam' >/dev/null 2>&1; then printf steam; fi", 15000);
+          if (String(steam).trim() === 'steam') names.add('steam');
+        }
         for (const [key, folder] of Object.entries(systemFolders)) if (names.has(folder)) systems.push(key);
       } else {
         for (const key of Object.keys(systemFolders)) {
           if ((await listRemoteRoms(device, key)).length) systems.push(key);
         }
       }
-      sendJson(res, 200, {ok:true, systems});
+      sendJson(res, 200, {ok:true, systems, supportedSystems:Object.keys(systemFolders)});
       return;
     }
 
@@ -8241,6 +8420,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/xenia-profile/open") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      const result = await openXbox360XeniaProfile(device);
+      sendJson(res, 200, {ok:true, ...result});
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/windows-wine/status") {
       const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
       if (!device) { sendJson(res, 404, {ok:false, error:"Device is not configured."}); return; }
@@ -8275,6 +8463,23 @@ const server = http.createServer(async (req, res) => {
       const device = await getRuntimeDevice(deviceName);
       if (!device) { sendJson(res, 404, { ok: false, error: "Machine is not configured." }); return; }
       sendJson(res, 200, { ok: true, device: deviceName, ...await applyMachineBehavior(deviceName, device, body, Boolean(body.restore)) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/machine-display") {
+      const deviceName = url.searchParams.get("device") || "Batocera";
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await getMachineDisplay(device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/machine-display") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = body.device || "Batocera";
+      const device = await getRuntimeDevice(deviceName);
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await setMachineDisplay(device, body)});
       return;
     }
 

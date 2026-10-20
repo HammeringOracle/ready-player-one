@@ -78,6 +78,7 @@
             <label data-control="powerSaver"><span>Menu power saver<small>Reduces animation work while menus are idle.</small></span><select name="powerSaver"><option value="default">Default</option><option value="enhanced">Enhanced</option><option value="instant">Instant</option><option value="disabled">Disabled</option></select></label>
             <label data-control="xboxRenderer"><span>Xbox renderer<small>Batocera setting: <code class="machine-behavior-xbox-setting">xbox.xemu_api (not set)</code></small></span><select name="xboxRenderer"><option value="AUTO">Automatic</option><option value="VULKAN">VULKAN</option><option value="OPENGL">OPENGL</option></select></label>
             <label data-control="xboxVideoMode"><span>Xbox display resolution<small>Applies to Xbox only; separate from internal rendering scale.</small></span><select name="xboxVideoMode"><option value="AUTO">Automatic</option><option value="1280x720">720p (1280×720)</option></select></label>
+            <label data-control="wifiPowerSaver"><span>Wi-Fi Power Saver<small>Turn this off if Batocera's wireless connection drops while the machine is running.</small></span><select name="wifiPowerSaver"><option value="off">Off</option><option value="on">On</option></select></label>
             <p class="machine-behavior-note"></p>
             <div class="machine-behavior-actions"><button type="button" class="machine-behavior-restore">Restore Previous</button><button type="submit" class="appearance-done machine-behavior-save">Apply Settings</button></div>
           </form>
@@ -133,12 +134,14 @@
         behaviorForm.elements.systemSleepMinutes.value = String(result.systemSleepMinutes ?? 0);
         behaviorForm.elements.behavior.value = result.behavior || 'dim';
         behaviorForm.elements.powerSaver.value = result.powerSaver || 'default';
+        behaviorForm.elements.wifiPowerSaver.value = result.wifiPowerSaver ? 'on' : 'off';
         xboxRendererSelect.value = result.xboxRenderer || 'AUTO';
         behaviorForm.elements.xboxVideoMode.value = result.xboxVideoMode || 'AUTO';
         updateXboxSetting();
         for (const control of ['systemSleepTime','behavior','powerSaver']) behaviorForm.querySelector(`[data-control="${control}"]`).hidden = !result.capabilities?.[control];
         behaviorForm.querySelector('[data-control="xboxRenderer"]').hidden = String(result.platform || machine.platform || '').toLowerCase() !== 'batocera';
         behaviorForm.querySelector('[data-control="xboxVideoMode"]').hidden = String(result.platform || machine.platform || '').toLowerCase() !== 'batocera';
+        behaviorForm.querySelector('[data-control="wifiPowerSaver"]').hidden = !result.capabilities?.wifiPowerSaver;
         behaviorForm.querySelector('.machine-behavior-note').textContent = result.kind === 'retroarch' ? 'Lakka exposes its menu screensaver timeout. System suspension remains managed by Lakka itself.' : 'Applying restarts this machine’s front end briefly so the new behavior is saved cleanly.';
         behaviorStatus.textContent = 'Ready';
       } catch (error) {
@@ -174,7 +177,7 @@
       event.preventDefault(); if (!behaviorDevice) return;
       setBehaviorBusy(true); behaviorStatus.textContent = 'Applying and refreshing machine…';
       try {
-        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value,xboxRenderer:behaviorForm.elements.xboxRenderer.value,xboxVideoMode:behaviorForm.elements.xboxVideoMode.value};
+        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value,xboxRenderer:behaviorForm.elements.xboxRenderer.value,xboxVideoMode:behaviorForm.elements.xboxVideoMode.value,wifiPowerSaver:behaviorForm.elements.wifiPowerSaver.value === 'on'};
         const response = await fetch('/api/machine-behavior',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Could not apply machine behavior.');
         if (!behaviorForm.querySelector('[data-control="xboxRenderer"]').hidden && result.xboxRenderer !== xboxRendererSelect.value) {

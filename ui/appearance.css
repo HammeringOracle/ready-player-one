@@ -6,6 +6,8 @@
 .device-card:is([data-platform="retrobat"],[data-platform="retroarch"],[data-platform="esde"],[data-platform="emustation"]) .device-meta {line-height:1.1;margin-top:3px;}
 .device-card:is([data-platform="retrobat"],[data-platform="retroarch"],[data-platform="esde"],[data-platform="emustation"]) .mini-pc {height:30px;width:38px;margin:0;align-self:center;justify-self:center;}
 .retrobat-login {width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;padding:16px;border:1px solid #7388a5;border-radius:10px;background:#182130;color:#edf3ff;font:14px/1.3 'Segoe UI',sans-serif;box-shadow:0 20px 60px #0008;}
+/* Batocera Credentials defines RP1's window shape. Keep every modal aligned. */
+dialog,.confirm-modal,.controller-modal { border-radius:10px!important; }
 .retrobat-login::backdrop {background:#0008;}
 .retrobat-login h2 {font-size:19px;margin:0;}
 .retrobat-login h2 {padding-right:32px;}
@@ -109,6 +111,7 @@
 .machine-behavior-form > label { display:grid;grid-template-columns:minmax(0,1fr) 150px;align-items:center;gap:12px;padding:5px 0;border-bottom:1px solid var(--hairline); }
 .machine-behavior-form > label[hidden] { display:none; }.machine-behavior-form label > span { color:var(--ink);font-size:12px;font-weight:650; }.machine-behavior-form label small { display:block;color:var(--secondary);font-size:9px;font-weight:400;margin-top:2px; }
 .machine-behavior-form select { width:100%;height:31px;border:1px solid #6d86a955;border-radius:8px;background:#0d1725;color:var(--ink);padding:0 9px;font:11px 'Segoe UI',sans-serif; }
+.machine-behavior-xenia-profile { width:150px;height:31px;padding:4px 8px;border:1px solid #5b9cea88;border-radius:8px;background:linear-gradient(135deg,#3979c8,#6556bd);color:white;font:600 10px 'Segoe UI',sans-serif; }
 .machine-behavior-note { min-height:0;margin:6px 0 0;color:var(--secondary);font-size:9px; }
 .machine-behavior-actions { display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:6px; }.machine-behavior-actions button { height:30px;padding:4px 12px;border-radius:8px;font-size:10px; }
 .machine-behavior-dialog .appearance-bottom { margin-top:4px; }
@@ -292,3 +295,10 @@ html[data-appearance=light] .rp2-dialog{color:#203448;border-color:#6895b9;backg
   line-height:1;
 }
 .appearance-head .appearance-close > svg { display:none!important; }
+#keypadDialog .kp-close::before {
+  content:"X"!important;
+  width:auto;
+  height:auto;
+  background:none;
+  transform:translateY(-1px);
+}

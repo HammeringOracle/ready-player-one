@@ -2752,7 +2752,7 @@
     </section>
 
     <section class="main">
-      <input class="device-filter" id="warehouseFilter" type="search" placeholder="Filter this computer games">
+      <input class="device-filter" id="warehouseFilter" type="search" placeholder="Filter games">
       <aside class="panel">
         <div class="panel-title" id="consolesPanelTitle">Consoles <span class="systems-title-actions"><span class="count" id="visibleSystemCount">11</span><button class="systems-add" id="openSystemPicker" type="button" aria-label="Choose consoles">+</button></span></div>
         <div class="systems-list">
@@ -2769,6 +2769,8 @@
           <div class="row" data-system="n64"><span class="icon">64</span><span>N64</span><span class="count">128</span></div>
           <div class="row" data-system="karaoke"><span class="icon karaoke-icon"></span><span>Karaoke</span><span class="count">0</span></div>
           <div class="row" data-system="pikaraoke"><span class="icon pikaraoke-icon" role="img" aria-label="PiKaraoke"></span><span>PiKaraoke</span><span class="count">I</span></div>
+          <div class="row" data-system="steam"><span class="icon">STM</span><span>Steam</span><span class="count">0</span></div>
+          <div class="row" data-system="c64"><span class="icon">C64</span><span>Commodore 64</span><span class="count">0</span></div>
           <div class="row" data-system="music"><span class="icon">MF</span><span>MP3/FLAC</span><span class="count">0</span></div>
           <div class="row" data-system="gb"><span class="icon">GB</span><span>Game Boy</span><span class="count">0</span></div>
           <div class="row" data-system="gbc"><span class="icon">GC</span><span>Game Boy Color</span><span class="count">0</span></div>
@@ -3675,6 +3677,7 @@
     // Keep the UI and API on the same backend, including after a port change.
     const apiBase = "";
     const batoceraSystemArtFolders = {
+      c64:"c64",
       mame:"mame", nes:"nes", snes:"snes", sega:"megadrive", gba:"gba", ps1:"psx", ps2:"ps2",
       n64:"n64", gb:"gb", gbc:"gbc", nds:"nds", "3ds":"3ds", gamecube:"gc", wii:"wii",
       mastersystem:"mastersystem", gamegear:"gamegear", segacd:"segacd", saturn:"saturn",
@@ -3939,13 +3942,23 @@
     }
 
     const systemInventoryLoading = new Set();
+    function steamDiscoveryKey(device) {
+      return `${visibilityStorageKey(device)}.steamDiscovery.v1`;
+    }
+    function c64DiscoveryKey(device) {
+      return `${visibilityStorageKey(device)}.c64Discovery.v2`;
+    }
     async function initializeMachineSystems({ refresh = false } = {}) {
       const device = selectedDevice;
       if (!selectedDeviceOnline || systemInventoryLoading.has(device)) return;
       // Once a user has configured this machine's Systems pane, that saved
       // selection is authoritative. A network refresh may update games inside
       // those systems, but must never resurrect an intentionally hidden system.
-      if (localStorage.getItem(visibilityStorageKey(device)) !== null) {
+      const hasSavedSystems = localStorage.getItem(visibilityStorageKey(device)) !== null;
+      const needsSteamDiscovery = selectedMachinePlatform(device) === 'batocera'
+        && localStorage.getItem(steamDiscoveryKey(device)) === null;
+      const needsC64Discovery = localStorage.getItem(c64DiscoveryKey(device)) === null;
+      if (hasSavedSystems && !needsSteamDiscovery && !needsC64Discovery) {
         if (selectedDevice === device) applyVisibleSystems(readVisibleSystems(device));
         return;
       }
@@ -3954,11 +3967,27 @@
         const response = await fetchStatusWithTimeout(`${apiBase}/api/device/systems?device=${encodeURIComponent(device)}`, 25000);
         const result = await response.json();
         if (!response.ok || !result.ok || !Array.isArray(result.systems)) throw new Error(result.error || "Unable to read systems");
-        if (localStorage.getItem(visibilityStorageKey(device)) !== null) return;
+        const c64DetectionReady = result.supportedSystems?.includes('c64') || result.systems.includes('c64');
+        if (localStorage.getItem(visibilityStorageKey(device)) !== null) {
+          // Add newly supported systems once for existing machines. A later
+          // deliberate uncheck remains authoritative on every startup.
+          if (needsSteamDiscovery || needsC64Discovery) {
+            const visible = readVisibleSystems(device);
+            if (needsSteamDiscovery && localStorage.getItem(steamDiscoveryKey(device)) === null && result.systems.includes('steam')) visible.add('steam');
+            if (needsC64Discovery && localStorage.getItem(c64DiscoveryKey(device)) === null && result.systems.includes('c64')) visible.add('c64');
+            localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...visible]));
+            localStorage.setItem(steamDiscoveryKey(device), 'done');
+            if (c64DetectionReady) localStorage.setItem(c64DiscoveryKey(device), 'done');
+            if (selectedDevice === device) applyVisibleSystems(visible);
+          }
+          return;
+        }
         const valid = new Set([...rows].map(row => row.dataset.system));
         const installed = result.systems.filter(system => valid.has(system));
         const reconciled = new Set(installed);
         localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...reconciled]));
+        localStorage.setItem(steamDiscoveryKey(device), 'done');
+        if (c64DetectionReady) localStorage.setItem(c64DiscoveryKey(device), 'done');
         if (selectedDevice === device) applyVisibleSystems(reconciled);
       } catch (error) {
         console.error(error);
@@ -4014,6 +4043,7 @@
     }
 
     function systemUnsupportedOnDevice(system, device = selectedDevice) {
+      if (system === 'steam' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === '3dsen' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'pikaraoke' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'windows' && selectedMachinePlatform(device) !== 'batocera') return true;
@@ -4198,6 +4228,8 @@
       const approved = await approval;
       if (!approved) return;
       localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...selected]));
+      localStorage.setItem(steamDiscoveryKey(visibilityDevice), 'done');
+      localStorage.setItem(c64DiscoveryKey(visibilityDevice), 'done');
       if (selectedDevice === visibilityDevice) applyVisibleSystems(selected);
       const results = [];
       saveSystemPicker.disabled = true;
@@ -7367,10 +7399,9 @@
       const meta = card.querySelector(".device-meta");
       if (meta) {
         const hostName = String(status?.hostName || status?.displayName || "").trim();
-        const osVersion = String(status?.osVersion || "").trim().match(/^\d+(?:\.\d+)?/)?.[0] || "";
         meta.textContent = status?.usb
           ? `${host || "USB"} • ${!online ? "Disconnected" : status.usbMode === "direct" ? "Direct" : "Staged"}`
-          : [hostName && hostName !== title?.textContent ? hostName : "", osVersion ? `Batocera ${osVersion}` : "", host].filter(Boolean).join(" • ") || (searching ? "Scanning network..." : "No IP");
+          : [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") || (searching ? "Waiting for IP…" : "No IP");
       }
 
       if (card.classList.contains("selected")) {
@@ -7491,7 +7522,7 @@
           const host = card.dataset.host || "";
           const meta = card.querySelector(".device-meta");
           if (meta) {
-            meta.textContent = host || (searching ? "Auto scan" : "No IP");
+            meta.textContent = host || (searching ? "Waiting for IP…" : "No IP");
           }
           const reachable = card.dataset.reachable === "true";
           card.classList.toggle("reachable", reachable && !online);
@@ -8012,6 +8043,42 @@
       retroBatMachineMenu?.remove();
       retroBatMachineMenu = null;
     }
+    async function openMachineDisplay(card) {
+      const device = card.dataset.device;
+      const finished = showXboxBiosDialog({title:'Display', device, message:'Reading display options…', confirmLabel:'Done'});
+      try {
+        const response = await fetch(`/api/machine-display?device=${encodeURIComponent(device)}`, {cache:'no-store'});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not read display options.');
+        if (!result.supported) throw new Error(result.reason || 'Display controls are unavailable for this machine.');
+        xboxBiosDialogMessage.textContent = '';
+        xboxBiosDialogMessage.style.whiteSpace = 'normal';
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:18px;padding:10px 0;border-bottom:1px solid #ffffff18;cursor:pointer';
+        const copy = document.createElement('span');
+        copy.innerHTML = '<strong style="display:block">Performance HUD</strong><small style="display:block;margin-top:3px;opacity:.72">FPS, CPU, GPU, temperatures and memory while playing.</small>';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.checked = Boolean(result.hud);
+        checkbox.style.cssText = 'width:19px;height:19px;accent-color:#63b4ff';
+        const status = document.createElement('div');
+        status.style.cssText = 'min-height:18px;margin-top:8px;font-size:11px;opacity:.8';
+        status.textContent = result.gameRunning && !result.hudAttached ? 'A game is already running. Relaunch it after enabling the HUD.' : 'Changes apply to the next game you launch.';
+        checkbox.addEventListener('change', async () => {
+          checkbox.disabled = true; status.textContent = checkbox.checked ? 'Enabling performance HUD…' : 'Disabling performance HUD…';
+          try {
+            const save = await fetch('/api/machine-display', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device,hud:checkbox.checked})});
+            const saved = await save.json();
+            if (!save.ok || !saved.ok) throw new Error(saved.error || 'Could not save display settings.');
+            status.textContent = saved.requiresRelaunch ? 'Enabled. Exit and relaunch the current game to display it.' : checkbox.checked ? 'Enabled. It will display when the next game starts.' : 'Performance HUD disabled.';
+          } catch (error) {
+            checkbox.checked = !checkbox.checked; status.textContent = error.message;
+          } finally { checkbox.disabled = false; }
+        });
+        row.append(copy, checkbox); xboxBiosDialogMessage.append(row, status);
+      } catch (error) { xboxBiosDialogMessage.textContent = error.message; }
+      await finished;
+      xboxBiosDialogMessage.style.whiteSpace = 'pre-line';
+    }
     function showRetroBatMachineMenu(card, x, y) {
       closeRetroBatMachineMenu();
       const menu = document.createElement('div');
@@ -8036,6 +8103,34 @@
         if (typeof window.openMachineBehavior === 'function') window.openMachineBehavior(card.dataset.device);
       });
       menu.append(behaviorButton);
+      if (card.dataset.platform === 'batocera') {
+        const xeniaProfileButton = document.createElement('button');
+        xeniaProfileButton.type = 'button';
+        xeniaProfileButton.className = 'advanced-item';
+        xeniaProfileButton.setAttribute('role', 'menuitem');
+        xeniaProfileButton.textContent = 'Xenia (Xbox 360) Profile';
+        xeniaProfileButton.style.marginTop = '4px';
+        xeniaProfileButton.addEventListener('click', async () => {
+          closeRetroBatMachineMenu();
+          try {
+            const response = await fetch('/api/xenia-profile/open', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device:card.dataset.device})});
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || 'Could not open Xenia profile setup.');
+            await showXboxBiosDialog({title:'Xenia (Xbox 360) Profile', device:machineDisplayName(card.dataset.device), message:'Profile setup opened on the Batocera machine.', confirmLabel:'OK'});
+          } catch (error) {
+            await showXboxBiosDialog({title:'Xenia (Xbox 360) Profile', device:machineDisplayName(card.dataset.device), message:error.message, confirmLabel:'OK'});
+          }
+        });
+        menu.append(xeniaProfileButton);
+        const displayButton = document.createElement('button');
+        displayButton.type = 'button';
+        displayButton.className = 'advanced-item';
+        displayButton.setAttribute('role', 'menuitem');
+        displayButton.textContent = 'Display';
+        displayButton.style.marginTop = '4px';
+        displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineDisplay(card); });
+        menu.append(displayButton);
+      }
       document.body.append(menu);
       menu.style.boxSizing = 'border-box';
       menu.style.width = `${Math.round(menu.getBoundingClientRect().width * 0.72)}px`;

@@ -7,6 +7,16 @@ const { version } = require("../package.json");
 
 const host = "127.0.0.1";
 const port = 8789;
+const owned = process.argv.includes('--owned');
+const parentArgument = process.argv.find(value => value.startsWith('--parent-pid='));
+const ownerPid = parentArgument ? Number(parentArgument.split('=')[1]) : 0;
+if (owned && (!Number.isInteger(ownerPid) || ownerPid <= 0)) throw new Error('Owned backend requires a desktop process ID.');
+if (owned) {
+  setInterval(() => {
+    try { process.kill(ownerPid, 0); }
+    catch (error) { if (error.code === 'ESRCH') process.exit(0); }
+  }, 1000).unref();
+}
 const sourceHash = crypto.createHash("sha256").update(fs.readFileSync(path.join(__dirname, "server.js"))).digest("hex");
 
 function readHealth(timeout = 5000) {
@@ -74,7 +84,7 @@ async function waitForBackendExit() {
 (async () => {
   const health = await readHealthWithRetry();
   if (health?.status === 200 && health.body?.app === "ready-player-one") {
-    if (health.body.version === version && health.body.sourceHash === sourceHash) {
+    if (!owned && health.body.version === version && health.body.sourceHash === sourceHash) {
       console.log(`Ready Player One ${version} backend is already running on http://localhost:${port}`);
       return;
     }

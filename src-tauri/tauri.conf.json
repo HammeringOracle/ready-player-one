@@ -1,10 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ready Player One",
-  "version": "1.0.246",
+  "version": "1.0.349",
   "identifier": "com.batocera.warehouse",
   "build": {
-    "beforeDevCommand": "node ui/start-server.js",
     "devUrl": "http://localhost:8789",
     "frontendDist": "../frontend"
   },
@@ -33,6 +32,9 @@
       "../ui": "ui",
       "../frontend": "frontend",
       "../Ready Player One.html": "Ready Player One.html",
+      "../node.exe": "node.exe",
+      "../node_modules": "node_modules",
+      "../installers": "installers",
       "../package.json": "package.json"
     }
   }
