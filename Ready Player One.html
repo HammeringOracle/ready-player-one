@@ -5267,16 +5267,22 @@
       return gameTitleWithoutExtension(item?.[6] || fileName, fileName, item?.[4] === "folder");
     }
 
+    function multiDiscInfo(item) {
+      const value = item?.[9];
+      return value && Array.isArray(value.files) && value.files.length > 1 ? value : null;
+    }
+
     function gameRow(item, index) {
       const isBad = item[3] === "BAD";
       const isFolder = item[4] === "folder";
       const isMusicFolder = selectedSystem === "music" && isFolder;
       const displayName = gameTitleWithoutExtension(item[6] || item[0], item[0], isFolder);
       const tracks = Array.isArray(item[5]) ? item[5] : [];
+      const discSet = multiDiscInfo(item);
       const sizeLabel = formatFileSize(item[7]);
       const displayMeta = isMusicFolder
         ? `${tracks.length} song${tracks.length === 1 ? "" : "s"}${sizeLabel ? ` • ${sizeLabel}` : ""}`
-        : `${item[1]}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
+        : `${item[1]}${discSet ? ` • ${discSet.files.length} discs` : ""}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
       const trackList = selectedSystem !== "music" && isFolder && tracks.length
         ? `<div class="track-list">${tracks.map(track => {
             const path = `${item[0]}/${track}`;
@@ -5311,6 +5317,7 @@
       const isFolder = item[4] === "folder";
       const displayName = gameTitleWithoutExtension(item[6] || item[0], item[0], isFolder);
       const tracks = selectedSystem === "music" && isFolder && Array.isArray(item[5]) ? item[5] : [];
+      const discSet = multiDiscInfo(item);
       if (selectedSystem === "music" && isFolder) {
         return `<div class="device-game" data-system="music" data-name="${item[0]}" data-kind="folder"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span>${item[0]}<small>${tracks.length} song${tracks.length === 1 ? "" : "s"}</small></span><span class="badge">OPEN ›</span></div>`;
       }
@@ -5318,9 +5325,11 @@
       const storedExtension = String(item[0] || "").match(/\.([^./\\]+)$/)?.[1]?.toUpperCase() || "";
       const badge = tracks.length
         ? `${tracks.length} TRACK${tracks.length === 1 ? "" : "S"}`
+        : discSet ? `${discSet.files.length} DISCS`
         : storedExtension === "M3U" && item[2] ? String(item[2]).toUpperCase() : gameExtensionBadge(item[0], item[2]);
       const awaitingReset = pendingResetGames().has(item[0]) ? " pending-soft-reset" : "";
-      return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span>${displayName}<small>${item[1]}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
+      const location = `${item[1]}${discSet ? ` • ${discSet.files.length} discs` : ""}`;
+      return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span>${displayName}<small>${location}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
     }
 
     function compareNaturalGameTitles(leftTitle, rightTitle) {

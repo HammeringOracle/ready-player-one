@@ -5157,10 +5157,49 @@ function collapsePs1Sidecars(names) {
 function multiDiscBaseName(fileName) {
   const extension = path.extname(fileName);
   const stem = path.basename(fileName, extension);
-  const match = stem.match(/\s*[\[(](?:disc|disk|cd)\s*0*(\d+)[\])]/i);
+  const match = stem.match(/(?:\s*[-_.]?\s*)[\[(]?(?:disc|disk|cd|dvd)\s*[-_. ]?\s*0*(\d+)(?:\s*(?:of|\/)\s*\d+)?[\])]?(?=$|[\s._-])/i);
   if (!match) return null;
   const base = `${stem.slice(0, match.index)} ${stem.slice(match.index + match[0].length)}`.replace(/\s+/g, " ").trim();
   return base ? { base, disc: Number(match[1]) } : null;
+}
+
+function collapseLogicalMultiDiscEntries(system, names) {
+  const groups = new Map();
+  const playlists = new Map(names
+    .filter(name => path.extname(name).toLowerCase() === ".m3u")
+    .map(name => [localCoverKey(path.basename(name, path.extname(name))), name]));
+  for (const name of names) {
+    if (path.extname(name).toLowerCase() === ".m3u") continue;
+    const parsed = multiDiscBaseName(path.basename(name));
+    if (!parsed) continue;
+    const key = localCoverKey(parsed.base);
+    const group = groups.get(key) || { title: parsed.base, discs: [] };
+    group.discs.push({ name, disc: parsed.disc });
+    groups.set(key, group);
+  }
+  const primaryByName = new Map();
+  const hidden = new Set();
+  for (const [key, group] of groups) {
+    group.discs.sort((left, right) => left.disc - right.disc || left.name.localeCompare(right.name, undefined, { numeric: true }));
+    if (group.discs.length < 2 || new Set(group.discs.map(item => item.disc)).size < 2) continue;
+    const playlist = playlists.get(key);
+    const primary = playlist || group.discs[0].name;
+    group.discs.forEach(item => hidden.add(item.name.toLowerCase()));
+    primaryByName.set(primary.toLowerCase(), {
+      title: group.title,
+      files: group.discs.map(item => item.name),
+      count: group.discs.length
+    });
+  }
+  const rows = [];
+  for (const name of names) {
+    const key = name.toLowerCase();
+    const discSet = primaryByName.get(key);
+    if (hidden.has(key) && !discSet) continue;
+    const extension = path.extname(name).slice(1).toUpperCase() || system.toUpperCase();
+    rows.push({ name, type: discSet ? `${discSet.count} DISCS` : extension, discSet });
+  }
+  return rows;
 }
 
 function ensureMultiDiscPlaylists(system, folderPath) {
@@ -5203,30 +5242,7 @@ function collapseMultiDiscSidecars(system, names, folderPath) {
 }
 
 function collapseRemoteMultiDiscEntries(system, names) {
-  if (!(localExtensions[system] || []).includes(".m3u")) {
-    return names.map(name => ({ name, type: path.extname(name).slice(1).toUpperCase() || system.toUpperCase() }));
-  }
-  const playlists = new Map(names
-    .filter(name => path.extname(name).toLowerCase() === ".m3u")
-    .map(name => [localCoverKey(path.basename(name, path.extname(name))), name]));
-  const formats = new Map();
-  const hidden = new Set();
-  for (const name of names) {
-    const parsed = multiDiscBaseName(path.basename(name));
-    if (!parsed) continue;
-    const key = localCoverKey(parsed.base);
-    if (!playlists.has(key)) continue;
-    hidden.add(name.toLowerCase());
-    const extension = path.extname(name).slice(1).toUpperCase();
-    if (extension) (formats.get(key) || formats.set(key, new Set()).get(key)).add(extension);
-  }
-  const priority = ["RVZ", "CHD", "GCZ", "GCM", "ISO", "WIA", "WBFS", "CISO", "CUE", "BIN"];
-  return names.filter(name => !hidden.has(name.toLowerCase())).map(name => {
-    const extension = path.extname(name).slice(1).toUpperCase() || system.toUpperCase();
-    if (extension !== "M3U") return { name, type: extension };
-    const available = formats.get(localCoverKey(path.basename(name, path.extname(name)))) || new Set();
-    return { name, type: priority.find(format => available.has(format)) || [...available][0] || "M3U" };
-  });
+  return collapseLogicalMultiDiscEntries(system, names);
 }
 
 function ps1TransferFiles(system, fileName) {
@@ -5244,6 +5260,19 @@ function ps1TransferFiles(system, fileName) {
       if (!files.some(item => item.name.toLowerCase() === name.toLowerCase())) files.push({ name, localPath });
     }
     return files;
+  }
+  const parsedDisc = multiDiscBaseName(fileName);
+  if (parsedDisc && fs.statSync(primaryPath).isFile()) {
+    const folderPath = path.join(root, localFolders[system]);
+    const groupKey = localCoverKey(parsedDisc.base);
+    const siblings = fs.readdirSync(folderPath, { withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => ({ name: entry.name, parsed: multiDiscBaseName(entry.name) }))
+      .filter(item => item.parsed && localCoverKey(item.parsed.base) === groupKey)
+      .sort((left, right) => left.parsed.disc - right.parsed.disc || left.name.localeCompare(right.name, undefined, { numeric: true }));
+    if (siblings.length > 1 && new Set(siblings.map(item => item.parsed.disc)).size > 1) {
+      return siblings.map(item => ({ name: item.name, localPath: path.join(folderPath, item.name) }));
+    }
   }
   if (system !== "ps1" || path.extname(fileName).toLowerCase() !== ".cue" || !fs.statSync(primaryPath).isFile()) return files;
   const baseDir = path.dirname(primaryPath);
@@ -5391,12 +5420,15 @@ function listLocalLibrary() {
         : [];
     names = hideMameSupportFiles(system, names);
     if (system === "ps1") names = collapsePs1Sidecars(names);
-    names = collapseMultiDiscSidecars(system, names, folderPath);
+    const logicalEntries = system === "music"
+      ? names.map(name => ({ name, type: path.extname(name).slice(1).toUpperCase() || label }))
+      : collapseLogicalMultiDiscEntries(system, names);
     const warehouse = system === "music"
       ? musicFolderRows(names, "This computer / music")
-      : names
-        .sort((a, b) => a.localeCompare(b))
-        .map(name => {
+      : logicalEntries
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+        .map(entry => {
+          const name = entry.name;
           const ext = path.extname(name).slice(1).toUpperCase() || label;
           const note = system === "karaoke"
             ? "This computer / karaoke / MP3 pair required"
@@ -5407,7 +5439,9 @@ function listLocalLibrary() {
             (["ps4", "xbox360", "ports", "pygame", "windows"].includes(system) && fs.statSync(path.join(folderPath, name)).isDirectory())
             ? "folder"
             : "file";
-          return [name, note, ext, "OK", kind, null, system === "mame" ? displayGameTitle(system, name) : null];
+          return [name, note, entry.type || ext, "OK", kind, null,
+            entry.discSet?.title || (system === "mame" ? displayGameTitle(system, name) : null),
+            null, null, entry.discSet || null];
         });
 
     return [system, { label, warehouse, active: [] }];
@@ -5654,7 +5688,9 @@ async function listRemoteRoms(device, system) {
       remoteNames = hideMameSupportFiles(system, remoteNames);
       if (system === "ps1") remoteNames = collapsePs1Sidecars(remoteNames);
       const rows = collapseRemoteMultiDiscEntries(system, remoteNames)
-        .map(entry => [entry.name, remoteDir, entry.type, null, null, null, system === "mame" ? displayGameTitle(system, entry.name) : null]);
+        .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
+          entry.discSet?.title || (system === "mame" ? displayGameTitle(system, entry.name) : null),
+          null, null, entry.discSet || null]);
 
       if (system !== 'windows') {
         resolve(rows);
@@ -5733,7 +5769,8 @@ function listRemoteRomsUsb(device, system) {
   names = hideMameSupportFiles(system, names);
   if (system === "ps1") names = collapsePs1Sidecars(names);
   return collapseRemoteMultiDiscEntries(system, names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })))
-    .map(entry => [entry.name, device.usbMode === "direct" ? remoteDir : `${device.drive} userdata`, entry.type]);
+    .map(entry => [entry.name, device.usbMode === "direct" ? remoteDir : `${device.drive} userdata`, entry.type,
+      null, null, null, entry.discSet?.title || null, null, null, entry.discSet || null]);
 }
 
 function listRemoteRomsSmb(device, system) {
@@ -5775,7 +5812,9 @@ function listRemoteRomsSmb(device, system) {
   names = hideMameSupportFiles(system, names);
   if (system === "ps1") names = collapsePs1Sidecars(names);
   return collapseRemoteMultiDiscEntries(system, names.sort((a, b) => a.localeCompare(b)))
-    .map(entry => [entry.name, remoteDir, entry.type, null, null, null, system === "mame" ? displayGameTitle(system, entry.name) : null]);
+    .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
+      entry.discSet?.title || (system === "mame" ? displayGameTitle(system, entry.name) : null),
+      null, null, entry.discSet || null]);
 }
 
 async function getDeviceStorage(device) {
@@ -6672,7 +6711,7 @@ function removeRom(device, system, fileName) {
       await removeRemotePath(sftp, installedStat ? installedPath : installerPath);
       return;
     }
-    if (["music", "ps4", "xbox360", "ports", "pygame"].includes(system) || (system === "ps3" && path.extname(fileName).toLowerCase() === ".ps3")) {
+    if (groupedFileNames.length === 1 && (["music", "ps4", "xbox360", "ports", "pygame"].includes(system) || (system === "ps3" && path.extname(fileName).toLowerCase() === ".ps3"))) {
       await removeRemotePath(sftp, `${remoteDir}/${fileName}`);
       return;
     }
@@ -6760,15 +6799,14 @@ async function removeRomSmb(device, system, fileName) {
     fs.rmSync(fs.existsSync(installedPath) ? installedPath : installerPath, { recursive: true, force: true });
     return;
   }
-  if (["music", "ps4", "xbox360", "ports", "pygame"].includes(system) || (system === "ps3" && path.extname(fileName).toLowerCase() === ".ps3")) {
-    fs.rmSync(path.win32.join(remoteDir, fileName), { recursive: true, force: true });
-    return;
-  }
-
   const fileNames = system === "karaoke" ? [fileName, karaokePairName(fileName)] : (() => {
     try { return ps1TransferFiles(system, fileName).map(item => item.name); }
     catch { return [fileName]; }
   })();
+  if (fileNames.length === 1 && (["music", "ps4", "xbox360", "ports", "pygame"].includes(system) || (system === "ps3" && path.extname(fileName).toLowerCase() === ".ps3"))) {
+    fs.rmSync(path.win32.join(remoteDir, fileName), { recursive: true, force: true });
+    return;
+  }
   fileNames.forEach(name => {
     fs.rmSync(path.win32.join(remoteDir, name), { force: true });
   });
