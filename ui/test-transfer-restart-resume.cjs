@@ -17,11 +17,19 @@ assert(html.includes('const repairedLegacyQueue = repairLegacyRenderedAllSelecti
 assert(html.includes('saved[system] = localNames;'), 'A detected rendered-only Upload All queue must be restored to the complete console library');
 assert(html.includes('saveSelectionSet(selectedSystem, new Set(completeConsoleNames));'), 'Upload All must persist every local game, not only rendered rows');
 assert(server.includes('url.searchParams.get("unfinished") === "1"'), 'The backend must expose the complete unfinished transfer set');
-assert(server.includes('!item.completed && !item.partialDeleted && Number(item.percent || 0) < 100'), 'Completed and deleted transfers must not restart');
+assert(server.includes('!item.completed && !item.partialDeleted'), 'Only completed and deleted transfers must be excluded from restart recovery');
+assert(server.includes('autoQueued: !wasStopping,') && server.includes('queuedAt: wasStopping ? "" : (job.queuedAt || new Date().toISOString())'), 'Interrupted uploads must resume automatically, but user-stopped uploads must stay stopped');
+assert(server.includes('Math.min(99.9, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1)))'), 'Sending every byte must not be reported as a completed transfer');
+assert(server.includes('SFTP upload completion timed out.'), 'A stuck final SFTP acknowledgement must be recoverable');
+assert(server.includes('sourceHash: runningSourceHash'), 'Health must identify the loaded backend so the launcher can replace stale code');
+assert(server.includes('activeUploadCancels.get(transferKey)?.();'), 'Stopping a transfer must close its active upload connection instead of waiting for the next byte callback');
+assert(html.includes('&& !job.cancelRequested\n            && !dismissedTransferKeys.has('), 'Cancelled uploads must not be painted back into the right pane');
+assert(html.includes('job.running && !job.completed && !job.partialDeleted && !job.cancelRequested'), 'A transfer waiting to stop must not keep the console spinner active');
 assert(html.includes('resumeGroup(small, 10)') && html.includes('resumeGroup(large, 4)'), 'Restart recovery must use size-based concurrency');
 assert.match(html, /finally \{[\s\S]*?startupAutoResumeDevices\.delete\(device\);[\s\S]*?automaticResumeRunningDevices\.delete\(device\);/, 'A completed resume pass must release its in-flight guard so later queue entries can continue');
 assert.match(html, /setTimeout\(continueWarehouseSelectionQueue, 250\)/, 'A drained visible batch must immediately check for more queued games');
 assert(server.includes('resumablePutSftp'), 'Restarted uploads must retain partial-file byte resume support');
+assert.match(server, /if \(client && localSize > 50 \* 1024 \* 1024 && remoteSize > 0 && remoteSize < localSize\)/, 'Only a real partial image should use the ordered SSH stream; fresh large images must use pipelined fastPut');
 assert(server.includes('url.pathname === "/api/transfers/enqueue"'), 'Upload All must have a backend-persistent queue endpoint');
 assert.match(html, /api\/transfers\/enqueue[\s\S]*?fileNames: changedGames\.map\(game => game\.dataset\.name\)[\s\S]*?await autoResumePersistedTransfers\(selectedDevice\)/, 'Upload All must persist the complete pending batch before starting its resume workers');
 

@@ -7,6 +7,10 @@
   })[char]);
   const style = document.createElement('style');
   style.textContent = `
+    .advanced-item.medicine-installed{display:flex;align-items:center;justify-content:center;gap:9px;height:auto;min-height:50px;padding:7px 10px}
+    .medicine-installed-label{flex:1;min-width:0;text-align:center;line-height:1.25}
+    .medicine-installed-label span{display:block;font-size:11px;font-weight:500;opacity:.85;margin-top:2px}
+    .medicine-installed-star{width:23px;height:23px;flex:0 0 23px;filter:drop-shadow(0 1px 1px #39240899) drop-shadow(0 0 4px #e9ae3340)}
     .installed-feature-dialog{box-sizing:border-box;width:min(620px,94vw);max-height:90vh;overflow:auto;border:1px solid #65748b;border-radius:20px;padding:22px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     .installed-feature-dialog::backdrop{background:#0009}.installed-feature-dialog header{display:flex;justify-content:space-between;align-items:center;gap:12px}
     .installed-feature-dialog h2{margin:0;font-size:24px}.installed-feature-dialog p,.installed-feature-dialog li{font-size:14px;line-height:1.55}.installed-feature-dialog ul{padding-left:22px}
@@ -16,7 +20,11 @@
 
   function sortAdvancedFeatures() {
     const buttons = [...menu.querySelectorAll(':scope > .advanced-item')];
-    const priority = button => button.id === 'openReadyPlayerTwo' ? 0 : 1;
+    const priority = button => {
+      if (button.classList.contains('medicine-installed') || ['medicine', 'rp1-medicine'].includes(button.dataset.featureId)) return 0;
+      if (button.id === 'openReadyPlayerTwo') return 1;
+      return 2;
+    };
     buttons.sort((left, right) => priority(left) - priority(right)
       || left.textContent.trim().localeCompare(right.textContent.trim(), undefined, { sensitivity: 'base' }));
     menu.append(...buttons);
@@ -33,6 +41,12 @@
         button.className = 'advanced-item installed-feature-item';
         button.dataset.featureId = feature.id || '';
         button.textContent = `${feature.name} (Installed)`;
+        if (['medicine', 'rp1-medicine'].includes(feature.id)) {
+          button.classList.add('medicine-installed');
+          button.setAttribute('aria-label', `${feature.name} (Installed)`);
+          const star = side => `<svg class="medicine-installed-star" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="medicine-gold-${side}" x1="0" y1="0" x2=".8" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#fff4bb"/><stop offset=".38" stop-color="#ffda68"/><stop offset=".68" stop-color="#dfa62e"/><stop offset="1" stop-color="#a56b12"/></linearGradient></defs><path d="M16 2.5 20.1 11 29.5 12.3 22.7 18.9 24.3 28.3 16 23.8 7.7 28.3 9.3 18.9 2.5 12.3 11.9 11Z" fill="url(#medicine-gold-${side})" stroke="#ffdf83" stroke-width=".9" stroke-linejoin="round"/><path d="M16 4.5 16 16 4.6 12.9 12.6 11.9Z" fill="#fff8cf" opacity=".48"/><path d="M16 16 23 26.3 16 22.6 9 26.3Z" fill="#8f590b" opacity=".24"/></svg>`;
+          button.innerHTML = `${star('left')}<span class="medicine-installed-label">${escapeHtml(feature.name)}<span>(Installed)</span></span>${star('right')}`;
+        }
         button.onclick = () => {
           document.querySelector('#advancedFeatures')?.classList.remove('open');
           document.querySelector('#advancedToggle')?.setAttribute('aria-expanded', 'false');

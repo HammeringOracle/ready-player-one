@@ -1,9 +1,13 @@
 const http = require("node:http");
 const { execFile } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const crypto = require("node:crypto");
 const { version } = require("../package.json");
 
 const host = "127.0.0.1";
 const port = 8789;
+const sourceHash = crypto.createHash("sha256").update(fs.readFileSync(path.join(__dirname, "server.js"))).digest("hex");
 
 function readHealth(timeout = 5000) {
   return new Promise(resolve => {
@@ -70,7 +74,7 @@ async function waitForBackendExit() {
 (async () => {
   const health = await readHealthWithRetry();
   if (health?.status === 200 && health.body?.app === "ready-player-one") {
-    if (health.body.version === version) {
+    if (health.body.version === version && health.body.sourceHash === sourceHash) {
       console.log(`Ready Player One ${version} backend is already running on http://localhost:${port}`);
       return;
     }

@@ -28,9 +28,10 @@
   dialog.innerHTML = `
     <div class="rpw-body">
       <h2 id="readyPlayerWelcomeTitle">Welcome</h2>
-      <p class="rpw-intro">Ready Player One connects to and prepares supported game systems.</p>
+      <p class="rpw-intro">Ready Player One and Medicine work together to connect and prepare your game systems.</p>
       <div class="rpw-products">
         <article><h3>Ready Player One</h3><p>Your main game-library manager. It discovers machines, organizes games, transfers your library, and manages advanced features from one place.</p></article>
+        <article><h3>Medicine</h3><p>Creates the Windows utility used to prepare your own BIOS, firmware, and key files for remote-system setup.</p></article>
         <article><h3>Ready Player Two</h3><p>The Windows sharing companion for RetroBat, RetroArch, ES-DE, and Emu-Station, allowing Ready Player One to communicate with those libraries.</p></article>
       </div>
     </div>

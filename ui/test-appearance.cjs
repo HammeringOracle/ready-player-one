@@ -27,7 +27,7 @@ const source = fs.readFileSync(path.join(root, 'Ready Player One.html'), 'utf8')
     });
     await page.goto('http://appearance.test');
     await page.evaluate(() => {
-      const machines = [['BATOCERA','192.0.2.10','batocera','online selected'],['LAKKA','192.0.2.11','lakka','online'],['BATOCERA USB','E: • Disconnected','batocera-usb','offline']];
+      const machines = [['BATOCERA','192.168.12.234','batocera','online selected'],['LAKKA','192.168.12.6','lakka','online'],['BATOCERA USB','E: • Disconnected','batocera-usb','offline']];
       document.getElementById('machineList').innerHTML = machines.map(([name,host,platform,state]) => `<article class="device-card ${state}" data-platform="${platform}"><div class="mini-pc ${platform === 'batocera-usb' ? 'usb-drive' : ''}"></div><div><div class="device-name">${name}</div><div class="device-meta">${host}</div></div></article>`).join('');
       const names = ['1942.zip','1943.zip','720.zip','bubblebobble.zip','contra.zip','digdug.zip','outrun.zip','pacman.zip','simpsons.zip','tmnt.zip'];
       document.getElementById('warehouseList').innerHTML = names.map((name,i) => `<div class="game"><div class="game-head"><input type="checkbox" class="game-check" data-installed="${i<4}" ${i<4?'checked':''}><div class="cover file"></div><div><div class="game-name">${name}</div><div class="game-meta">roms/mame • ${(i+1)*128} KB</div></div><span class="badge">ZIP</span></div></div>`).join('');

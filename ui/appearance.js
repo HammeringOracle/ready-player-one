@@ -76,6 +76,8 @@
             <label data-control="systemSleepTime"><span>Put machine to sleep after<small>Independent from the visual screensaver.</small></span><select name="systemSleepMinutes"><option value="0">Never</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></label>
             <label data-control="behavior"><span>Screensaver style<small>What appears when the interface becomes idle.</small></span><select name="behavior"><option value="dim">Dim display</option><option value="black">Black screen</option><option value="slideshow">Game slideshow</option><option value="random video">Random game video</option><option value="suspend">Suspend machine</option></select></label>
             <label data-control="powerSaver"><span>Menu power saver<small>Reduces animation work while menus are idle.</small></span><select name="powerSaver"><option value="default">Default</option><option value="enhanced">Enhanced</option><option value="instant">Instant</option><option value="disabled">Disabled</option></select></label>
+            <label data-control="xboxRenderer"><span>Xbox renderer<small>Batocera setting: <code class="machine-behavior-xbox-setting">xbox.xemu_api (not set)</code></small></span><select name="xboxRenderer"><option value="AUTO">Automatic</option><option value="VULKAN">VULKAN</option><option value="OPENGL">OPENGL</option></select></label>
+            <label data-control="xboxVideoMode"><span>Xbox display resolution<small>Applies to Xbox only; separate from internal rendering scale.</small></span><select name="xboxVideoMode"><option value="AUTO">Automatic</option><option value="1280x720">720p (1280×720)</option></select></label>
             <p class="machine-behavior-note"></p>
             <div class="machine-behavior-actions"><button type="button" class="machine-behavior-restore">Restore Previous</button><button type="submit" class="appearance-done machine-behavior-save">Apply Settings</button></div>
           </form>
@@ -90,6 +92,14 @@
     const behaviorEmpty = behavior.querySelector('.machine-behavior-empty');
     const behaviorUnavailable = behavior.querySelector('.machine-behavior-unavailable');
     const behaviorStatus = behavior.querySelector('.machine-behavior-status');
+    const xboxRendererSelect = behaviorForm.elements.xboxRenderer;
+    const xboxSetting = behaviorForm.querySelector('.machine-behavior-xbox-setting');
+    const updateXboxSetting = () => {
+      xboxSetting.textContent = xboxRendererSelect.value === 'AUTO'
+        ? 'xbox.xemu_api (not set)'
+        : `xbox.xemu_api=${xboxRendererSelect.value}`;
+    };
+    xboxRendererSelect.addEventListener('change', updateXboxSetting);
     let behaviorDevice = '';
     let behaviorMachinesById = {};
     let returnBehaviorToSettings = false;
@@ -101,7 +111,9 @@
       behaviorDevice = id;
       [...behaviorMachines.querySelectorAll('button')].forEach(button => button.setAttribute('aria-pressed',String(button.dataset.device === id)));
       behaviorStatus.textContent = 'Reading machine settings…';
-      behaviorEmpty.hidden = true; behaviorForm.hidden = true; behaviorUnavailable.hidden = true;
+      behaviorEmpty.hidden = false; behaviorForm.hidden = true; behaviorUnavailable.hidden = true;
+      behaviorEmpty.querySelector('strong').textContent = 'Loading machine settings';
+      behaviorEmpty.querySelector('small').textContent = 'Reading settings from the selected machine…';
       try {
         const response = await fetch(`/api/machine-behavior?device=${encodeURIComponent(id)}`,{cache:'no-store'});
         const result = await response.json();
@@ -113,6 +125,7 @@
           return;
         }
         const machine = behaviorMachinesById[id] || {};
+        behaviorEmpty.hidden = true;
         behaviorForm.hidden = false;
         behaviorForm.querySelector('.machine-behavior-name').textContent = machine.displayName || result.displayName || id;
         behaviorForm.querySelector('.machine-behavior-platform').textContent = String(result.platform || machine.platform || 'machine').toUpperCase();
@@ -120,46 +133,56 @@
         behaviorForm.elements.systemSleepMinutes.value = String(result.systemSleepMinutes ?? 0);
         behaviorForm.elements.behavior.value = result.behavior || 'dim';
         behaviorForm.elements.powerSaver.value = result.powerSaver || 'default';
+        xboxRendererSelect.value = result.xboxRenderer || 'AUTO';
+        behaviorForm.elements.xboxVideoMode.value = result.xboxVideoMode || 'AUTO';
+        updateXboxSetting();
         for (const control of ['systemSleepTime','behavior','powerSaver']) behaviorForm.querySelector(`[data-control="${control}"]`).hidden = !result.capabilities?.[control];
+        behaviorForm.querySelector('[data-control="xboxRenderer"]').hidden = String(result.platform || machine.platform || '').toLowerCase() !== 'batocera';
+        behaviorForm.querySelector('[data-control="xboxVideoMode"]').hidden = String(result.platform || machine.platform || '').toLowerCase() !== 'batocera';
         behaviorForm.querySelector('.machine-behavior-note').textContent = result.kind === 'retroarch' ? 'Lakka exposes its menu screensaver timeout. System suspension remains managed by Lakka itself.' : 'Applying restarts this machine’s front end briefly so the new behavior is saved cleanly.';
         behaviorStatus.textContent = 'Ready';
       } catch (error) {
+        behaviorEmpty.hidden = true;
         behaviorUnavailable.hidden = false;
         behaviorUnavailable.querySelector('p').textContent = error.message;
         behaviorStatus.textContent = 'Could not load settings';
       }
     };
     const loadBehaviorMachines = async preferredDevice => {
-      behaviorMachines.innerHTML = '<div class="machine-behavior-loading">Finding machines…</div>';
-      try {
-        const response = await fetch('/api/devices/status',{cache:'no-store'});
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not load machines.');
-        behaviorMachinesById = result.devices || {};
-        behaviorMachines.innerHTML = '';
-        const entries = Object.entries(behaviorMachinesById).sort((a,b) => Number(Boolean(b[1].online))-Number(Boolean(a[1].online)) || String(a[1].displayName || a[0]).localeCompare(String(b[1].displayName || b[0])));
-        for (const [id,machine] of entries) {
-          const button = document.createElement('button');
-          button.type = 'button'; button.className = 'machine-behavior-machine'; button.dataset.device = id; button.setAttribute('aria-pressed','false');
-          const icon = document.createElement('span'); icon.className = 'machine-behavior-machine-icon'; icon.textContent = String(machine.platform || 'PC').slice(0,2).toUpperCase();
-          const copy = document.createElement('span');
-          const name = document.createElement('strong'); name.textContent = machine.displayName || id;
-          const meta = document.createElement('small'); meta.textContent = `${machine.platform || 'Machine'} · ${machine.online ? 'Connected' : 'Offline'}`;
-          const dot = document.createElement('i'); dot.className = machine.online ? 'online' : 'offline';
-          copy.append(name,meta); button.append(icon,copy,dot); behaviorMachines.append(button);
-          button.addEventListener('click',() => showBehaviorMachine(id));
-        }
-        if (!entries.length) behaviorMachines.innerHTML = '<div class="machine-behavior-loading">No saved machines found.</div>';
-        else await showBehaviorMachine(behaviorMachinesById[preferredDevice] ? preferredDevice : (entries.find(([,machine]) => machine.online)?.[0] || entries[0][0]));
-      } catch (error) { behaviorMachines.innerHTML = `<div class="machine-behavior-loading"></div>`; behaviorMachines.firstElementChild.textContent = error.message; }
+      // The machine context menu already identifies the target. Do not run a
+      // full device discovery here; that checks every saved machine and can
+      // delay this dialog several seconds before its selected-machine request.
+      const card = [...document.querySelectorAll('.device-card')].find(item => item.dataset.device === preferredDevice);
+      const machine = {
+        displayName: card?.querySelector('.device-name')?.textContent?.trim() || preferredDevice,
+        platform: card?.dataset.platform || 'batocera',
+        online: Boolean(card && !card.classList.contains('offline'))
+      };
+      behaviorMachinesById = { [preferredDevice]: machine };
+      behaviorMachines.innerHTML = '';
+      behavior.querySelector('.machine-behavior-name').textContent = machine.displayName;
+      behavior.querySelector('.machine-behavior-platform').textContent = machine.platform.toUpperCase();
+      behaviorEmpty.hidden = false;
+      behaviorEmpty.querySelector('strong').textContent = 'Loading machine settings';
+      behaviorEmpty.querySelector('small').textContent = 'Reading settings from the selected machine…';
+      behaviorForm.hidden = true;
+      behaviorUnavailable.hidden = true;
+      behaviorStatus.textContent = 'Connecting…';
+      showBehaviorMachine(preferredDevice);
     };
     behaviorForm.addEventListener('submit',async event => {
       event.preventDefault(); if (!behaviorDevice) return;
       setBehaviorBusy(true); behaviorStatus.textContent = 'Applying and refreshing machine…';
       try {
-        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value};
+        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value,xboxRenderer:behaviorForm.elements.xboxRenderer.value,xboxVideoMode:behaviorForm.elements.xboxVideoMode.value};
         const response = await fetch('/api/machine-behavior',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Could not apply machine behavior.');
+        if (!behaviorForm.querySelector('[data-control="xboxRenderer"]').hidden && result.xboxRenderer !== xboxRendererSelect.value) {
+          throw new Error('Xbox renderer was not saved. Restart RP1 so its updated backend loads, then apply again.');
+        }
+        if (!behaviorForm.querySelector('[data-control="xboxVideoMode"]').hidden && result.xboxVideoMode !== behaviorForm.elements.xboxVideoMode.value) {
+          throw new Error('Xbox display resolution was not saved. Restart RP1 so its updated backend loads, then apply again.');
+        }
         behaviorStatus.textContent = result.refreshed ? 'Settings applied · interface refreshed' : 'Settings applied';
       } catch (error) { behaviorStatus.textContent = error.message; } finally { setBehaviorBusy(false); }
     });

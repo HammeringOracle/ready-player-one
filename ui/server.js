@@ -9,6 +9,9 @@ const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { Worker } = require("node:worker_threads");
 const { Client } = require("ssh2");
+// Identify the code this process loaded, not whatever is currently on disk.
+// The launcher uses this hash to replace an outdated backend after edits.
+const runningSourceHash = crypto.createHash("sha256").update(fs.readFileSync(__filename)).digest("hex");
 const { readUsbLibrary } = require('./usb-library');
 const { copyFileResumableLocal } = require('./usb-copy');
 const { queueDeletion, cancelDeletion, deletionState, stageController } = require('./usb-deletions');
@@ -278,8 +281,13 @@ function readTransferJobs() {
   try {
     const saved = JSON.parse(fs.readFileSync(transferActivityPath, "utf8"));
     if (!Array.isArray(saved)) return [];
+    const deviceSettings = readDeviceSettings();
     return saved.map(job => {
       if (!job || !job.device || !job.system || !job.fileName) return null;
+      const currentInstallation = String(deviceSettings[job.device]?.installationId || "").trim();
+      // Legacy jobs have no installation identity. Once a Batocera image has
+      // been identified, they cannot safely be replayed or displayed there.
+      if (currentInstallation && job.installationId !== currentInstallation) return null;
       // Repair queues written by older frontends that let the currently viewed
       // console leak into an already-running bulk transfer. These extensions
       // are SNES-only in RP1, so they can never be valid GameCube (or other
@@ -291,13 +299,17 @@ function readTransferJobs() {
         job = { ...job, system: "snes", error: job.completed ? job.error : "Transfer restored to its original SNES queue." };
       }
       if (job.running) {
+        const wasStopping = Boolean(job.cancelRequested);
         return {
           ...job,
           running: false,
           dispatching: false,
           completed: false,
-          cancelled: false,
-          error: "Transfer interrupted when Ready Player One closed. Right-click to resume."
+          cancelled: wasStopping,
+          autoQueued: !wasStopping,
+          queuedAt: wasStopping ? "" : (job.queuedAt || new Date().toISOString()),
+          percent: Math.min(99.9, Number(job.percent || 0)),
+          error: wasStopping ? "Transfer stopped by user." : "Transfer interrupted when Ready Player One closed. Resuming automatically."
         };
       }
       // A loopback request cannot remain in flight across a backend restart.
@@ -310,6 +322,7 @@ function readTransferJobs() {
 }
 
 const transferJobs = new Map(readTransferJobs().map(job => [JSON.stringify([job.device, job.system, job.fileName]), job]));
+const activeUploadCancels = new Map();
 // Completed transfer history is display-only; retaining thousands of old rows
 // made every queue watchdog pass and persistence update needlessly expensive.
 // Preserve every unfinished job and only the newest completed records.
@@ -977,6 +990,9 @@ function saveMachineDisplayName(id, identity) {
   if (!displayName) return;
   const settings = readDeviceSettings();
   const installationName = String(settings[id]?.installationDisplayName || "").trim();
+  // Network aliases can lag behind a renamed or re-imaged Batocera install.
+  // Only the live SSH hostname check may replace a verified installation name.
+  if (settings[id]?.installationId && installationName && displayName !== installationName) return;
   // NetBIOS/reverse-DNS can briefly answer with the generic BATOCERA alias.
   // Never let that fallback replace a hostname verified from the live install.
   if (/^batocera$/i.test(displayName) && installationName && !/^batocera$/i.test(installationName)) {
@@ -1373,11 +1389,36 @@ async function getDeviceStatuses({ deep = false, background = true } = {}) {
 
 // Display labels are separate from stable device IDs used by layouts and transfers.
 const machineNameChecks = new Map();
+const verifiedInstallationIds = new Map();
+function reconcileBatoceraInstallation(id, installationId) {
+  if (!installationId) return;
+  const settings = readDeviceSettings();
+  const previousId = String(settings[id]?.installationId || "").trim();
+  verifiedInstallationIds.set(id, installationId);
+  if (!previousId || previousId === installationId) return;
+  // A fresh image on the same computer is not the old ROM library. Never
+  // replay its durable upload queue or show completed jobs on the new install.
+  for (const [key, job] of transferJobs) {
+    if (job.device !== id) continue;
+    if (job.running) {
+      job.cancelRequested = true;
+      activeUploadCancels.get(key)?.();
+    }
+    transferJobs.delete(key);
+  }
+  scheduleTransferPersistence(true);
+  fastDeviceStatusCache.at = 0;
+  const resetState = readSoftResetState();
+  delete resetState.pending?.[`batocera-installation:${previousId}`];
+  delete resetState.pending?.[id];
+  writeSoftResetState(resetState);
+}
 async function refreshMachineDisplayNames(statuses) {
   await Promise.all(Object.entries(statuses).map(async ([id, status]) => {
     let settings = readDeviceSettings();
     status.mac = String(devices[id]?.mac || settings[id]?.mac || "").toLowerCase();
     status.displayName = savedMachineDisplayName(settings[id], id);
+    status.osVersion = String(settings[id]?.osVersion || "");
     if (!status.online || status.access !== "ssh" || !devices[id]) {
       status.hostName = status.displayName;
       const savedInstallationMatchesName = settings[id]?.installationId &&
@@ -1392,16 +1433,24 @@ async function refreshMachineDisplayNames(statuses) {
       const check = { host: status.host, at: Date.now(), pending: true };
       machineNameChecks.set(id, check);
       try {
-        const output = await execSsh({ ...devices[id], host: status.host }, "batocera-settings-get system.hostname 2>/dev/null; hostname; source=$(findmnt -n -o SOURCE /userdata 2>/dev/null); installation_id=$(blkid -s UUID -o value \"$source\" 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(cat /etc/machine-id 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(stat -c '%d:%i' /userdata 2>/dev/null); printf '\\nRPO_INSTALLATION_ID=%s\\n' \"$installation_id\"", 8000);
+        const output = await execSsh({ ...devices[id], host: status.host }, "batocera-settings-get system.hostname 2>/dev/null; hostname; source=$(findmnt -n -o SOURCE /userdata 2>/dev/null); installation_id=$(blkid -s UUID -o value \"$source\" 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(cat /etc/machine-id 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(stat -c '%d:%i' /userdata 2>/dev/null); printf '\\nRPO_INSTALLATION_ID=%s\\nRPO_OS_VERSION=%s\\n' \"$installation_id\" \"$(batocera-version 2>/dev/null)\"", 8000);
         const lines = String(output).split(/\r?\n/).map(line => line.trim());
-        const displayName = lines.find(line => line && !line.startsWith("RPO_INSTALLATION_ID=") && /^[\p{L}\p{N} ._-]{1,128}$/u.test(line));
+        const validNames = lines.filter(line => line && !line.startsWith("RPO_") && /^[\p{L}\p{N} ._-]{1,128}$/u.test(line));
+        // Batocera's configured name is authoritative; the live hostname is
+        // a fallback until a newly configured name takes effect after reboot.
+        const displayName = validNames[0] && !/^batocera$/i.test(validNames[0])
+          ? validNames[0] : (validNames[1] || validNames[0]);
         if (displayName) {
           const installationId = lines.find(line => line.startsWith("RPO_INSTALLATION_ID="))?.slice(20).trim() || "";
+          const osVersion = lines.find(line => line.startsWith("RPO_OS_VERSION="))?.slice(15).trim() || "";
+          reconcileBatoceraInstallation(id, installationId);
           const current = readDeviceSettings();
           if (current[id]?.machineDisplayName !== displayName ||
-              (installationId && current[id]?.installationId !== installationId)) {
+              (installationId && current[id]?.installationId !== installationId) ||
+              (osVersion && current[id]?.osVersion !== osVersion)) {
             current[id] = {
               ...current[id], machineDisplayName: displayName,
+              ...(osVersion ? {osVersion} : {}),
               ...(installationId ? {installationId, installationDisplayName:displayName} : {})
             };
             writeDeviceSettings(current);
@@ -1412,6 +1461,7 @@ async function refreshMachineDisplayNames(statuses) {
     }
     settings = readDeviceSettings();
     status.displayName = savedMachineDisplayName(settings[id], id);
+    status.osVersion = String(settings[id]?.osVersion || "");
     status.hostName = status.displayName;
     const savedInstallationMatchesName = settings[id]?.installationId &&
       settings[id]?.installationDisplayName === status.displayName;
@@ -1420,6 +1470,18 @@ async function refreshMachineDisplayNames(statuses) {
       : `batocera-provisional:${status.mac || status.host || id}:${status.displayName}`;
   }));
   return statuses;
+}
+
+async function ensureCurrentBatoceraInstallation(id, device) {
+  if (!devices[id] || device.access !== "ssh") return;
+  const savedId = String(readDeviceSettings()[id]?.installationId || "").trim();
+  if (savedId && verifiedInstallationIds.get(id) === savedId) return;
+  await refreshMachineDisplayNames({[id]: {online:true, access:"ssh", host:device.host}});
+  for (let attempt = 0; attempt < 32 && machineNameChecks.get(id)?.pending; attempt += 1) await wait(250);
+  const currentId = String(readDeviceSettings()[id]?.installationId || "").trim();
+  if (!currentId || verifiedInstallationIds.get(id) !== currentId) {
+    throw new Error("Could not verify this Batocera installation yet. Wait for its machine card to connect, then retry.");
+  }
 }
 
 function invalidateMachineConnection(name) {
@@ -1614,7 +1676,7 @@ async function discoverBatoceraOnLocalNetwork(device, { all = false, fullSubnet 
   return all ? foundMachines : null;
 }
 
-async function getRuntimeDevice(name) {
+async function getRuntimeDevice(name, { skipConnectionProbe = false } = {}) {
   // Platform comes from verified discovery, never from a machine's display name.
   let retroBatMachines = {};
   try {retroBatMachines=JSON.parse(fs.readFileSync(path.join(root,'retrobat-machines.json'),'utf8'));} catch {}
@@ -1645,8 +1707,16 @@ async function getRuntimeDevice(name) {
 
   if (!device.user) throw new Error('Credentials required. Right-click this Batocera machine to enter its username and password.');
   const lastVerifiedHost = device.discoveredHost;
+  // An inventory request is itself a connection check. Avoid waiting for an
+  // additional probe or a full network scan before opening its SSH session.
+  if (skipConnectionProbe) {
+    const knownHost = lastVerifiedHost || device.host;
+    if (knownHost && isAddressOnActiveLan(knownHost)) {
+      return { ...device, host: knownHost, access: device.discoveredAccess || "ssh" };
+    }
+  }
   if (lastVerifiedHost && isAddressOnActiveLan(lastVerifiedHost) &&
-      await isTcpPortOpen(lastVerifiedHost, 22, 1200)) {
+      (skipConnectionProbe || await isTcpPortOpen(lastVerifiedHost, 22, 1200))) {
     return { ...device, host: lastVerifiedHost, access: device.discoveredAccess || "ssh" };
   }
 
@@ -2220,11 +2290,12 @@ async function installPiKaraoke(device) {
 }
 
 const sftpSessionCache = new Map();
-// Multiple ROMs can copy at once. Giving every file 64 concurrent SFTP writes
-// created hundreds of encrypted callbacks on Node's UI server, starving HTML
-// and image requests for many seconds. One larger in-flight chunk keeps LAN
-// throughput useful while leaving the application responsive.
-const sftpTransferOptions = { concurrency: 1, chunkSize: 512 * 1024 };
+// Multiple ROMs can copy at once. The former 64 writes per file starved the UI,
+// but one write per file throttled large disc images. Keep the combined number
+// of in-flight writes bounded while allowing large files to fill the LAN link.
+function sftpTransferOptions(fileSize) {
+  return { concurrency: fileSize > 50 * 1024 * 1024 ? 8 : 3, chunkSize: 512 * 1024 };
+}
 
 function closeSftpSession(host) {
   const cached = sftpSessionCache.get(host);
@@ -2305,24 +2376,76 @@ async function sftpWithDevice(device, work) {
   }
 }
 
-function sftpWithDedicatedDeviceOnce(device, work) {
+const idleUploadSftpSessions = new Map();
+
+function closeUploadSftpSession(entry) {
+  if (entry.closed) return;
+  entry.closed = true;
+  clearTimeout(entry.timer);
+  if (idleUploadSftpSessions.get(entry.host) === entry) idleUploadSftpSessions.delete(entry.host);
+  entry.client.end();
+}
+
+function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
   return new Promise((resolve, reject) => {
-    const client = new Client();
+    let cached = idleUploadSftpSessions.get(device.host);
+    if (cached) {
+      idleUploadSftpSessions.delete(device.host);
+      clearTimeout(cached.timer);
+      if (cached.user !== device.user || cached.password !== device.password) {
+        closeUploadSftpSession(cached);
+        cached = null;
+      }
+    }
+    const entry = cached || {
+      host: device.host, user: device.user, password: device.password,
+      client: new Client(), sftp: null, timer: null, activeFail: null, closed: false
+    };
     let settled = false;
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
-      client.end();
-      error ? reject(error) : resolve(value);
+      entry.activeFail = null;
+      if (error) {
+        closeUploadSftpSession(entry);
+        reject(error);
+        return;
+      }
+      // Keep one upload-only connection warm for the next ROM. Large uploads
+      // never share the browsing SFTP session, and concurrent uploads still
+      // receive separate connections.
+      const previous = idleUploadSftpSessions.get(device.host);
+      if (previous) closeUploadSftpSession(previous);
+      entry.timer = setTimeout(() => {
+        closeUploadSftpSession(entry);
+      }, 60000);
+      entry.timer.unref?.();
+      idleUploadSftpSessions.set(device.host, entry);
+      resolve(value);
     };
-    client
+    entry.activeFail = finish;
+    registerCancel?.(() => entry.activeFail?.(new Error("Transfer paused by user.")));
+    const startWork = () => Promise.resolve().then(() => work(entry.sftp, entry.client)).then(value => finish(null, value), finish);
+    if (cached) {
+      startWork();
+      return;
+    }
+    entry.client
       .on("ready", () => {
-        client.sftp((error, sftp) => {
+        entry.client.sftp((error, channel) => {
           if (error) return finish(error);
-          Promise.resolve(work(sftp, client)).then(value => finish(null, value), finish);
+          entry.sftp = channel;
+          startWork();
         });
       })
-      .on("error", finish)
+      .on("error", error => {
+        entry.activeFail?.(error);
+        closeUploadSftpSession(entry);
+      })
+      .on("close", () => {
+        entry.activeFail?.(new Error("SSH upload connection closed."));
+        closeUploadSftpSession(entry);
+      })
       .connect({
         host: device.host,
         username: device.user,
@@ -2335,14 +2458,14 @@ function sftpWithDedicatedDeviceOnce(device, work) {
   });
 }
 
-async function sftpWithDedicatedDevice(device, work) {
+async function sftpWithDedicatedDevice(device, work, registerCancel = null) {
   // Batocera can briefly reset a new SSH channel while EmulationStation and
   // Warehouse status checks are using the same machine. Give an upload a
   // longer, back-off protected startup window before declaring it stopped.
   const maxAttempts = 6;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      return await sftpWithDedicatedDeviceOnce(device, work);
+      return await sftpWithDedicatedDeviceOnce(device, work, registerCancel);
     } catch (error) {
       if (attempt < maxAttempts - 1 && isTransientSshError(error)) {
         await new Promise(resolve => setTimeout(resolve, 750 * (attempt + 1)));
@@ -2438,11 +2561,45 @@ function setRetroarchSetting(content, name, value) {
   return pattern.test(content) ? content.replace(pattern, line) : `${String(content).replace(/\s*$/, "")}\n${line}\n`;
 }
 
+function batoceraSetting(content, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(content).match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.*?)\\s*$`, "mi"));
+  return match ? match[1].trim() : null;
+}
+
+function setBatoceraSetting(content, name, value) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const line = `${name}=${value}`;
+  const pattern = new RegExp(`^\\s*${escaped}\\s*=.*$`, "mi");
+  return pattern.test(content) ? content.replace(pattern, line) : `${String(content).replace(/\s*$/, "")}\n${line}\n`;
+}
+
+function removeBatoceraSetting(content, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(content).replace(new RegExp(`^\\s*${escaped}\\s*=.*(?:\\r?\\n|$)`, "gmi"), "");
+}
+
+function xboxVideoModeChoice(value) {
+  const mode = String(value || "").trim();
+  return /^1280x720(?:\.|$)/i.test(mode) ? "1280x720" : mode || "AUTO";
+}
+
+async function supportedXbox720Mode(client) {
+  const modes = await execOnSshClient(client, "DISPLAY=:0 batocera-resolution listModes");
+  const names = modes.split(/\r?\n/).map(line => line.split(":", 1)[0].trim());
+  const mode = names.find(name => name === "1280x720.60.00") || names.find(name => /^1280x720\.\d+\.\d+$/.test(name));
+  if (!mode) throw new Error("This machine does not report a supported 720p video mode.");
+  return mode;
+}
+
 async function getMachineBehavior(device) {
   const spec = machineBehaviorSpec(device);
   if (spec.kind === "unsupported" || device?.access !== "ssh") return { supported: false, platform: spec.platform, reason: "This machine does not expose remote behavior controls through RP1." };
   return sftpWithDevice(device, async sftp => {
-    const content = await readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : "");
+    const [content, batoceraConfig] = await Promise.all([
+      readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : ""),
+      spec.platform === "batocera" ? readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : Promise.resolve("")
+    ]);
     if (spec.kind === "retroarch") {
       const timeout = Number(retroarchSetting(content, "menu_screensaver_timeout") || 0);
       return { supported: true, platform: spec.platform, kind: spec.kind, screenSaverMinutes: Math.max(0, Math.round(timeout / 60)), capabilities: { screenSaverTime: true, systemSleepTime: false, behavior: false, powerSaver: false } };
@@ -2453,7 +2610,9 @@ async function getMachineBehavior(device) {
       systemSleepMinutes: Math.max(0, Math.round(Number(xmlSetting(content, "SystemSleepTime") || 0) / 60000)),
       behavior: xmlSetting(content, "ScreenSaverBehavior") || "dim",
       powerSaver: xmlSetting(content, "PowerSaverMode") || "default",
-      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true }
+      xboxRenderer: String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase(),
+      xboxVideoMode: xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")),
+      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera" }
     };
   });
 }
@@ -2468,15 +2627,27 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
   const allowedBehaviors = new Set(["dim", "black", "random video", "slideshow", "suspend"]);
   const allowedPower = new Set(["default", "enhanced", "instant", "disabled"]);
   if (!restore && spec.kind === "emulationstation" && (!allowedBehaviors.has(values.behavior) || !allowedPower.has(values.powerSaver))) throw new Error("Choose supported machine behavior settings.");
+  const xboxRenderer = String(values.xboxRenderer || "AUTO").toUpperCase();
+  if (!restore && spec.platform === "batocera" && !new Set(["AUTO", "VULKAN", "OPENGL"]).has(xboxRenderer)) throw new Error("Choose a supported Xbox renderer.");
+  const xboxVideoMode = String(values.xboxVideoMode || "AUTO").toUpperCase() === "720P" ? "1280x720" : String(values.xboxVideoMode || "AUTO");
+  if (!restore && spec.platform === "batocera" && !new Set(["AUTO", "1280x720"]).has(xboxVideoMode)) throw new Error("Choose a supported Xbox display resolution.");
   return sftpWithDevice(device, async (sftp, client) => {
     let content = await readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : "");
+    let batoceraConfig = spec.platform === "batocera" ? await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : "";
     const state = readMachineBehaviorState();
     const identity = softResetMachineIdentity(deviceName);
     if (!state[identity]) {
       state[identity] = spec.kind === "emulationstation" ? {
         ScreenSaverTime: xmlSetting(content, "ScreenSaverTime"), SystemSleepTime: xmlSetting(content, "SystemSleepTime"),
-        ScreenSaverBehavior: xmlSetting(content, "ScreenSaverBehavior"), PowerSaverMode: xmlSetting(content, "PowerSaverMode")
+        ScreenSaverBehavior: xmlSetting(content, "ScreenSaverBehavior"), PowerSaverMode: xmlSetting(content, "PowerSaverMode"),
+        XboxRenderer: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.xemu_api") : null,
+        XboxVideoMode: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.videomode") : null
       } : { menu_screensaver_timeout: retroarchSetting(content, "menu_screensaver_timeout") };
+      writeMachineBehaviorState(state);
+    } else if (spec.platform === "batocera" && !Object.hasOwn(state[identity], "XboxVideoMode")) {
+      // Existing restore snapshots predate this control. Preserve the machine's
+      // current video mode as the restore baseline instead of deleting it.
+      state[identity].XboxVideoMode = batoceraSetting(batoceraConfig, "xbox.videomode");
       writeMachineBehaviorState(state);
     }
     if (restore) {
@@ -2485,6 +2656,10 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       if (spec.kind === "emulationstation") {
         for (const [name, type] of [["ScreenSaverTime", "int"], ["SystemSleepTime", "int"], ["ScreenSaverBehavior", "string"], ["PowerSaverMode", "string"]]) {
           content = original[name] == null ? removeXmlSetting(content, name) : setXmlSetting(content, type, name, original[name]);
+        }
+        if (spec.platform === "batocera") {
+          batoceraConfig = original.XboxRenderer == null ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", original.XboxRenderer);
+          batoceraConfig = original.XboxVideoMode == null ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", original.XboxVideoMode);
         }
       } else if (original.menu_screensaver_timeout != null) content = setRetroarchSetting(content, "menu_screensaver_timeout", original.menu_screensaver_timeout);
       else content = String(content).replace(/^\s*menu_screensaver_timeout\s*=.*(?:\r?\n|$)/mi, "");
@@ -2495,11 +2670,20 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       content = setXmlSetting(content, "int", "SystemSleepTime", systemSleepMinutes * 60000);
       content = setXmlSetting(content, "string", "ScreenSaverBehavior", values.behavior);
       content = setXmlSetting(content, "string", "PowerSaverMode", values.powerSaver);
+      if (spec.platform === "batocera") {
+        batoceraConfig = xboxRenderer === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", xboxRenderer);
+        batoceraConfig = xboxVideoMode === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", await supportedXbox720Mode(client));
+      }
     } else content = setRetroarchSetting(content, "menu_screensaver_timeout", screenSaverMinutes * 60);
     if (spec.kind === "emulationstation") await execOnSshClient(client, "/etc/init.d/S31emulationstation stop >/dev/null 2>&1 || true", 30000);
     await writeSftpFile(sftp, `${spec.path}.rp1-upload`, content);
     await new Promise(resolve => sftp.unlink(spec.path, () => resolve()));
     await new Promise((resolve, reject) => sftp.rename(`${spec.path}.rp1-upload`, spec.path, error => error ? reject(error) : resolve()));
+    if (spec.platform === "batocera") {
+      await writeSftpFile(sftp, "/userdata/system/batocera.conf.rp1-upload", batoceraConfig);
+      await new Promise(resolve => sftp.unlink("/userdata/system/batocera.conf", () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename("/userdata/system/batocera.conf.rp1-upload", "/userdata/system/batocera.conf", error => error ? reject(error) : resolve()));
+    }
     await execOnSshClient(client, `sync${spec.kind === "emulationstation" ? "; /etc/init.d/S31emulationstation start >/dev/null 2>&1 || true" : ""}`, 30000);
     return {
       supported: true, platform: spec.platform, kind: spec.kind, restored: restore, refreshed: spec.kind === "emulationstation",
@@ -2507,7 +2691,9 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       systemSleepMinutes: spec.kind === "emulationstation" ? Math.max(0, Math.round(Number(xmlSetting(content, "SystemSleepTime") || 0) / 60000)) : 0,
       behavior: spec.kind === "emulationstation" ? xmlSetting(content, "ScreenSaverBehavior") || "dim" : "black",
       powerSaver: spec.kind === "emulationstation" ? xmlSetting(content, "PowerSaverMode") || "default" : "default",
-      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation" }
+      xboxRenderer: spec.platform === "batocera" ? String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase() : "AUTO",
+      xboxVideoMode: spec.platform === "batocera" ? xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")) : "AUTO",
+      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation", xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera" }
     };
   });
 }
@@ -4164,7 +4350,7 @@ sftpCleanupTimer.unref();
 
 function fastPutSftp(sftp, localPath, remotePath) {
   return new Promise((resolve, reject) => {
-    sftp.fastPut(localPath, remotePath, sftpTransferOptions, error => error ? reject(error) : resolve());
+    sftp.fastPut(localPath, remotePath, sftpTransferOptions(fs.statSync(localPath).size), error => error ? reject(error) : resolve());
   });
 }
 
@@ -4408,7 +4594,58 @@ function statSftpOptional(sftp, remotePath) {
   });
 }
 
-async function resumablePutSftp(sftp, localPath, remotePath, onBytes) {
+// A single SFTP write is split into small SSH packets and waits for every
+// acknowledgement before the next write. That makes a resumed disc image
+// dramatically slower than a fresh fastPut. An SSH byte stream writes in
+// order, so an interrupted upload still has a contiguous, resumable prefix.
+function streamRomOverSsh(client, localPath, remotePath, offset, totalSize, onBytes) {
+  return new Promise((resolve, reject) => {
+    const command = `cat ${offset ? ">>" : ">"} ${shellSingleQuoted(remotePath)}`;
+    client.exec(command, (openError, channel) => {
+      if (openError) return reject(openError);
+      const source = fs.createReadStream(localPath, { start: offset, highWaterMark: 1024 * 1024 });
+      let settled = false;
+      let sent = offset;
+      let stderr = "";
+      let idleTimer;
+      const armIdleTimer = (atEnd = false) => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => fail(new Error(
+          atEnd ? "SSH upload completion timed out." : "SSH upload stopped making progress."
+        )), atEnd ? 45000 : 120000);
+      };
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(idleTimer);
+        source.destroy();
+        channel.close();
+        reject(error);
+      };
+      source.on("error", fail);
+      channel.on("error", fail);
+      channel.stderr.on("data", chunk => { stderr = (stderr + chunk.toString()).slice(-2048); });
+      source.on("data", chunk => {
+        sent += chunk.length;
+        try { onBytes?.(sent, totalSize, false); }
+        catch (error) { fail(error); }
+        if (!settled) armIdleTimer(sent >= totalSize);
+      });
+      channel.on("close", code => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(idleTimer);
+        if (code !== 0 || sent !== totalSize) {
+          reject(new Error(`SSH upload stopped (${code ?? "unknown"}): ${stderr.trim() || `${sent}/${totalSize} bytes sent`}`));
+        } else resolve();
+      });
+      armIdleTimer();
+      source.pipe(channel);
+    });
+  });
+}
+
+async function resumablePutSftp(sftp, localPath, remotePath, onBytes, client = null) {
   const localSize = fs.statSync(localPath).size;
   const remoteStats = await statSftpOptional(sftp, remotePath);
   const remoteSize = Number(remoteStats?.size || 0);
@@ -4423,12 +4660,44 @@ async function resumablePutSftp(sftp, localPath, remotePath, onBytes) {
     onBytes?.(0, 0, false);
     return { bytes: 0, resumedFrom: 0, skipped: false };
   }
+  // A fresh large image should use fastPut's pipelined writes. The ordered
+  // SSH stream is only needed to append to an existing partial image; using
+  // it for every new image throttles transfers on some Batocera SSH servers.
+  if (client && localSize > 50 * 1024 * 1024 && remoteSize > 0 && remoteSize < localSize) {
+    onBytes?.(remoteSize, localSize, false);
+    await streamRomOverSsh(client, localPath, remotePath, remoteSize, localSize, onBytes);
+    return { bytes: localSize, resumedFrom: remoteSize, skipped: false };
+  }
   if (remoteSize <= 0 || remoteSize > localSize) {
     await new Promise((resolve, reject) => {
+      let settled = false;
+      let idleTimer;
+      const finish = error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(idleTimer);
+        error ? reject(error) : resolve();
+      };
+      const armIdleTimer = (atEnd = false) => {
+        clearTimeout(idleTimer);
+        // fastPut can report every byte queued before its final SFTP write
+        // acknowledgements arrive. Never leave a completed-looking transfer
+        // running forever; the dedicated connection will be closed and the
+        // saved .bw-part file verified/resumed on the next attempt.
+        idleTimer = setTimeout(() => finish(new Error(
+          atEnd ? "SFTP upload completion timed out." : "SFTP upload stopped making progress."
+        )), atEnd ? 45000 : 120000);
+      };
+      armIdleTimer();
       sftp.fastPut(localPath, remotePath, {
-        ...sftpTransferOptions,
-        step: transferred => onBytes?.(transferred, localSize, false)
-      }, error => error ? reject(error) : resolve());
+        ...sftpTransferOptions(localSize),
+        step: transferred => {
+          if (settled) return;
+          try { onBytes?.(transferred, localSize, false); }
+          catch (error) { finish(error); return; }
+          armIdleTimer(transferred >= localSize);
+        }
+      }, finish);
     });
     return { bytes: localSize, resumedFrom: 0, skipped: false };
   }
@@ -4619,6 +4888,54 @@ function cachedBiosStatus() {
     wiiu: { cached: wiiuKeyCount > 0, fileName: "keys.txt", keyCount: wiiuKeyCount },
     xbox: { cached: xboxCached, fileName: "mcpx_1.0.bin and Complex_4627.bin" }
   };
+}
+
+function medicineDownloadFiles() {
+  const downloads = path.join(os.homedir(), "Downloads");
+  const files = [];
+  const visit = (folder, depth = 0) => {
+    if (depth > 3 || !fs.existsSync(folder)) return;
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      const fullPath = path.join(folder, entry.name);
+      if (entry.isDirectory()) visit(fullPath, depth + 1);
+      else if (entry.isFile()) files.push({ name: entry.name, path: fullPath, size: fs.statSync(fullPath).size });
+    }
+  };
+  visit(downloads);
+  return { downloads, files };
+}
+
+async function installMedicineFiles(device) {
+  const { downloads, files } = medicineDownloadFiles();
+  const installed = [], ignored = [];
+  const byName = name => files.find(file => file.name.toLowerCase() === name.toLowerCase());
+  const md5 = file => crypto.createHash("md5").update(fs.readFileSync(file.path)).digest("hex");
+  const ps1 = files.find(file => file.size <= 1024 * 1024 && file.name.toLowerCase().endsWith(".bin") && ps1BiosByMd5[md5(file)]);
+  if (ps1) { await installPs1Bios(device, fs.readFileSync(ps1.path).toString("base64")); installed.push("PS1 BIOS"); }
+  fs.mkdirSync(biosCachePath, { recursive: true });
+  for (const system of ["ps2", "ps3"]) {
+    const spec = largeBiosInstallers[system], source = byName(spec.fileName);
+    if (!source) continue;
+    if (!biosHashIsAccepted(spec, md5(source))) { ignored.push(`${source.name} (verification failed)`); continue; }
+    fs.copyFileSync(source.path, path.join(biosCachePath, spec.fileName));
+    await installCachedLargeBios(device, system); installed.push(`${system.toUpperCase()} firmware`);
+  }
+  const modules = requiredPs4Modules.map(byName);
+  if (modules.every(Boolean)) {
+    fs.mkdirSync(ps4ModulesPath, { recursive: true });
+    for (const module of modules) fs.copyFileSync(module.path, path.join(ps4ModulesPath, module.name));
+    await installPs4Modules(device); installed.push("PS4 firmware modules");
+  }
+  const keys = files.find(file => file.name.toLowerCase() === "keys.txt" && fs.readFileSync(file.path,"utf8").split(/\r?\n/).some(line => /^[0-9a-f]{32}(?:\s*(?:=|#).*)?$/i.test(line.trim())));
+  if (keys) {
+    const content=fs.readFileSync(keys.path,"utf8").trim();
+    await sftpWithDevice(device, async (sftp,client)=>{await execOnSshClient(client,"mkdir -p /userdata/bios/cemu && chmod 700 /userdata/bios/cemu");await writeSftpFile(sftp,"/userdata/bios/cemu/keys.txt",`${content}\n`);await execOnSshClient(client,"chmod 600 /userdata/bios/cemu/keys.txt && sync");});
+    fs.mkdirSync(path.join(biosCachePath,"cemu"),{recursive:true});fs.copyFileSync(keys.path,path.join(biosCachePath,"cemu","keys.txt"));await installWiiUCemuSupport(device);installed.push("Wii U keys and Cemu support files");
+  }
+  const xbox = [];
+  for (const [requested,spec] of Object.entries(xboxBiosInstallers)) { const source=byName(spec.fileName||requested); if(source&&md5(source)===spec.md5)xbox.push({source,name:spec.fileName||requested}); }
+  if (xbox.length) { await sftpWithDevice(device,async(sftp,client)=>{await execOnSshClient(client,"mkdir -p /userdata/bios");for(const item of xbox)await fastPutSftp(sftp,item.source.path,`/userdata/bios/${item.name}`);await execOnSshClient(client,"sync");});installed.push(`Xbox BIOS (${xbox.length}/2 files)`); }
+  return { installed, downloads, summary: installed.length ? `Installed and verified:\n• ${installed.join("\n• ")}${ignored.length?`\n\nSkipped:\n• ${ignored.join("\n• ")}`:""}` : `No recognized, verified BIOS, firmware, or key sets were found under ${downloads}. Nothing was changed.` };
 }
 
 async function installCachedPs1Bios(device) {
@@ -5050,6 +5367,16 @@ function xmlEscape(value) {
 }
 
 function mkdirpSftp(sftp, remoteDir) {
+  // ROM directories already exist for installed systems. One stat avoids a
+  // series of failed mkdir round trips on every upload.
+  return statSftpOptional(sftp, remoteDir).then(stats => {
+    if (stats?.isDirectory()) return;
+    if (stats) throw new Error(`${remoteDir} exists but is not a directory.`);
+    return mkdirpSftpMissing(sftp, remoteDir);
+  });
+}
+
+function mkdirpSftpMissing(sftp, remoteDir) {
   const parts = remoteDir.split("/").filter(Boolean);
   let current = "";
   return parts.reduce((promise, part) => {
@@ -5872,7 +6199,7 @@ with open(os.path.join(destination,'autorun.cmd'),'w',newline='\\n') as output: 
   return { installed: true, source: path.basename(archive), runtime };
 }
 
-async function uploadRom(device, system, fileName, progress = null) {
+async function uploadRom(device, system, fileName, progress = null, registerCancel = null) {
   if (device.access === "usb") {
     return uploadRomUsb(device, system, fileName, progress);
   }
@@ -5883,7 +6210,7 @@ async function uploadRom(device, system, fileName, progress = null) {
 
   // Uploads get their own SFTP connection so a large ISO cannot block the
   // cached browsing channel used by storage and installed-library reads.
-  const uploaded = await sftpWithDedicatedDevice(device, async sftp => {
+  const uploaded = await sftpWithDedicatedDevice(device, async (sftp, client) => {
     const localPath = safeLocalRomPath(system, fileName);
     const windowsTarget=system==='windows'?windowsTransferTarget(localPath,fileName):null;
     const remoteDir = windowsTarget?.remoteDir||remoteDirFor(system,device);
@@ -5906,7 +6233,7 @@ async function uploadRom(device, system, fileName, progress = null) {
         const fileSize = fs.statSync(localFile).size;
         const result = await resumablePutSftp(sftp, localFile, remoteFile, sent => {
           progress?.({ totalFiles: files.length, completedFiles: index, totalBytes, transferredBytes: completedBytes + sent, skippedFiles, current: relativeFile });
-        });
+        }, client);
         const remoteStats = await statSftpOptional(sftp, remoteFile);
         if (!remoteStats || Number(remoteStats.size) !== fileSize) {
           throw new Error(`Transfer verification failed for ${relativeFile}.`);
@@ -5949,7 +6276,7 @@ async function uploadRom(device, system, fileName, progress = null) {
         await mkdirpSftp(sftp, path.posix.dirname(destination));
         const result = await resumablePutSftp(sftp, item.localPath, partial, sent => {
           progress?.({ totalFiles: transferFiles.length, completedFiles: index, totalBytes, transferredBytes: completedBytes + sent, skippedFiles, current: item.name });
-        });
+        }, client);
         const completedStats = await statSftpOptional(sftp, partial);
         if (!completedStats || Number(completedStats.size) !== size) throw new Error(`Transfer verification failed for ${item.name}.`);
         await new Promise(resolve => sftp.unlink(destination, () => resolve()));
@@ -5977,7 +6304,7 @@ async function uploadRom(device, system, fileName, progress = null) {
     }
     const upload = await resumablePutSftp(sftp, localPath, partialPath, sent => {
       progress?.({ totalFiles: 1, completedFiles: 0, totalBytes: fileSize, transferredBytes: sent, skippedFiles: 0, current: fileName });
-    });
+    }, client);
     const completedStats = await statSftpOptional(sftp, partialPath);
     if (!completedStats || Number(completedStats.size) !== fileSize) throw new Error(`Transfer verification failed for ${fileName}.`);
     await new Promise(resolve => sftp.unlink(remotePath, () => resolve()));
@@ -5992,7 +6319,7 @@ async function uploadRom(device, system, fileName, progress = null) {
     }
 
     return [fileName, system === "music" ? path.posix.dirname(remotePath) : remoteDir, system === "music" ? path.extname(fileName).slice(1).toUpperCase() : system.toUpperCase()];
-  });
+  }, registerCancel);
   if (system === 'windows') {
     await execSsh(device, '[ ! -x /userdata/system/ready-player-one/windows-menu-sync.sh ] || /userdata/system/ready-player-one/windows-menu-sync.sh', 15000);
   }
@@ -7193,7 +7520,9 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      sendJson(res, 200, {ok:true, app:'ready-player-one', version:require('../package.json').version, capabilities:['usb-controller-v1','usb-deletions-v1','versioned-backend-v1']});
+      sendJson(res, 200, {ok:true, app:'ready-player-one', version:require('../package.json').version,
+        sourceHash: runningSourceHash,
+        capabilities:['usb-controller-v1','usb-deletions-v1','versioned-backend-v1']});
       return;
     }
 
@@ -7593,6 +7922,7 @@ const server = http.createServer(async (req, res) => {
             return [id, {
               ...status,
               displayName,
+              osVersion: String(settings[id]?.osVersion || ""),
               hostName: displayName,
               mac: String(devices[id]?.mac || settings[id]?.mac || "").toLowerCase(),
               instanceId: settings[id]?.installationId && settings[id]?.installationDisplayName === displayName
@@ -7600,6 +7930,13 @@ const server = http.createServer(async (req, res) => {
                 : `batocera-provisional:${status.mac || status.host || id}:${displayName}`
             }];
           }));
+      if (mode === "fast" && Object.values(batoceraStatuses).some(status => status.online && status.access === "ssh")) {
+        // Keep status polling fast, but still reconcile saved labels with the
+        // connected installation. The next poll picks up any verified rename.
+        setImmediate(() => refreshMachineDisplayNames({ ...batoceraStatuses })
+          .then(() => { fastDeviceStatusCache.at = 0; })
+          .catch(() => {}));
+      }
       const deviceStatuses = { ...namedBatoceraStatuses, ...retroBatStatuses, ...usbStatuses };
       if (mode === "fast") fastDeviceStatusCache = { at: Date.now(), devices: deviceStatuses };
       sendJson(res, 200, { ok: true, devices: deviceStatuses });
@@ -7755,7 +8092,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/active") {
-      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
+      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera", { skipConnectionProbe: true });
       if (!device) {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
@@ -7926,7 +8263,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/machine-behavior") {
       const deviceName = url.searchParams.get("device") || "Batocera";
-      const device = await getRuntimeDevice(deviceName);
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
       if (!device) { sendJson(res, 404, { ok: false, error: "Machine is not configured." }); return; }
       sendJson(res, 200, { ok: true, device: deviceName, displayName: device.displayName || deviceName, online: Boolean(device.host), ...await getMachineBehavior(device) });
       return;
@@ -8261,6 +8598,18 @@ ${check}
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/medicine/install") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device || device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+        sendJson(res, 400, { ok: false, error: "Select a live Batocera machine with SSH access." });
+        return;
+      }
+      const result = await installMedicineFiles(device);
+      sendJson(res, 200, { ok: true, ...result });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/bios/install") {
       const system = String(url.searchParams.get("system") || "").toLowerCase();
       const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
@@ -8307,6 +8656,7 @@ ${check}
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
+      await ensureCurrentBatoceraInstallation(body.device, device);
       const system = String(body.system || "");
       const names = [...new Set(Array.isArray(body.fileNames) ? body.fileNames.map(String) : [])];
       let queued = 0;
@@ -8321,6 +8671,7 @@ ${check}
         const size = localTransferSize(system, fileName);
         transferJobs.set(transferKey, {
           device: body.device, transport: device.access, system, fileName,
+          installationId: String(readDeviceSettings()[body.device]?.installationId || ""),
           running: false, completed: false, totalFiles: 0, completedFiles: 0,
           totalBytes: Number(size.totalBytes || 0), transferredBytes: 0,
           skippedFiles: 0, percent: 0, current: "Queued", error: "",
@@ -8336,11 +8687,14 @@ ${check}
 
     if (req.method === "POST" && url.pathname === "/api/roms/add") {
       const body = JSON.parse((await readBody(req)) || "{}");
-      const device = await getRuntimeDevice(body.device);
+      // The upload's SSH session verifies reachability itself. A separate port
+      // probe can add a noticeable pause before the first transfer byte.
+      const device = await getRuntimeDevice(body.device, { skipConnectionProbe: true });
       if (!device) {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
+      await ensureCurrentBatoceraInstallation(body.device, device);
 
       const transferKey = JSON.stringify([body.device, body.system, body.fileName]);
       const existingJob = transferJobs.get(transferKey);
@@ -8350,6 +8704,7 @@ ${check}
       }
       const job = {
         device: body.device,
+        installationId: String(readDeviceSettings()[body.device]?.installationId || ""),
         transport: device.access,
         system: body.system,
         fileName: body.fileName,
@@ -8376,9 +8731,15 @@ ${check}
         const item = await uploadRom(device, body.system, body.fileName, update => {
           if (job.cancelRequested) throw new Error("Transfer paused by user.");
           Object.assign(job, update);
-          job.percent = job.totalBytes ? Math.min(100, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1))) : 0;
+          // 100% means the staged file was verified, renamed, and artwork
+          // handling finished. Bytes sent alone must not claim completion.
+          job.percent = job.totalBytes ? Math.min(99.9, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1))) : 0;
           scheduleTransferPersistence();
+        }, cancel => {
+          activeUploadCancels.set(transferKey, cancel);
+          if (job.cancelRequested) cancel();
         });
+        if (job.cancelRequested) throw new Error("Transfer paused by user.");
         let artwork = { status: "skipped", matched: false, artwork: false };
         try {
           job.current = "Matching picture";
@@ -8411,6 +8772,8 @@ ${check}
         });
         scheduleTransferPersistence(true);
         throw error;
+      } finally {
+        activeUploadCancels.delete(transferKey);
       }
       return;
     }
@@ -8422,7 +8785,7 @@ ${check}
       if (url.searchParams.get("all") === "1") {
         const matching = [...transferJobs.values()].filter(item => !requestedDevice || item.device === requestedDevice);
         if (url.searchParams.get("unfinished") === "1") {
-          const jobs = matching.filter(item => !item.completed && !item.partialDeleted && Number(item.percent || 0) < 100);
+          const jobs = matching.filter(item => !item.completed && !item.partialDeleted);
           sendJson(res, 200, { ok: true, jobs, resetNeeded: isSoftResetNeeded(requestedDevice) });
           return;
         }
@@ -8459,6 +8822,7 @@ ${check}
       job.autoQueued = false;
       job.current = "Stopping";
       scheduleTransferPersistence(true);
+      activeUploadCancels.get(transferKey)?.();
       sendJson(res, 200, { ok: true, job });
       return;
     }
@@ -8815,7 +9179,11 @@ async function dispatchPersistedTransferQueue() {
     const now = Date.now();
     const candidates = [...transferJobs.values()].filter(job => {
       if (!job || job.running || job.dispatching || job.completed || job.cancelled || job.cancelRequested || job.partialDeleted) return false;
-      if (!(job.autoQueued || job.queuedAt) || Number(job.percent || 0) >= 100) return false;
+      // A persisted queue is tied to the image that created it. Wait for a
+      // fresh SSH identity check before resuming anything on Batocera.
+      if (devices[job.device] && (!readDeviceSettings()[job.device]?.installationId ||
+          verifiedInstallationIds.get(job.device) !== readDeviceSettings()[job.device].installationId)) return false;
+      if (!(job.autoQueued || job.queuedAt)) return false;
       if (Number(job.nextAttemptAt || 0) > now) return false;
       try {
         return fs.existsSync(safeLocalRomPath(job.system, job.fileName));

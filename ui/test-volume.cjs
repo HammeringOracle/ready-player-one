@@ -13,7 +13,7 @@ const {chromium}=require('C:/Users/EF/.cache/codex-runtimes/codex-primary-runtim
    return route.fulfill({contentType:'text/html',body:'<div id="advancedFeatures"><button id="advancedToggle"></button><button id="openKeypad">Keypad</button><button id="openVolumeUp">Volume Up</button></div>'});
   });
   await page.goto('http://volume.test');
-  await page.evaluate(()=>window.getDiscoveredMachineStatuses=()=>({one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.0.2.10'}}));
+  await page.evaluate(()=>window.getDiscoveredMachineStatuses=()=>({one:{online:true,platform:'batocera',displayName:'BATOCERA',host:'192.168.12.234'}}));
   for(const file of ['keypad-ui.js','volume-ui.js'])await page.addScriptTag({content:fs.readFileSync('ui/'+file,'utf8')});
   await page.click('#openKeypad');await page.click('.layout-machine-card');await page.click('.kp-next');
   await page.waitForFunction(()=>!document.querySelector('.kp-close').disabled);

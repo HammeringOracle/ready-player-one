@@ -10,7 +10,7 @@ const { chromium } = require('C:/Users/EF/.cache/codex-runtimes/codex-primary-ru
         window.__TAURI__ = {core:{invoke:async (_, {action,request}) => {
           window.lastRequest = request;
           const folders={retrobat:'C:\\RetroBat',retroarch:'C:\\RetroArch-Win64',esde:'C:\\Users\\Tester\\ROMs',emustation:'C:\\Emu-Station'};
-          return action === 'status' ? {ok:true,computer:'DESKTOP-EXAMPLE',account:'DESKTOP-EXAMPLE\\Administrator',folder:folders[request.platform],folderExists:true,sharePath:folders[request.platform],networks:{index:1,name:'Wi-Fi',addresses:'192.0.2.11',category:'Private'},access:{AccountName:'Administrator',AccessControlType:'Allow',AccessRight:'Change'}} : {ok:true,account:request.account,paths:'\\\\192.0.2.11\\RetroBat',log:Array.from({length:20},(_,i)=>`Verified step ${i}`)};
+          return action === 'status' ? {ok:true,computer:'DESKTOP-K0GMQ5I',account:'DESKTOP-K0GMQ5I\\Administrator',folder:folders[request.platform],folderExists:true,sharePath:folders[request.platform],networks:{index:1,name:'Wi-Fi',addresses:'192.168.12.6',category:'Private'},access:{AccountName:'Administrator',AccessControlType:'Allow',AccessRight:'Change'}} : {ok:true,account:request.account,paths:'\\\\192.168.12.6\\RetroBat',log:Array.from({length:20},(_,i)=>`Verified step ${i}`)};
         }}};
       });
       await page.goto('file:///' + path.resolve(__dirname,'../frontend/index.html').replaceAll('\\','/'));

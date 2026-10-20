@@ -981,14 +981,14 @@
     }
 
     .row {
-      min-height: 40px;
+      min-height: 32px;
       height: auto;
       box-sizing: border-box;
       display: grid;
       grid-template-columns: 32px minmax(0, 1fr) auto;
       align-items: center;
       gap: 10px;
-      padding: 4px 8px;
+      padding: 2px 8px;
       border-radius: 6px;
       color: #c7d5e5;
       background: rgba(255, 255, 255, 0.04);
@@ -2698,7 +2698,7 @@
     @keyframes reconnect-dot { 0%,80%,100% { opacity:.25; transform:translateY(0); } 40% { opacity:1; transform:translateY(-3px); } }
     @media (prefers-reduced-motion: reduce) { .reconnecting-dots span { animation:none; } }
   </style>
-  <link rel="stylesheet" href="ui/appearance.css?v=1.0.20">
+  <link rel="stylesheet" href="ui/appearance.css?v=1.0.21">
   <link rel="stylesheet" href="ui/tour.css">
   <script src="ui/appearance.js"></script>
 </head>
@@ -2768,7 +2768,7 @@
           <div class="row" data-system="ps4"><span class="icon">PS4</span><span>PS4</span><span class="count">0</span></div>
           <div class="row" data-system="n64"><span class="icon">64</span><span>N64</span><span class="count">128</span></div>
           <div class="row" data-system="karaoke"><span class="icon karaoke-icon"></span><span>Karaoke</span><span class="count">0</span></div>
-          <div class="row" data-system="pikaraoke"><span class="icon pikaraoke-icon" role="img" aria-label="PiKaraoke"></span><span>PiKaraoke</span><span class="count">0</span></div>
+          <div class="row" data-system="pikaraoke"><span class="icon pikaraoke-icon" role="img" aria-label="PiKaraoke"></span><span>PiKaraoke</span><span class="count">I</span></div>
           <div class="row" data-system="music"><span class="icon">MF</span><span>MP3/FLAC</span><span class="count">0</span></div>
           <div class="row" data-system="gb"><span class="icon">GB</span><span>Game Boy</span><span class="count">0</span></div>
           <div class="row" data-system="gbc"><span class="icon">GC</span><span>Game Boy Color</span><span class="count">0</span></div>
@@ -3801,6 +3801,7 @@
     }
     let trackedTransferKeys = new Set();
     const pendingTransferKeys = new Set();
+    const optimisticUploadingSystems = new Set();
     const dismissedTransferKeys = new Set();
     let activeLoadGeneration = 0;
     let transferInstalledCache = { device: "", at: 0, systems: {} };
@@ -4409,6 +4410,23 @@
       return `${device}\u0000${system}\u0000${fileName}`;
     }
 
+    function consoleTransferKey(device, system) {
+      return `${device}\u0000${system}`;
+    }
+
+    function showConsoleTransferImmediately(device, system) {
+      optimisticUploadingSystems.add(consoleTransferKey(device, system));
+      if (device !== selectedDevice) return;
+      rows.forEach(row => {
+        if (row.dataset.system === system) row.classList.add('console-transfer-active');
+      });
+    }
+
+    function clearOptimisticConsoleTransfer(device, system) {
+      optimisticUploadingSystems.delete(consoleTransferKey(device, system));
+      refreshTransferActivity();
+    }
+
     function transferIsPending(fileName, system = selectedSystem, device = selectedDevice) {
       const key = transferSelectionKey(device, system, fileName);
       return !dismissedTransferKeys.has(key) && (pendingTransferKeys.has(key) || trackedTransferKeys.has(key));
@@ -4615,10 +4633,22 @@
         // history can be retained. Nothing in the selected machine's panes,
         // queue count, or progress display may consume another machine's jobs.
         const selectedJobs = jobs.filter(job => job.device === requestDevice);
+        for (const job of selectedJobs.filter(job => job.cancelRequested || job.cancelled || job.partialDeleted)) {
+          optimisticUploadingSystems.delete(consoleTransferKey(requestDevice, job.system));
+        }
         const activelyUploadingSystems = new Set(selectedJobs
-          .filter(job => job.running && !job.completed && !job.partialDeleted)
+          .filter(job => job.running && !job.completed && !job.partialDeleted && !job.cancelRequested)
           .map(job => job.system));
+        for (const key of optimisticUploadingSystems) {
+          const [device, system] = key.split("\u0000");
+          if (device === requestDevice) activelyUploadingSystems.add(system);
+        }
         rows.forEach(row => row.classList.toggle('console-transfer-active', activelyUploadingSystems.has(row.dataset.system)));
+        for (const system of new Set(selectedJobs
+          .filter(job => (job.running || job.completed) && !job.partialDeleted)
+          .map(job => job.system))) {
+          optimisticUploadingSystems.delete(consoleTransferKey(requestDevice, system));
+        }
         // New backends provide the persistent, machine-specific flag. Older
         // running backends omit it; omission must never be interpreted as
         // false or the one-second poll will erase a transfer completion that
@@ -4629,7 +4659,8 @@
           if (Boolean(result.resetNeeded) !== locallyNeeded) setSoftResetNeeded(Boolean(result.resetNeeded), requestDevice);
         }
         transferDisplayJobs.set(pendingResetScope(requestDevice, requestSystem), selectedJobs.filter(job =>
-          job.system === requestSystem && job.running && !job.completed
+          job.system === requestSystem && job.running && !job.completed && !job.cancelRequested
+            && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName))
         ));
         const completedKeys = new Set(selectedJobs
           .filter(job => job.completed && !job.partialDeleted)
@@ -5413,20 +5444,21 @@
         activeListScope = requestScope;
         activeList.dataset.device = requestDevice;
         activeList.dataset.system = key;
-        activeNames = new Set();
         const snapshot = readRemoteLibrarySnapshot(requestScope);
+        // The saved rows are already shown on the machine side. Keep their
+        // installed checkboxes in sync while the live inventory is loading.
+        activeNames = new Set(activeLayoutNames(key, snapshot || []));
         activeList.classList.remove("empty-state");
         activeList.innerHTML = snapshot ? snapshot.map(activeRow).join("") : "";
-        showLibraryConnectionMessage(snapshot ? "Checking connection — showing the last confirmed list for this machine." : "Loading this machine’s library…");
+        if (snapshot?.length) {
+          activeList.querySelector('.library-connection-message')?.remove();
+        } else {
+          showLibraryConnectionMessage("Loading this machine’s library…");
+        }
         markWarehouseChecks();
       }
-      if (!selectedDeviceOnline) {
-        activeNames = new Set();
-        activeListNeedsRetry = true;
-        showLibraryConnectionMessage("Reconnecting — waiting for this machine. Any list below is the last confirmed snapshot, not a live inventory.");
-        markWarehouseChecks();
-        return;
-      }
+      // A stale card probe must not hold up a direct inventory request. The
+      // request itself verifies whether this machine can serve the list.
 
       try {
         activeListNeedsRetry = false;
@@ -5455,8 +5487,16 @@
           ...pendingResetGames(requestDevice, key),
           ...(transferDisplayJobs.get(requestScope) || []).map(job => job.fileName)
         ]);
+        const consoleHasActiveTransfers = (transferDisplayJobs.get(requestScope) || []).some(job =>
+          job.running && !job.completed && !job.partialDeleted
+        ) || optimisticUploadingSystems.has(consoleTransferKey(requestDevice, key));
         for (const item of readRemoteLibrarySnapshot(requestScope) || []) {
-          if (preserveNames.has(item[0]) && !visibleNames.has(item[0])) {
+          // A live directory response can be incomplete while several files are
+          // being created. During that window preserve the complete last-known
+          // inventory, not just the rows participating in the current transfer.
+          // Once the console is idle, the machine response becomes authoritative
+          // again so genuinely deleted games do not linger.
+          if ((consoleHasActiveTransfers || preserveNames.has(item[0])) && !visibleNames.has(item[0])) {
             visibleItems.push(item);
             visibleNames.add(item[0]);
           }
@@ -5493,7 +5533,19 @@
         if (requestGeneration !== activeLoadGeneration || selectedDevice !== requestDevice || selectedSystem !== key) return;
         // Keep the last confirmed snapshot on transient refresh failures.
         activeListNeedsRetry = true;
-        showLibraryConnectionMessage(error.name === 'AbortError' ? 'Library check timed out. The machine may still be online.' : error.message || 'Unable to refresh this machine’s library.');
+        if (error.name === 'AbortError') {
+          // A slow inventory refresh does not invalidate the last confirmed
+          // list. Device-status polling retries it; do not cover games with a
+          // timeout message while the machine remains online.
+          if ((readRemoteLibrarySnapshot(requestScope) || []).length) {
+            activeList.querySelector('.library-connection-message')?.remove();
+            activeList.classList.remove('empty-state');
+          } else {
+            showLibraryConnectionMessage('Loading this machine’s library…');
+          }
+        } else {
+          showLibraryConnectionMessage(error.message || 'Unable to refresh this machine’s library.');
+        }
       }
     }
 
@@ -5547,7 +5599,7 @@
           : items.length;
         const badge = row.querySelector(".count");
         if (badge) {
-          badge.textContent = count.toLocaleString();
+          badge.textContent = key === "pikaraoke" ? "I" : count.toLocaleString();
         }
       });
     }
@@ -6038,6 +6090,7 @@
           if (!selectAll || removeAllInstead) {
             await runConsoleRemoveAll(selectedDevice, selectedSystem);
           } else {
+            showConsoleTransferImmediately(selectedDevice, selectedSystem);
             // Persist the complete request before the first copy starts so a
             // refresh, disconnect, or app restart can reconstruct the rest.
             const completeConsoleNames = activeLayoutNames(selectedSystem,
@@ -6065,6 +6118,7 @@
             await autoResumePersistedTransfers(selectedDevice);
           }
         } catch (error) {
+          if (selectAll && !removeAllInstead) clearOptimisticConsoleTransfer(selectedDevice, selectedSystem);
           finishFooterRemoval(false);
           syncStatus.textContent = error.message;
           await showXboxBiosDialog({ title: "Remove All Failed", device: selectedDevice, message: error.message, confirmLabel: "OK" });
@@ -6185,7 +6239,9 @@
 
     function markWarehouseChecks() {
       const runningNames = new Set((transferDisplayJobs.get(pendingResetScope(selectedDevice, selectedSystem)) || [])
-        .filter(job => job.system === selectedSystem).map(job => job.fileName));
+        .filter(job => job.system === selectedSystem && !job.cancelRequested
+          && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName)))
+        .map(job => job.fileName));
       warehouseList.querySelectorAll(".game").forEach(game => {
         const gameCheckbox = game.querySelector(".game-check");
         if (gameCheckbox) {
@@ -6656,6 +6712,7 @@
             dismissedTransferKeys.add(transferKey);
             pendingTransferKeys.delete(transferKey);
             trackedTransferKeys.delete(transferKey);
+            optimisticUploadingSystems.delete(consoleTransferKey(targetDevice, targetSystem));
             if (targetDevice === selectedDevice) setLayoutSelection(targetSystem, name, false);
             if (targetDevice === selectedDevice && targetSystem === selectedSystem) markWarehouseChecks();
             let stopped = Boolean(running);
@@ -6695,6 +6752,7 @@
         // Status polling must not mistake preflight for an unchecked game.
         pendingSelectionKey = transferSelectionKey(targetDevice, targetSystem, name);
         pendingTransferKeys.add(pendingSelectionKey);
+        showConsoleTransferImmediately(targetDevice, targetSystem);
         markWarehouseChecks();
 
         if (/^Batocera USB \([A-Z]:\)$/i.test(targetDevice)) {
@@ -6740,6 +6798,7 @@
         }
         return true;
       } catch (error) {
+        clearOptimisticConsoleTransfer(targetDevice, targetSystem);
         console.error(error);
         syncStatus.textContent = error.message;
         const failedBeforeHandshake = /before handshake|handshake.*(?:failed|lost|closed)|connection lost before/i.test(String(error?.message || error));
@@ -7308,9 +7367,10 @@
       const meta = card.querySelector(".device-meta");
       if (meta) {
         const hostName = String(status?.hostName || status?.displayName || "").trim();
+        const osVersion = String(status?.osVersion || "").trim().match(/^\d+(?:\.\d+)?/)?.[0] || "";
         meta.textContent = status?.usb
           ? `${host || "USB"} • ${!online ? "Disconnected" : status.usbMode === "direct" ? "Direct" : "Staged"}`
-          : [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") || (searching ? "Scanning network..." : "No IP");
+          : [hostName && hostName !== title?.textContent ? hostName : "", osVersion ? `Batocera ${osVersion}` : "", host].filter(Boolean).join(" • ") || (searching ? "Scanning network..." : "No IP");
       }
 
       if (card.classList.contains("selected")) {
@@ -7392,8 +7452,11 @@
         // not linger as a stale local snapshot after a reboot or USB swap.
         initializeMachineSystems({refresh: selectedDeviceOnline});
         if (!selectedDeviceOnline) {
-          activeListNeedsRetry = true;
-          showLibraryConnectionMessage("Reconnecting — searching the local network for this machine. Any list below is the last confirmed snapshot.");
+          // A quick card probe may miss an otherwise working SSH connection.
+          // Keep confirmed games visible while the direct library request runs.
+          if (!activeList.querySelector('.device-game')) {
+            showLibraryConnectionMessage("Reconnecting — searching the local network for this machine.");
+          }
         } else if (!previousOnline || previousHost !== selectedDeviceHost || activeListNeedsRetry) {
           loadActiveList(selectedSystem);
           loadDeviceStorage();
@@ -7967,6 +8030,7 @@
       behaviorButton.className = 'advanced-item';
       behaviorButton.setAttribute('role', 'menuitem');
       behaviorButton.textContent = 'Machine Behavior';
+      behaviorButton.style.marginTop = '4px';
       behaviorButton.addEventListener('click', () => {
         closeRetroBatMachineMenu();
         if (typeof window.openMachineBehavior === 'function') window.openMachineBehavior(card.dataset.device);
