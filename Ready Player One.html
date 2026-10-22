@@ -194,9 +194,12 @@
       width: auto;
       max-width: none;
       overflow-x: auto;
-      scrollbar-width: thin;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       padding: 3px;
     }
+    .machine-list::-webkit-scrollbar { display: none; }
 
     .add-machine {
       flex: 0 0 auto;
@@ -229,6 +232,7 @@
       box-shadow: 0 0 0 3px rgba(38, 168, 255, 0.16), 0 0 28px rgba(38, 168, 255, 0.26);
       cursor: pointer;
     }
+
 
     .device-card[data-platform="batocera-usb"] {
       width: 210px;
@@ -2698,7 +2702,7 @@
     @keyframes reconnect-dot { 0%,80%,100% { opacity:.25; transform:translateY(0); } 40% { opacity:1; transform:translateY(-3px); } }
     @media (prefers-reduced-motion: reduce) { .reconnecting-dots span { animation:none; } }
   </style>
-  <link rel="stylesheet" href="ui/appearance.css?v=1.0.21">
+  <link rel="stylesheet" href="ui/appearance.css?v=1.0.23">
   <link rel="stylesheet" href="ui/tour.css">
   <script src="ui/appearance.js"></script>
 </head>
@@ -2722,11 +2726,11 @@
 
     <section class="device-strip" id="deviceStrip" aria-label="Discovered systems">
       <div class="machine-list" id="machineList">
-      <article class="device-card offline selected" data-device="Batocera" data-platform="batocera" data-online="false" data-host="">
+      <article class="device-card offline selected" data-device="Batocera" data-platform="batocera" data-online="false" data-host="" hidden>
         <div class="mini-pc" aria-hidden="true"></div>
         <div>
           <div class="device-name">Batocera</div>
-          <div class="device-meta">Auto scan</div>
+          <div class="device-meta">Waiting for IP…</div>
         </div>
       </article>
       </div>
@@ -3943,7 +3947,7 @@
 
     const systemInventoryLoading = new Set();
     function steamDiscoveryKey(device) {
-      return `${visibilityStorageKey(device)}.steamDiscovery.v1`;
+      return `${visibilityStorageKey(device)}.steamDiscovery.v2`;
     }
     function c64DiscoveryKey(device) {
       return `${visibilityStorageKey(device)}.c64Discovery.v2`;
@@ -4106,6 +4110,10 @@
       const machines = automaticSetupPlatform && targetStatus?.online && (targetStatus.access === 'ssh' || targetStatus.platform==='retrobat') ? [visibilityDevice] : [];
       const previous = readVisibleSystems(visibilityDevice);
       const removed = new Set([...previous].filter(system => !selected.has(system)));
+      if (removed.size && !machines.length) {
+        await showXboxBiosDialog({title:'Machine Unavailable', device:visibilityDevice, message:'Reconnect this machine before removing a console. RP1 will not merely hide it while its files remain on the machine.', confirmLabel:'OK'});
+        return;
+      }
       const systemSelectionChanged = removed.size > 0 || [...selected].some(system => !previous.has(system));
       const removals = [];
       const setup = {
@@ -4176,6 +4184,10 @@
           }
         }
       } catch (error) {
+        // A failed machine inventory must not turn an unchecked console into
+        // a local-only hide while it remains installed on Batocera.
+        localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...previous]));
+        if (selectedDevice === visibilityDevice) applyVisibleSystems(previous);
         await showXboxBiosDialog({title:'Setup Check Failed', message:error.message, confirmLabel:'OK'});
         return;
       } finally { saveSystemPicker.disabled = false; }
@@ -4277,6 +4289,12 @@
             if (removedSystem.resetApplied) setSoftResetNeeded(false, removal.device);
             results.push(`${resultPrefix(removal.device)}${removal.system}: system and machine-side games permanently removed; local PC originals kept.${removedSystem.resetApplied ? ' Batocera refreshed automatically.' : ''}`);
           } catch (error) {
+            if (removal.system === 'steam') {
+              const restored = readVisibleSystems(removal.device);
+              restored.add('steam');
+              localStorage.setItem(visibilityStorageKey(removal.device), JSON.stringify([...restored]));
+              if (removal.device === selectedDevice) applyVisibleSystems(restored);
+            }
             results.push(`${resultPrefix(removal.device)}${removal.system}: NOT removed — ${error.message}`);
           } finally { advanceSetupProgress(); }
         }
@@ -7232,12 +7250,12 @@
       card.dataset.bound = "true";
       card.addEventListener("click", () => selectDeviceCard(card));
       card.addEventListener('contextmenu', event => {
-        if (!['retrobat','retroarch','batocera','recalbox','lakka','retropie','esde','emustation'].includes(card.dataset.platform)) return;
+        if (!['retrobat','retroarch','batocera','recalbox','lakka','retropie','esde','emustation','windows'].includes(card.dataset.platform)) return;
         event.preventDefault();
         showRetroBatMachineMenu(card, event.clientX, event.clientY);
       });
       card.addEventListener('keydown', event => {
-        if (!['retrobat','retroarch','batocera','recalbox','lakka','retropie','esde','emustation'].includes(card.dataset.platform) || !(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) return;
+        if (!['retrobat','retroarch','batocera','recalbox','lakka','retropie','esde','emustation','windows'].includes(card.dataset.platform) || !(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) return;
         event.preventDefault();
         const bounds = card.getBoundingClientRect();
         showRetroBatMachineMenu(card, bounds.left, bounds.bottom);
@@ -7265,10 +7283,10 @@
       const labels = document.createElement("div");
       const title = document.createElement("div");
       title.className = "device-name";
-      title.textContent = status.usb ? "Batocera USB" : (status.displayName || name);
+      title.textContent = status.usb ? "Batocera USB" : status.platform === 'windows' ? 'Windows' : (status.displayName || name);
       const meta = document.createElement("div");
       meta.className = "device-meta";
-      meta.textContent = status.usb ? `${status.host || "USB"} • ${status.usbMode === "direct" ? "Direct" : "Staged"}` : status.host || "Auto scan";
+      meta.textContent = status.usb ? `${status.host || "USB"} • ${status.usbMode === "direct" ? "Direct" : "Staged"}` : status.host || "Waiting for IP…";
       labels.append(title, meta);
       const chevron = document.createElement("button");
       chevron.className = "device-chevron";
@@ -7298,22 +7316,12 @@
       deviceCards = document.querySelectorAll(".device-card");
       deviceCards.forEach(bindDeviceCard);
       const connectedNames = new Set(Object.entries(statuses || {}).filter(([, status]) => status.online || status.reachable).map(([name]) => name));
-      let placeholder = null;
-      if (!connectedNames.size) {
-        placeholder = [...deviceCards].find(card => card.dataset.device === "Batocera");
-        if (!placeholder) {
-          placeholder = createDeviceCard("Batocera", {online:false, searching:true});
-          deviceCards = document.querySelectorAll(".device-card");
-        }
-        applyDeviceStatus(placeholder, {online:false, searching:true, host:""});
-        placeholder.querySelector(".device-meta").textContent = "Waiting for a machine…";
-      }
       deviceCards.forEach(card => {
-        // Discovery results can briefly omit a machine while a scan is in
-        // progress. Never hide or replace the user's selected machine during
-        // that transient gap; only an explicit click changes machines.
-        card.hidden = !card.classList.contains("selected") && !connectedNames.has(card.dataset.device) && card !== placeholder
-          && card.dataset.platform !== "batocera-usb";
+        // Keep the saved card in the DOM for rediscovery, but never show a
+        // disconnected red tag (including when that machine was selected).
+        // Selection itself remains unchanged; an offline machine must not
+        // silently switch RP1 to another machine.
+        card.hidden = !connectedNames.has(card.dataset.device);
       });
       // Confirmed machines first, initial communication next, saved/offline
       // placeholders last. Keep the existing order within each group.
@@ -7394,7 +7402,8 @@
       if (status?.mac) card.dataset.mac = String(status.mac).toLowerCase();
       card.dataset.platform = status?.platform || card.dataset.platform || "batocera";
       const title = card.querySelector(".device-name");
-      if (title) title.textContent = status?.usb ? "Batocera USB" : (status?.displayName || card.dataset.device);
+      if (title) title.textContent = status?.usb ? "Batocera USB" : status?.platform === 'windows' ? 'Windows' : (status?.displayName || card.dataset.device);
+      if (status?.platform === 'windows') card.title = `${status.displayName || card.dataset.device} • ${host}`;
       if (card.dataset.device === selectedDevice) {
         const activeMachineName = activeTitle.querySelector('.active-machine-name');
         if (activeMachineName) activeMachineName.textContent = `On ${machineDisplayName(selectedDevice)}`;
@@ -7404,13 +7413,14 @@
       card.classList.toggle("searching", searching && !online && !reachable);
       card.classList.toggle("communicating", communicating);
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
+      card.hidden = !(online || reachable);
 
       const meta = card.querySelector(".device-meta");
       if (meta) {
         const hostName = String(status?.hostName || status?.displayName || "").trim();
-        meta.textContent = status?.usb
+        meta.textContent = status?.platform === 'windows' ? (status.displayName || host || 'Windows PC') : status?.usb
           ? `${host || "USB"} • ${!online ? "Disconnected" : status.usbMode === "direct" ? "Direct" : "Staged"}`
-          : [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") || (searching ? "Waiting for IP…" : "No IP");
+          : host ? [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") : "Waiting for IP…";
       }
 
       if (card.classList.contains("selected")) {
@@ -7531,7 +7541,7 @@
           const host = card.dataset.host || "";
           const meta = card.querySelector(".device-meta");
           if (meta) {
-            meta.textContent = host || (searching ? "Waiting for IP…" : "No IP");
+            meta.textContent = host || "Waiting for IP…";
           }
           const reachable = card.dataset.reachable === "true";
           card.classList.toggle("reachable", reachable && !online);
@@ -8094,6 +8104,82 @@
       menu.setAttribute('role', 'menu');
       menu.setAttribute('aria-label', `${machineDisplayName(card.dataset.device)} options`);
       menu.style.cssText = 'position:fixed;z-index:10000;padding:8px;border:1px solid #779aca;border-radius:12px;background:#182130;box-shadow:0 12px 30px #0007;';
+      if (card.dataset.platform === 'windows') {
+        const credentialsButton = document.createElement('button');
+        credentialsButton.type = 'button';
+        credentialsButton.className = 'advanced-item';
+        credentialsButton.setAttribute('role', 'menuitem');
+        credentialsButton.textContent = 'Add / Update Credentials';
+        credentialsButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openRetroBatMachineCredentials(card); });
+        menu.append(credentialsButton);
+        const dualBootButton = document.createElement('button');
+        dualBootButton.type = 'button';
+        dualBootButton.className = 'advanced-item';
+        dualBootButton.setAttribute('role', 'menuitem');
+        dualBootButton.textContent = 'Shared Dual Boot';
+        dualBootButton.addEventListener('click', async () => {
+          closeRetroBatMachineMenu();
+          const preferenceKey = `rp1-shared-dual-boot-windows-gb:${card.dataset.device}:${card.dataset.host}`;
+          let report;
+          try {
+            const response = await fetch(`${apiBase}/api/windows/dual-boot/preflight?device=${encodeURIComponent(card.dataset.device)}`);
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || 'Could not inspect this Windows drive.');
+            report = result.report;
+          } catch (error) {
+            await showXboxBiosDialog({title:'Shared Dual Boot',device:card.dataset.device,message:error.message,confirmLabel:'OK'});
+            return;
+          }
+          const gb = bytes => (Number(bytes) / (1024 ** 3)).toFixed(1);
+          const minWindowsGb = Math.ceil(Number(report.smallestSupportedWindowsSizeBytes) / (1024 ** 3));
+          const maxWindowsGb = Math.floor(Number(report.windowsPartitionSizeBytes) / (1024 ** 3));
+          const dialogResult = showXboxBiosDialog({
+            title: 'Shared Dual Boot',
+            device: `${card.dataset.device} · ${card.dataset.host}`,
+            message: `RP2 inspected disk ${report.diskNumber} (${gb(report.diskSizeBytes)} GB, ${report.partitionStyle}). Windows currently occupies ${gb(report.windowsPartitionSizeBytes)} GB; ${gb(report.windowsUsedBytes)} GB is used. Windows reports it can shrink no smaller than ${gb(report.smallestSupportedWindowsSizeBytes)} GB. Report captured ${report.capturedAt || 'recently'}.\n\nChoose how much Windows keeps and the preferred boot OS. These are preferences only: image transfer, partitioning, installation, and boot changes are not enabled yet.`,
+            confirmLabel: 'Save preferences',
+            cancellable: true
+          });
+          const sizeLabel = document.createElement('label');
+          sizeLabel.textContent = 'Keep for Windows (GB)';
+          sizeLabel.style.cssText = 'display:block;margin-top:12px;font-weight:700';
+          const sizeInput = document.createElement('input');
+          sizeInput.type = 'number';
+          sizeInput.min = String(minWindowsGb);
+          sizeInput.max = String(maxWindowsGb);
+          sizeInput.step = '1';
+          sizeInput.inputMode = 'numeric';
+          sizeInput.placeholder = `${minWindowsGb}–${maxWindowsGb} GB`;
+          sizeInput.value = localStorage.getItem(preferenceKey) || '';
+          sizeInput.style.cssText = 'display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:8px';
+          sizeLabel.append(sizeInput);
+          const defaultBootLabel = document.createElement('label');
+          defaultBootLabel.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px';
+          const defaultBootCheckbox = document.createElement('input');
+          defaultBootCheckbox.type = 'checkbox';
+          defaultBootCheckbox.checked = localStorage.getItem(`${preferenceKey}:batocera-default`) === 'true';
+          defaultBootLabel.append(defaultBootCheckbox, document.createTextNode('Boot Batocera by default (otherwise Windows)'));
+          xboxBiosDialogMessage.append(sizeLabel, defaultBootLabel);
+          const validSize = () => {
+            const value = Number(sizeInput.value);
+            return Number.isInteger(value) && value >= minWindowsGb && value < maxWindowsGb;
+          };
+          confirmXboxBiosDialog.disabled = !validSize();
+          sizeInput.addEventListener('input', () => { confirmXboxBiosDialog.disabled = !validSize(); });
+          sizeInput.focus();
+          if (await dialogResult) {
+            localStorage.setItem(preferenceKey, sizeInput.value.trim());
+            localStorage.setItem(`${preferenceKey}:batocera-default`, String(defaultBootCheckbox.checked));
+          }
+        });
+        menu.append(dualBootButton);
+        document.body.append(menu);
+        menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
+        retroBatMachineMenu = menu;
+        dualBootButton.focus();
+        return;
+      }
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'advanced-item';
@@ -8162,7 +8248,8 @@
       const isBatocera = card.dataset.platform === 'batocera';
       const isLakka = card.dataset.platform === 'lakka';
       const isRecalbox = card.dataset.platform === 'recalbox';
-      const platformLabel = {retrobat:'RetroBat',retroarch:'RetroArch',recalbox:'Recalbox',retropie:'RetroPie',esde:'ES-DE',emustation:'Emu-Station',lakka:'Lakka',batocera:'Batocera'}[platform] || 'Machine';
+      const isWindows = platform === 'windows';
+      const platformLabel = {windows:'Windows',retrobat:'RetroBat',retroarch:'RetroArch',recalbox:'Recalbox',retropie:'RetroPie',esde:'ES-DE',emustation:'Emu-Station',lakka:'Lakka',batocera:'Batocera'}[platform] || 'Machine';
       if (!host) {
         await showXboxBiosDialog({title:`${platformLabel} Credentials`, device, message:'This machine does not have a detected network address yet.'});
         return;
@@ -8175,6 +8262,10 @@
       if(isBatocera||isLakka||isRecalbox) {
         dialog.querySelector('input[name=username]').placeholder='Typically: root';
         dialog.querySelector('input[name=password]').placeholder=isRecalbox?'Typically: recalboxroot':isLakka?'Typically: root':'Typically: linux';
+      }
+      if(isWindows) {
+        dialog.querySelector('input[name=username]').placeholder='COMPUTER-NAME\\username';
+        dialog.querySelector('input[name=password]').placeholder='Windows account password (not PIN)';
       }
       document.body.append(dialog);
       const suggestedUsername=lastDeviceStatuses[device]?.suggestedUsername;
@@ -8206,7 +8297,7 @@
         const controller=loginController;
         const timeout=setTimeout(()=>controller.abort(),35000);
         try {
-          const response=await fetch(`${apiBase}/api/${isRecalbox?'recalbox':isLakka?'lakka':isBatocera?'batocera':'retrobat'}/credentials/connect`,{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({device,host,platform,username:values.get('username'),password:values.get('password'),remember:values.has('remember')})});
+          const response=await fetch(`${apiBase}/api/${isWindows?'windows':isRecalbox?'recalbox':isLakka?'lakka':isBatocera?'batocera':'retrobat'}/credentials/connect`,{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({device,host,platform,username:values.get('username'),password:values.get('password'),remember:values.has('remember')})});
           const result=await response.json();
           if(!response.ok||!result.ok)throw new Error(response.status===405?'Restart Ready Player One to activate the updated login form.':result.error||'Could not connect.');
           syncStatus.textContent=`Connected to ${machineDisplayName(device)}${result.remembered?' — credentials saved in Windows':''}`;
@@ -8251,7 +8342,7 @@
         title.textContent = status.displayName || id;
         const meta = document.createElement('div');
         meta.className = 'device-meta';
-        meta.textContent = status.host || (status.usb ? 'USB' : 'Auto scan');
+        meta.textContent = status.host || (status.usb ? 'USB' : 'Waiting for IP…');
         labels.append(title, meta);
         card.append(icon, labels);
         grid.append(card);
@@ -9660,7 +9751,7 @@
   <script src="/ui/keypad-ui.js"></script>
   <script src="/ui/volume-ui.js"></script>
   <script src="/ui/installed-features-ui.js"></script>
-  <script src="/ui/ready-player-two-ui.js"></script>
+  <script src="/ui/ready-player-two-ui.js?v=1.0.22"></script>
   <script src="/ui/welcome-ui.js"></script>
   <script src="/ui/tour-ui.js"></script>
 </body>

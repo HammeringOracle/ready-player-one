@@ -191,8 +191,10 @@ rp2Announcements.on('message',(message,remote)=>{
   try{
     const notice=JSON.parse(message.toString('utf8'));
     if(notice?.kind!=='ready-player-two'||![1,2].includes(notice.version)||!Array.isArray(notice.platforms)||!isAddressOnActiveLan(remote.address))return;
+    retroBatDiscovery.announceWindows(remote.address,notice.computer,notice.account);
     for(const platform of notice.platforms)retroBatDiscovery.announce(remote.address,String(platform),notice.computer,notice.account);
-    retroBatDiscovery.scan().catch(error=>console.error('RP2 announcement scan failed:',error));
+    fastDeviceStatusCache.at=0;
+    if (notice.platforms.length) retroBatDiscovery.scan().catch(error=>console.error('RP2 announcement scan failed:',error));
   }catch{}
 });
 rp2Announcements.on('error',error=>console.error('RP2 announcement listener failed:',error.message));
@@ -3982,6 +3984,27 @@ for entry in entries:
   node=target.find(field.tag)
   if node is None: node=ET.SubElement(target,field.tag)
   node.text=field.text or ""
+# Xbox 360 has no M3U launch entry for these ISO sets. Keep every disc on
+# disk, but show only Disc 1 in EmulationStation. Reconcile the full folder on
+# every artwork publish so interrupted/resumed uploads end in the same state.
+if system=="xbox360":
+ disc_pattern=re.compile(r"^(.*?)\\s*[\\[(]disc\\s*0*([1-9]\\d*)[\\])]\\s*(\\.[^.]+)$",re.I)
+ groups={}
+ for filename in os.listdir(root):
+  match=disc_pattern.match(filename)
+  if match and os.path.isfile(os.path.join(root,filename)):
+   groups.setdefault((match.group(1).casefold(),match.group(3).casefold()),[]).append((int(match.group(2)),filename))
+ for discs in groups.values():
+  if len({number for number,_ in discs})<2: continue
+  discs.sort(key=lambda item:(item[0],item[1].casefold()))
+  for index,(_,filename) in enumerate(discs):
+   relative="./"+filename
+   game=by_relative.get(relative)
+   if game is None:
+    game=ET.SubElement(gamelist,"game"); ET.SubElement(game,"path").text=relative; by_relative[relative]=game
+   hidden=game.find("hidden")
+   if hidden is None: hidden=ET.SubElement(game,"hidden")
+   hidden.text="false" if index==0 else "true"
 try: ET.indent(tree,space="\t")
 except AttributeError: pass
 temporary=gamelist_path+".rp1-new"
@@ -6837,6 +6860,9 @@ async function removeSystem(device, system, options = {}) {
   if (!Object.prototype.hasOwnProperty.call(systemFolders, system) || system === "music") {
     throw new Error("Unknown or non-removable system.");
   }
+  if (system === "steam" && (device.access !== "ssh" || (device.platform && device.platform !== "batocera"))) {
+    throw new Error("Connect to Batocera over SSH to remove Steam and its console entry.");
+  }
   if (device.access === "usb") {
     const target = usbPathForSystem(device, system);
     fs.rmSync(target, {recursive:true, force:true});
@@ -6856,7 +6882,23 @@ async function removeSystem(device, system, options = {}) {
     return { resetApplied: false };
   }
   const remoteDir = remoteDirFor(system, device);
-  const contentRoots = await batoceraSystemContentRoots(device, system);
+  // Steam may be grouped with other Flatpaks. Never let a group-system scan
+  // broaden removal to /userdata/roms/flatpak or another app's ROM root.
+  const contentRoots = system === "steam"
+    ? ["/userdata/roms/steam"]
+    : await batoceraSystemContentRoots(device, system);
+  if (system === "steam") {
+    // Steam is a Flatpak, not just a ROM folder. Removing only the shortcuts
+    // leaves the application installed and Batocera can recreate the system.
+    // Handle both system-wide and batocera-user installations before removing
+    // the exact Steam shortcut paths. Never touch other Flatpaks or PC files.
+    await execSsh(device, [
+      "set -e",
+      "if flatpak info --system com.valvesoftware.Steam >/dev/null 2>&1; then flatpak uninstall --system --noninteractive --delete-data com.valvesoftware.Steam; fi",
+      "if su - batocera -c 'flatpak info --user com.valvesoftware.Steam' >/dev/null 2>&1; then su - batocera -c 'flatpak uninstall --user --noninteractive --delete-data com.valvesoftware.Steam'; fi",
+      "rm -f -- /userdata/roms/flatpak/steam.flatpak"
+    ].join("; "), 120000);
+  }
   const commands = contentRoots.map(target => `rm -rf -- ${shellSingleQuoted(target)}`);
   if (system === "3dsen") {
     const cleanup = Buffer.from(`import os, xml.etree.ElementTree as ET
@@ -6891,7 +6933,10 @@ if os.path.exists(p):
     commands.push(`printf '%s' '${cleanup}' | base64 -d | python3`);
   }
   await execSsh(device, commands.join("; "), 30000);
-  const verification = await execSsh(device, `${contentRoots.map(target => `[ ! -e ${shellSingleQuoted(target)} ]`).join(" && ")} && echo REMOVED`, 15000);
+  const steamVerification = system === "steam"
+    ? " && ! flatpak info --system com.valvesoftware.Steam >/dev/null 2>&1 && ! su - batocera -c 'flatpak info --user com.valvesoftware.Steam' >/dev/null 2>&1 && [ ! -e /userdata/roms/flatpak/steam.flatpak ]"
+    : "";
+  const verification = await execSsh(device, `${contentRoots.map(target => `[ ! -e ${shellSingleQuoted(target)} ]`).join(" && ")}${steamVerification} && echo REMOVED`, 15000);
   if (!verification.includes("REMOVED")) throw new Error(`Batocera did not fully remove ${system}.`);
   // Removing a system changes EmulationStation's visible system registry.
   // Use the same verified fallback chain as the Soft Reset button and do not
@@ -7886,7 +7931,22 @@ const server = http.createServer(async (req, res) => {
       catch(error) {if(!res.destroyed)sendJson(res,400,{ok:false,error:error.message});}
       return;
     }
-    if (req.method === "POST" && ['/api/lakka/credentials/connect','/api/recalbox/credentials/connect','/api/retrobat/credentials/connect','/api/batocera/credentials/connect'].includes(url.pathname)) {
+    if (req.method === "GET" && url.pathname === "/api/windows/dual-boot/preflight") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      if (!local) {sendJson(res,403,{ok:false,error:'Open Shared Dual Boot from Ready Player One on this PC.'});return;}
+      const machine=retroBatDiscovery.refresh()[url.searchParams.get('device')];
+      if(machine?.platform!=='windows'||!machine.online||!isAddressOnActiveLan(machine.host)) {sendJson(res,404,{ok:false,error:'The selected Windows machine is not currently announcing RP2 on this LAN.'});return;}
+      try {
+        const source=`\\\\${machine.host}\\RP2Status\\preflight.json`;
+        const raw=await fs.promises.readFile(source,'utf8');
+        if(raw.length>65536)throw new Error('The RP2 report is unexpectedly large.');
+        const report=JSON.parse(raw);
+        if(report?.ok!==true||!Number.isFinite(report.diskSizeBytes)||!Number.isFinite(report.windowsPartitionSizeBytes)||!Array.isArray(report.partitions))throw new Error('RP2 returned an invalid drive report.');
+        sendJson(res,200,{ok:true,host:machine.host,report});
+      } catch(error) {sendJson(res,400,{ok:false,error:`Could not read RP2's drive report. Add / Update Credentials for this Windows machine, then run the updated RP2 setup. ${error.message}`});}
+      return;
+    }
+    if (req.method === "POST" && ['/api/lakka/credentials/connect','/api/recalbox/credentials/connect','/api/retrobat/credentials/connect','/api/batocera/credentials/connect','/api/windows/credentials/connect'].includes(url.pathname)) {
       const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
       let trustedOrigin = !req.headers.origin;
       if (req.headers.origin) {
@@ -7897,6 +7957,16 @@ const server = http.createServer(async (req, res) => {
       }
       if (process.platform !== "win32") { sendJson(res, 400, {ok:false, error:"Windows Credential Manager requires Windows."}); return; }
       const body=JSON.parse((await readBody(req)) || '{}');
+      if(url.pathname==='/api/windows/credentials/connect') {
+        try {
+          const machine=retroBatDiscovery.refresh()[body.device];
+          if(machine?.platform!=='windows'||machine.host!==body.host||!machine.online||!isAddressOnActiveLan(body.host))throw new Error('Choose a currently detected Windows machine running Ready Player Two.');
+          const result=await require('./retrobat-credentials')({...body,platform:'windows'});
+          sendJson(res,result.ok?200:400,result);
+        } catch(error) {sendJson(res,400,{ok:false,error:error.message});}
+        finally {body.password=null;}
+        return;
+      }
       if(['/api/lakka/credentials/connect','/api/recalbox/credentials/connect'].includes(url.pathname)){
         try{
           const sshPlatform=url.pathname.includes('recalbox')?'recalbox':'lakka';
@@ -8350,7 +8420,7 @@ const server = http.createServer(async (req, res) => {
         const names = new Set(listed.map(item => item.name));
         // Steam can be installed before its first game shortcut is created.
         if (!names.has('steam') && (!device.platform || device.platform === 'batocera')) {
-          const steam = await execSsh(device, "if flatpak info com.valvesoftware.Steam >/dev/null 2>&1 || su - batocera -c 'flatpak --user info com.valvesoftware.Steam' >/dev/null 2>&1; then printf steam; fi", 15000);
+          const steam = await execSsh(device, "if flatpak info --system com.valvesoftware.Steam >/dev/null 2>&1 || su - batocera -c 'flatpak info --user com.valvesoftware.Steam' >/dev/null 2>&1 || [ -f /userdata/roms/flatpak/steam.flatpak ] || find /userdata/roms/steam -maxdepth 1 -type f -name '*.steam' -print -quit 2>/dev/null | grep -q .; then printf steam; fi", 15000);
           if (String(steam).trim() === 'steam') names.add('steam');
         }
         for (const [key, folder] of Object.entries(systemFolders)) if (names.has(folder)) systems.push(key);

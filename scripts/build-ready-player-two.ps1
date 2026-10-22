@@ -24,6 +24,11 @@ $now = Get-Date
 (Get-Item -LiteralPath $bundledExecutable).CreationTime = $now
 (Get-Item -LiteralPath $bundledExecutable).LastWriteTime = $now
 
-$hash = (Get-FileHash -LiteralPath $bundledExecutable -Algorithm SHA256).Hash
+$stream = [IO.File]::OpenRead($bundledExecutable)
+try {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+    finally { $sha.Dispose() }
+} finally { $stream.Dispose() }
 Write-Host "Ready Player Two is now bundled in RP1: $bundledExecutable"
 Write-Host "SHA-256: $hash"

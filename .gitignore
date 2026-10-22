@@ -32,6 +32,8 @@ USB Images/
 *-credentials.json
 *-credentials.js
 *-credentials.ps1
+!ui/retrobat-credentials.js
+!ui/retrobat-credentials.ps1
 .rec-room-credential-key
 device-settings.json
 controller-settings.json

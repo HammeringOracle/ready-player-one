@@ -20,6 +20,7 @@ function inspect(host) {
 }
 function createDiscovery({settingsPath, getHosts, arpEntries, isOnLan, portOpen, ping=async()=>false, hostName, inspectHost=inspect, inspectSsh=async()=>null}) {
   let known = {};
+  const windowsBeacons = new Map();
   try {known=JSON.parse(fs.readFileSync(settingsPath,'utf8'));} catch {}
   // Known machines must remain visible immediately after RP1 starts. Network
   // verification upgrades these red/offline placeholders in the background;
@@ -29,16 +30,28 @@ function createDiscovery({settingsPath, getHosts, arpEntries, isOnLan, portOpen,
     const label={retrobat:'RetroBat',recalbox:'Recalbox',lakka:'Lakka',retroarch:'RetroArch',retropie:'RetroPie',esde:'ES-DE',emustation:'Emu-Station'}[platform]||'EmulationStation';
     return [id,{host:machine.host||'',displayName:machine.displayName||label,platform,identity:platform,suggestedUsername:machine.username||'',access:'',online:false,reachable:false,searching:true,libraryAccessible:false,credentialsRequired:false,libraryStatus:'checking',checks:{ping:false,smb:false,ssh:false},resolvedFrom:`Checking previously identified ${label}`}];
   })), pending=null, last=0;
+  function currentStatuses() {
+    const result=Object.fromEntries(Object.entries(statuses).filter(([,status])=>status.platform!=='windows'));
+    for(const [id, beacon] of windowsBeacons) {
+      if(Date.now()-beacon.seenAt>30000) {windowsBeacons.delete(id);continue;}
+      result[id]={host:beacon.host,displayName:beacon.name,platform:'windows',identity:'windows',suggestedUsername:beacon.username,access:'beacon',online:true,reachable:true,searching:false,libraryAccessible:false,credentialsRequired:false,libraryStatus:'not-applicable',checks:{beacon:true},resolvedFrom:'Ready Player Two Windows discovery beacon'};
+    }
+    return result;
+  }
   async function scan() {
     const arp=await arpEntries();
     const hosts=[...new Set([...Object.values(known).map(x=>x.host),...arp.map(x=>x.host),...(await getHosts())])].filter(isOnLan);
     const next={};let index=0;
+    for (const [id, beacon] of windowsBeacons) {
+      if (Date.now()-beacon.seenAt>30000) {windowsBeacons.delete(id);continue;}
+      next[id]={host:beacon.host,displayName:beacon.name,platform:'windows',identity:'windows',suggestedUsername:beacon.username,access:'beacon',online:true,reachable:true,searching:false,libraryAccessible:false,credentialsRequired:false,libraryStatus:'not-applicable',checks:{beacon:true},resolvedFrom:'Ready Player Two Windows discovery beacon'};
+    }
     async function worker() {
       while(index<hosts.length) {
         const host=hosts[index++];
         const [smb,ssh]=await Promise.all([portOpen(host,445,550),portOpen(host,22,550)]);
         const mac=arp.find(x=>x.host===host)?.mac;
-        const matches=Object.entries(known).filter(([,x])=>(mac&&x.mac===mac)||(x.host===host&&(!mac||!x.mac||x.mac===mac)));
+        const matches=Object.entries(known).filter(([,x])=>x.platform!=='windows'&&((mac&&x.mac===mac)||(x.host===host&&(!mac||!x.mac||x.mac===mac))));
         if(!smb&&!ssh) {
           // Known machines remain visible as red/offline tags until the user
           // removes them. Availability must never erase established identity.
@@ -85,12 +98,20 @@ function createDiscovery({settingsPath, getHosts, arpEntries, isOnLan, portOpen,
     statuses=next;
     fs.writeFileSync(settingsPath,JSON.stringify(known,null,2));
     last=Date.now();
-    return statuses;
+    return currentStatuses();
   }
   return {
-    refresh() {if(!pending&&Date.now()-last>25000) pending=scan().catch(()=>statuses).finally(()=>{pending=null;last=Date.now();});return statuses;},
+    refresh() {if(!pending&&Date.now()-last>25000) pending=scan().catch(()=>statuses).finally(()=>{pending=null;last=Date.now();});return currentStatuses();},
     async scan() {if(!pending) pending=scan().finally(()=>{pending=null;});return pending;},
     known() { return JSON.parse(JSON.stringify(known)); },
+    announceWindows(host, displayName, username) {
+      if (!isOnLan(host)) return false;
+      const name=String(displayName||'').trim().slice(0,63);
+      if (!/^[\w .-]{1,63}$/.test(name)) return false;
+      const id=`Windows (${name})`;
+      windowsBeacons.set(id,{host,name,username:String(username||'').slice(0,256),seenAt:Date.now()});
+      return true;
+    },
     announce(host, platform, displayName, username) {
       const labels={retrobat:'RetroBat',retroarch:'RetroArch',esde:'ES-DE',emustation:'Emu-Station'};
       if(!isOnLan(host)||!labels[platform])return false;

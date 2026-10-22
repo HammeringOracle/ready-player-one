@@ -16,7 +16,7 @@ fn main() {
         fs::create_dir_all(&run_root).map_err(|error| error.to_string())?;
         fs::write(&setup_path, SETUP).map_err(|error| error.to_string())?;
         fs::write(&ui_path, NATIVE_UI).map_err(|error| error.to_string())?;
-        fs::write(&log_path, "Ready Player Two 1.0.12 launched with the native Windows interface.\n").map_err(|error| error.to_string())?;
+        fs::write(&log_path, "Ready Player Two 1.0.14 launched with the native Windows interface.\n").map_err(|error| error.to_string())?;
         let mut process = Command::new("powershell.exe");
         process.creation_flags(0x08000000);
         let status = process.args(["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File"])
@@ -25,7 +25,7 @@ fn main() {
         Ok(status.code().unwrap_or(-1))
     })();
     let detail = match result { Ok(code) => format!("Native interface exited with code {code}.\n"), Err(error) => format!("Native interface failed: {error}\n") };
-    let _ = fs::write(&log_path, format!("Ready Player Two 1.0.12\n{detail}"));
+    let _ = fs::write(&log_path, format!("Ready Player Two 1.0.14\n{detail}"));
     let _ = fs::remove_file(setup_path);
     let _ = fs::remove_file(ui_path);
     let _ = fs::remove_dir(run_root);

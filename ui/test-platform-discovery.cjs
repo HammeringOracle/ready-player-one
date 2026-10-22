@@ -11,14 +11,14 @@ const {createDiscovery}=require('./retrobat-discovery');
  for (const expected of ['recalbox','retropie','esde','emustation']) {
   platform=expected;result=await discovery.scan();assert.ok(Object.values(result).every(x=>x.platform===expected&&x.displayName.startsWith('PC-')));
  }
- platform=null;result=await discovery.scan();assert.deepEqual(result,{});
- advertise=true;result=await discovery.scan();assert.ok(Object.values(result).every(x=>x.platform==='lakka'&&!x.libraryAccessible));
- available=false;result=await discovery.scan();assert.equal(Object.keys(result).length,2);assert.ok(Object.values(result).every(x=>x.platform==='lakka'&&!x.online&&x.reachable));
+ platform=null;result=await discovery.scan();assert.equal(Object.keys(result).length,2);assert.ok(Object.values(result).every(x=>x.platform==='retrobat'&&!x.online),'Previously identified machines remain visible while their library is unverified');
+ advertise=true;result=await discovery.scan();assert.ok(Object.values(result).some(x=>x.platform==='lakka'&&!x.libraryAccessible));
+ available=false;result=await discovery.scan();assert.ok(Object.values(result).some(x=>x.platform==='lakka'&&!x.online));
  const retainedPath=path.join(dir,'retained.json');
  fs.writeFileSync(retainedPath,JSON.stringify({'Lakka (aa)':{host:'192.168.12.6',mac:'aa',platform:'lakka',displayName:'Lakka'}}));
  const retained=createDiscovery({settingsPath:retainedPath,getHosts:async()=>[],arpEntries:async()=>[{host:'192.168.12.6',mac:'aa'}],isOnLan:()=>true,portOpen:async()=>false,ping:async()=>true,hostName:async()=>''});
  const retainedStatus=Object.values(await retained.scan())[0];
- assert.equal(retainedStatus.platform,'lakka');assert.equal(retainedStatus.online,false);assert.equal(retainedStatus.reachable,true);
+ assert.equal(retainedStatus.platform,'lakka');assert.equal(retainedStatus.online,false);assert.equal(retainedStatus.reachable,false);
  const sshOnly=createDiscovery({settingsPath:path.join(dir,'ssh.json'),getHosts:async()=>['192.168.12.6'],arpEntries:async()=>[{host:'192.168.12.6',mac:'aa'}],isOnLan:()=>true,portOpen:async(h,p)=>p===22,hostName:async()=>'LAKKA',inspectHost:async()=>{throw Error('SMB must not be required');}});
  const sshStatus=Object.values(await sshOnly.scan());
  assert.equal(sshStatus.length,1);assert.equal(sshStatus[0].platform,'lakka');assert.equal(sshStatus[0].access,'ssh');assert.equal(sshStatus[0].checks.smb,false);

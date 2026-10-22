@@ -6,6 +6,32 @@ $loginWarning = ''
 function Finish($value) {
     [IO.File]::WriteAllText($ResultPath, ($value | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
 }
+function Get-HomeNetworks {
+    $ipv4 = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
+        $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and
+        $_.IPAddress -ne '0.0.0.0' -and $_.InterfaceIndex -gt 0
+    })
+    $profiles = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue)
+    $adapters = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object Status -eq 'Up')
+    $networks = foreach ($group in ($ipv4 | Group-Object InterfaceIndex)) {
+        $index = [int]$group.Name
+        $adapter = $adapters | Where-Object InterfaceIndex -eq $index | Select-Object -First 1
+        if ($adapters.Count -and -not $adapter) { continue }
+        $profile = $profiles | Where-Object InterfaceIndex -eq $index | Select-Object -First 1
+        $alias = if ($adapter) { [string]$adapter.Name } else { [string]$group.Group[0].InterfaceAlias }
+        [pscustomobject]@{
+            index = $index
+            name = $alias
+            category = if ($profile) { [string]$profile.NetworkCategory } else { 'Unidentified' }
+            addresses = @($group.Group | Select-Object -ExpandProperty IPAddress)
+        }
+    }
+    return @($networks | Sort-Object @{Expression={
+        $virtual = $_.name -match '(?i)tailscale|vpn|nord|virtual|vEthernet|hyper-v|loopback|docker|wsl'
+        $homeAddress = @($_.addresses | Where-Object { $_ -match '^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\.' }).Count -gt 0
+        if ($homeAddress -and -not $virtual) { 0 } elseif (-not $virtual) { 1 } else { 2 }
+    }},name)
+}
 function Resolve-InstallationFolder([string]$Platform, [string]$RequestedFolder) {
     $default = switch ($Platform) {
         'retroarch' { 'C:\RetroArch' }
@@ -173,19 +199,89 @@ while ($true) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
 }
+function Get-DualBootPreflight {
+        $windowsLetter = $env:SystemDrive.TrimEnd(':')
+        $windowsPartition = Get-Partition -DriveLetter $windowsLetter -ErrorAction Stop
+        $windowsDisk = Get-Disk -Number $windowsPartition.DiskNumber -ErrorAction Stop
+        $windowsVolume = Get-Volume -DriveLetter $windowsLetter -ErrorAction Stop
+        $supportedSize = Get-PartitionSupportedSize -DriveLetter $windowsLetter -ErrorAction Stop
+        $diskPartitions = @(Get-Partition -DiskNumber $windowsDisk.Number -ErrorAction Stop | Sort-Object Offset | ForEach-Object {
+            [pscustomobject]@{number=$_.PartitionNumber;driveLetter=[string]$_.DriveLetter;type=[string]$_.Type;gptType=[string]$_.GptType;offsetBytes=[int64]$_.Offset;sizeBytes=[int64]$_.Size;isBoot=[bool]$_.IsBoot;isSystem=[bool]$_.IsSystem}
+        })
+        $encryption = 'Unknown'
+        if (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
+            try {
+                $bitlocker = Get-BitLockerVolume -MountPoint "$windowsLetter`:" -ErrorAction Stop
+                $encryption = [string]$bitlocker.ProtectionStatus
+            } catch { $encryption = "Could not verify: $($_.Exception.Message)" }
+        }
+        $secureBoot = 'Unknown'
+        if (Get-Command Confirm-SecureBootUEFI -ErrorAction SilentlyContinue) {
+            try { $secureBoot = [string](Confirm-SecureBootUEFI -ErrorAction Stop) } catch { $secureBoot = "Could not verify: $($_.Exception.Message)" }
+        }
+        $firmwareCode = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name PEFirmwareType -ErrorAction SilentlyContinue).PEFirmwareType
+        $firmwareType = switch ($firmwareCode) { 1 {'BIOS'} 2 {'UEFI'} default {'Unknown'} }
+        return @{ok=$true; capturedAt=(Get-Date).ToUniversalTime().ToString('o'); computer=$env:COMPUTERNAME; windowsDrive="$windowsLetter`:"; diskNumber=[int]$windowsDisk.Number; diskSizeBytes=[int64]$windowsDisk.Size; partitionStyle=[string]$windowsDisk.PartitionStyle; busType=[string]$windowsDisk.BusType; logicalSectorSize=[int]$windowsDisk.LogicalSectorSize; physicalSectorSize=[int]$windowsDisk.PhysicalSectorSize; diskReadOnly=[bool]$windowsDisk.IsReadOnly; diskOffline=[bool]$windowsDisk.IsOffline; firmwareType=$firmwareType; windowsFileSystem=[string]$windowsVolume.FileSystem; windowsPartitionNumber=[int]$windowsPartition.PartitionNumber; windowsPartitionSizeBytes=[int64]$windowsPartition.Size; windowsUsedBytes=[int64]($windowsVolume.Size - $windowsVolume.SizeRemaining); windowsFreeBytes=[int64]$windowsVolume.SizeRemaining; smallestSupportedWindowsSizeBytes=[int64]$supportedSize.SizeMin; largestSupportedWindowsSizeBytes=[int64]$supportedSize.SizeMax; bitLockerProtection=$encryption; secureBoot=$secureBoot; partitions=$diskPartitions; installReady=$false; reason='Inspection only. Shared-drive installation is not available in this RP2 build.'}
+}
+function Install-RP2StatusShare([string]$Account,[int]$InterfaceIndex,[bool]$MakePrivate) {
+    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator approval is required to publish the RP2 status report.' }
+    $profile = Get-NetConnectionProfile -InterfaceIndex $InterfaceIndex -ErrorAction Stop
+    if ($profile.NetworkCategory -eq 'DomainAuthenticated') { throw 'A domain network cannot be configured by RP2.' }
+    if ($profile.NetworkCategory -ne 'Private') {
+        if (-not $MakePrivate) { throw 'Confirm this is a trusted private network before sharing RP2 status.' }
+        Set-NetConnectionProfile -InterfaceIndex $InterfaceIndex -NetworkCategory Private
+    }
+    $sid = ([Security.Principal.NTAccount]::new($Account)).Translate([Security.Principal.SecurityIdentifier])
+    if ($sid.Value -in @('S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-32-546')) { throw 'Choose a specific Windows account for RP2 status access.' }
+    $folder = Join-Path $env:ProgramData 'Ready Player Two\status'
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    $report = Get-DualBootPreflight
+    [IO.File]::WriteAllText((Join-Path $folder 'preflight.json'),($report | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    $share = Get-SmbShare -Name 'RP2Status' -ErrorAction SilentlyContinue
+    if ($share -and [IO.Path]::GetFullPath($share.Path).TrimEnd('\') -ine [IO.Path]::GetFullPath($folder).TrimEnd('\')) { throw 'The RP2Status share name is already used by another folder. No share was changed.' }
+    if ($share) {
+        $broadGrant = @(Get-SmbShareAccess -Name 'RP2Status' | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and $_.AccountName -match '(^Everyone$|Authenticated Users$|\\Users$|\\Guests$)'
+        })
+        if ($broadGrant.Count) { throw 'RP2Status has broad share permissions. Remove those permissions before RP2 can use it for a drive report.' }
+    }
+    if (-not $share) { New-SmbShare -Name 'RP2Status' -Path $folder -ReadAccess $Account -FolderEnumerationMode AccessBased -CachingMode None | Out-Null }
+    else { Grant-SmbShareAccess -Name 'RP2Status' -AccountName $Account -AccessRight Read -Force | Out-Null }
+    $acl = Get-Acl -LiteralPath $folder
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')
+    $acl.SetAccessRule($rule)
+    Set-Acl -LiteralPath $folder -AclObject $acl
+    $reportPath = Join-Path $folder 'preflight.json'
+    $reportAcl = Get-Acl -LiteralPath $reportPath
+    $reportAcl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'Read','Allow'))
+    Set-Acl -LiteralPath $reportPath -AclObject $reportAcl
+    $ruleName = 'ReadyPlayerTwo-Status-SMB'
+    if (-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name $ruleName -DisplayName 'Ready Player Two - status report - Private LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 445 -Profile Private -RemoteAddress LocalSubnet | Out-Null
+    }
+}
 try {
     $request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+    if ($request.action -eq 'dual-boot-preflight') {
+        $report = Get-DualBootPreflight
+        $statusFile = Join-Path $env:ProgramData 'Ready Player Two\status\preflight.json'
+        if (Test-Path -LiteralPath (Split-Path -Parent $statusFile) -PathType Container) { [IO.File]::WriteAllText($statusFile,($report | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false)) }
+        Finish $report
+        exit
+    }
     if ([string]$request.platform -eq 'all') {
         $programs = @(Get-InstalledPrograms)
         if (-not $programs.Count) {
             if ($request.action -eq 'status') {
-                $networks = @(Get-NetConnectionProfile | ForEach-Object {
-                    $profile = $_
-                    $addresses = @(Get-NetIPAddress -InterfaceIndex $profile.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -notlike '169.254.*' | Select-Object -ExpandProperty IPAddress)
-                    [pscustomobject]@{ index=$profile.InterfaceIndex; name=$profile.InterfaceAlias; category=[string]$profile.NetworkCategory; addresses=$addresses }
-                })
+                $networks = @(Get-HomeNetworks)
                 Finish @{ok=$true; computer=$env:COMPUTERNAME; account=[Security.Principal.WindowsIdentity]::GetCurrent().Name; detected=@(); shares=@(); networks=$networks; blankPasswordAllowed=$false}
-            } else { Finish @{ok=$false; error='No supported programs were detected. Install RetroBat, RetroArch, ES-DE, or Emu-Station first.'; log=@()} }
+            } else {
+                $account = ([string]$request.account).Trim()
+                Install-RP2StatusShare $account ([int]$request.interfaceIndex) ([bool]$request.makePrivate)
+                Install-RP1Beacon @() $account
+                Send-RP1Announcement @() ([int]$request.interfaceIndex) $account
+                Finish @{ok=$true; computer=$env:COMPUTERNAME; account=$account; log=@('Windows discovery installed. This PC now announces its name to Ready Player One.','Read-only RP2Status share installed for this account. Shared Dual Boot installation is not enabled.'); paths=@(); detected=@(); shares=@()}
+            }
             exit
         }
         $results = [System.Collections.Generic.List[object]]::new()
@@ -206,11 +302,12 @@ try {
             $first = $results[0]
             $shares = for ($index=0; $index -lt $programs.Count; $index++) { "$($programs[$index].name): " + $(if ($results[$index].sharePath) { $results[$index].sharePath } else { 'Not configured' }) }
             Send-RP1Announcement $programs 0 ([string]$first.account)
-            Finish @{ok=$true; computer=$env:COMPUTERNAME; account=$first.account; detected=@($programs.name); shares=@($shares); networks=@($first.networks); blankPasswordAllowed=$first.blankPasswordAllowed}
+            Finish @{ok=$true; computer=$env:COMPUTERNAME; account=[Security.Principal.WindowsIdentity]::GetCurrent().Name; detected=@($programs.name); shares=@($shares); networks=@(Get-HomeNetworks); blankPasswordAllowed=$first.blankPasswordAllowed}
         } else {
             $failed = @($results | Where-Object { -not $_.ok })
             $allLogs = for ($index=0; $index -lt $programs.Count; $index++) { "[$($programs[$index].name)]"; @($results[$index].log); if (-not $results[$index].ok) { $results[$index].error } }
             if ($failed.Count -eq 0) {
+                Install-RP2StatusShare ([string]$results[0].account) ([int]$request.interfaceIndex) ([bool]$request.makePrivate)
                 Install-RP1Beacon $programs ([string]$results[0].account)
                 Send-RP1Announcement $programs ([int]$request.interfaceIndex) ([string]$results[0].account)
                 $allLogs += 'Installed persistent discovery. This PC now announces every supported program to Ready Player One at startup and every 10 seconds on every active LAN adapter.'
@@ -226,11 +323,7 @@ try {
     $shareName = $platformConfig.shareName
     $libraryPath = $platformConfig.library
     if ($request.action -eq 'status') {
-        $networks = @(Get-NetConnectionProfile | ForEach-Object {
-            $profile = $_
-            $addresses = @(Get-NetIPAddress -InterfaceIndex $profile.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -notlike '169.254.*' | Select-Object -ExpandProperty IPAddress)
-            [pscustomobject]@{ index=$profile.InterfaceIndex; name=$profile.InterfaceAlias; category=[string]$profile.NetworkCategory; addresses=$addresses }
-        })
+        $networks = @(Get-HomeNetworks)
         $share = Get-SmbShare -Name $shareName -ErrorAction SilentlyContinue
         $access = if ($share) { @(Get-SmbShareAccess -Name $shareName | Select-Object AccountName,AccessControlType,AccessRight) } else { @() }
         $blankPolicy = Get-ItemPropertyValue -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name LimitBlankPasswordUse -ErrorAction SilentlyContinue

@@ -1,5 +1,7 @@
 # Ready Player Two
 
+Ready Player Two advertises the Windows PC itself by computer name to Ready Player One, even when no supported game frontend is installed. Run setup on the Windows PC to install the persistent discovery beacon. Version 1.0.14 has **Inspect Windows Drive**, a read-only Shared Dual Boot preflight showing disk and partition size, Windows used/free space, Windows' supported shrink limit, BitLocker protection, and Secure Boot. Setup publishes that report in an account-restricted, read-only `RP2Status` SMB share on the trusted Private LAN. RP1 can authenticate with Add / Update Credentials and read the report. It does not install Batocera or alter partitions or boot settings. The Shared Dual Boot installer is not yet available.
+
 Latest portable: **Ready Player Two 1.0.11.exe**. Copy it to the Windows PC with RetroBat, RetroArch, ES-DE, or Emu-Station and run it there.
 
 At startup, choose the installed application. No check runs until you choose. You can switch later using the Application dropdown.
