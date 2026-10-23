@@ -200,7 +200,7 @@ while ($true) {
     Start-ScheduledTask -TaskName $taskName
     $statusRoot = Join-Path $env:ProgramData 'Ready Player Two\status'
     if (Test-Path -LiteralPath $statusRoot -PathType Container) {
-        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.55';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.56';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     }
 }
 function Get-FirmwareType {
@@ -488,6 +488,66 @@ function Invoke-RP2ManagedBootMaintenance([System.Collections.Generic.List[strin
     }
     if (-not $repair.ok) { throw [string]$repair.error }
     $Log.Add($(if ($repair.changed) { 'Verified the existing RP2-managed Batocera installation and repaired its boot menu.' } else { 'Verified the existing RP2-managed Batocera installation and boot menu; no repair was needed.' }))
+    if (Install-RP2BatoceraRuntimeBootstrap) { $Log.Add('Installed the Batocera shared-drive Xbox 360 runtime storage preflight.') }
+}
+function Install-RP2BatoceraRuntimeBootstrap {
+    $shareVolumes = @(Get-Volume -FileSystemLabel 'SHARE' -ErrorAction SilentlyContinue)
+    if ($shareVolumes.Count -ne 1) { return $false }
+    $partition = $shareVolumes[0] | Get-Partition -ErrorAction Stop
+    $temporaryLetter = $null
+    try {
+        $letter = [string]$partition.DriveLetter
+        if (-not $letter -or $letter -eq [string][char]0) {
+            foreach ($candidate in @('Q','R','S','T','U','V','W','X','Y','Z')) { if (-not (Test-Path -LiteralPath "$candidate`:")) { $letter=$candidate; break } }
+            if (-not $letter) { throw 'No free drive letter is available to prepare Batocera shared-drive runtime support.' }
+            Add-PartitionAccessPath -DiskNumber ([int]$partition.DiskNumber) -PartitionNumber ([int]$partition.PartitionNumber) -AccessPath "$letter`:\" -ErrorAction Stop
+            $temporaryLetter = $letter
+        }
+        $systemRoot = Join-Path "$letter`:\" 'system'
+        $rp1Root = Join-Path $systemRoot 'ready-player-one'
+        New-Item -ItemType Directory -Path $rp1Root -Force -ErrorAction Stop | Out-Null
+        $helper = @'
+#!/bin/bash
+set -eu
+prefix=/userdata/system/wine-bottles/xbox360
+container=/userdata/system/xbox360-wine.ext4
+log=/userdata/system/logs/rp1-xenia-storage.log
+mkdir -p /userdata/system/logs /userdata/system/wine-bottles
+fstype=$(findmnt -n -o FSTYPE /userdata 2>/dev/null || true)
+case "$fstype" in ext2|ext3|ext4|btrfs|xfs|f2fs) exit 0;; esac
+if grep -qs " $prefix ext4 " /proc/mounts; then exit 0; fi
+if [ ! -f "$container" ]; then
+  temporary="$container.partial"
+  rm -f "$temporary"
+  truncate -s 8G "$temporary"
+  /sbin/mkfs.ext4 -F -m 0 -L RP1_XENIA "$temporary" >"$log" 2>&1
+  mv "$temporary" "$container"
+fi
+if [ -d "$prefix" ] && [ "$(find "$prefix" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+  mv "$prefix" "$prefix.nonlinux-$(date +%Y%m%d-%H%M%S)"
+fi
+mkdir -p "$prefix"
+mount -t ext4 -o loop,rw,noatime "$container" "$prefix" >>"$log" 2>&1
+chmod 777 "$prefix"
+grep -qs " $prefix ext4 " /proc/mounts
+'@
+        $helperPath = Join-Path $rp1Root 'xenia-storage.sh'
+        [IO.File]::WriteAllText($helperPath,($helper -replace "`r`n","`n"),[Text.UTF8Encoding]::new($false))
+        $customPath = Join-Path $systemRoot 'custom.sh'
+        $existing = if (Test-Path -LiteralPath $customPath -PathType Leaf) { [IO.File]::ReadAllText($customPath) -replace "`r`n","`n" } else { "#!/bin/bash`n" }
+        $existing = [regex]::Replace($existing,'(?ms)^# READY PLAYER TWO XENIA STORAGE BEGIN\n.*?^# READY PLAYER TWO XENIA STORAGE END\n?','')
+        $block = @'
+# READY PLAYER TWO XENIA STORAGE BEGIN
+if [ -f /userdata/system/ready-player-one/xenia-storage.sh ]; then
+  /bin/bash /userdata/system/ready-player-one/xenia-storage.sh prepare
+fi
+# READY PLAYER TWO XENIA STORAGE END
+'@
+        [IO.File]::WriteAllText($customPath,($existing.TrimEnd()+"`n"+($block -replace "`r`n","`n").Trim()+"`n"),[Text.UTF8Encoding]::new($false))
+        return $true
+    } finally {
+        if ($temporaryLetter) { Remove-PartitionAccessPath -DiskNumber ([int]$partition.DiskNumber) -PartitionNumber ([int]$partition.PartitionNumber) -AccessPath "$temporaryLetter`:\" -ErrorAction SilentlyContinue }
+    }
 }
 function Repair-RP2BootMenu {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator approval is required to repair the boot menu.' }
@@ -756,6 +816,7 @@ function Install-DualBootBatocera {
         foreach ($required in @('EFI\batocera\bootx64.efi','boot\linux','boot\initrd.gz')) {
             if (-not (Test-Path -LiteralPath (Join-Path "$($boot.DriveLetter):\" $required) -PathType Leaf)) { throw "Boot file copy did not verify: $required." }
         }
+        if (-not (Install-RP2BatoceraRuntimeBootstrap)) { throw 'The SHARE partition could not be prepared with the Batocera shared-drive runtime preflight.' }
         Save-State 'awaiting-refind' 'Batocera boot and userdata partitions prepared. rEFInd has not yet been installed.'
         return @{ok=$true;diskNumber=$diskNumber;batoceraPartition=$boot.PartitionNumber;sharePartition=$share.PartitionNumber;defaultOs=$plan.defaultOs;bootMenuInstalled=$false}
     } catch {

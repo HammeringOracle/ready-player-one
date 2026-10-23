@@ -750,6 +750,11 @@
       padding: 12px 18px 6px;
     }
 
+    body.machine-unselected .main {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
     .main > * {
       min-width: 0;
     }
@@ -1907,6 +1912,25 @@
       max-width: 100%;
       overflow-wrap: anywhere;
     }
+    #xboxBiosDialog.display-compact .confirm-modal {
+      width: min(390px, 92vw) !important;
+    }
+    #xboxBiosDialog.display-compact .confirm-body {
+      gap: 4px;
+      padding: 10px 12px 6px;
+      line-height: 1.25;
+    }
+    #xboxBiosDialog.display-compact .confirm-device {
+      font-size: 15px;
+      line-height: 1.1;
+    }
+    #xboxBiosDialog.display-compact .confirm-actions {
+      gap: 6px;
+      padding: 0 12px 10px;
+    }
+    #xboxBiosDialog.display-compact #xboxBiosDialogMessage {
+      line-height: 1.25 !important;
+    }
     #xboxBiosDialog.dual-boot-working #xboxBiosDialogTitle::after {
       content: '';
       display: inline-block;
@@ -2760,7 +2784,7 @@
   <link rel="stylesheet" href="ui/tour.css">
   <script src="ui/appearance.js"></script>
 </head>
-<body>
+<body class="machine-unselected">
   <main class="app">
     <header class="topbar">
       <div class="brand">
@@ -3752,6 +3776,7 @@
     let selectedDevice = "Batocera";
     let selectedDeviceOnline = false;
     let selectedDeviceHost = "";
+    let startupGreenMachineSelected = false;
     const deviceInstanceIds = new Map();
     function deviceStorageIdentity(device = selectedDevice) {
       return deviceInstanceIds.get(device) || device || "Batocera";
@@ -4138,13 +4163,13 @@
 
     function updateSystemRequirementWarning() {
       const messages = [];
-      if (systemPickerGrid.querySelector('input[value="3dsen"]:checked')) messages.push('3D NEC remains its own console. RP1 will automatically install its bundled 3dsenpc-win.zip through Wine without adding it to the Windows console.');
+      if (systemPickerGrid.querySelector('input[value="3dsen"]:checked') && !systemPickerGrid.querySelector('input[value="windows"]:checked')) messages.push('3D NEC requires Wine. Select Windows (Wine) too; RP1 will never install Wine unless Windows (Wine) is selected.');
       systemRequirementWarning.hidden = messages.length === 0;
       systemRequirementWarning.textContent = messages.join(' ');
     }
 
     systemPickerGrid.addEventListener('change', event => {
-      if (event.target.matches('input[value="3dsen"], input[value="pikaraoke"]')) updateSystemRequirementWarning();
+      if (event.target.matches('input[value="3dsen"], input[value="windows"], input[value="pikaraoke"]')) updateSystemRequirementWarning();
     });
 
     openSystemPicker.addEventListener("click", showSystemPicker);
@@ -4174,11 +4199,11 @@
         ps1: 'Install verified cached PS1 BIOS', ps2: 'Install verified cached PS2 BIOS',
         ps3: 'Copy verified cached PS3 firmware (emulator installation may still be required)',
         ps4: 'Install user-supplied PS4 firmware modules for shadPS4',
-        xbox: 'Install verified cached Xbox BIOS files', xbox360: 'Check Xenia/Wine; set up if missing',
+        xbox: 'Install verified cached Xbox BIOS files', xbox360: 'Verify Batocera Xenia without installing or initializing Wine',
         windows: 'Verify Batocera Wine and prepare Windows game, installer, and dependency folders',
         wiiu: 'Install cached Cemu keys', karaoke: 'Install Karaoke launcher and refresh machine game list',
         pikaraoke: 'Check existing PiKaraoke, browser, and dependencies; install only missing components',
-        '3dsen': 'Automatically install Steam and the 3dSen launcher'
+        '3dsen': 'Install the 3dSen launcher only after Windows (Wine) has been selected and configured'
       };
       const prerequisites = {
         ps1: { kind: 'BIOS', name: 'a verified PlayStation BIOS (for example scph5501.bin)', folder: '/userdata/bios' },
@@ -4272,7 +4297,7 @@
             text.textContent = `YOU MUST INSTALL ${prerequisite.kind} ${prerequisite.name} IN FOLDER ${prerequisite.folder}.`;
           } else {
             text.textContent = system === '3dsen'
-              ? `${label}: Add a standalone 3dSen console; install 3dsenpc-win.zip privately and run it through Wine. It will not appear in the Windows console.`
+              ? `${label}: Add a standalone 3dSen console using the explicitly selected Windows (Wine) support. RP1 will not install Wine on 3D NEC's behalf.`
               : system === 'pikaraoke'
                 ? `${label}: Add PiKaraoke (Beta) as a standalone console; inspect the current machine first and install only missing components, including Chromium when no browser exists.`
               : `${label}: ${[needsPane ? 'Add to Systems pane' : '', needsInstall ? setup[system] : '', needsPane && manual.has(system) ? 'Manual setup required' : ''].filter(Boolean).join('; ')}`;
@@ -4389,8 +4414,10 @@
               const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/pikaraoke/setup', {device});
             } else if (system === 'xbox360') {
+              await request('/api/xbox360-xenia/storage', {device});
               const status = await request(`/api/xbox360-xenia/status?device=${encodeURIComponent(device)}`, null, 'GET');
-              if (!status.installed) await request('/api/xbox360-xenia/setup', {device});
+              if (!status.xenia) throw new Error('Xenia is not provided by this Batocera build. RP1 did not install Wine or create an Xbox 360 Wine prefix.');
+              if (!status.storageReady) throw new Error(`Xenia storage is not Linux-compatible (${status.fileSystem || 'unknown filesystem'}). RP1 did not install Wine.`);
             } else if (system === 'windows') {
               await request('/api/windows-wine/setup', {device});
             } else if (system === '3dsen') {
@@ -6780,18 +6807,16 @@
 
           checkbox.checked = !checkbox.checked;
           syncFolderTrackChecks(game, checkbox.checked);
-          rememberGameSelection(game, checkbox.checked);
           warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
           game.classList.add("active");
-          syncWarehouseSelection(game);
+          scheduleWarehouseSelectionSync(game);
         });
 
         checkbox.addEventListener("change", () => {
           syncFolderTrackChecks(game, checkbox.checked);
-          rememberGameSelection(game, checkbox.checked);
           warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
           game.classList.add("active");
-          syncWarehouseSelection(game);
+          scheduleWarehouseSelectionSync(game);
         });
       });
     }
@@ -6808,6 +6833,29 @@
       game.querySelectorAll(".track-row input").forEach(trackCheckbox => {
         trackCheckbox.checked = checked;
       });
+    }
+
+    function scheduleWarehouseSelectionSync(game) {
+      const checkbox = game.querySelector(".game-check");
+      if (!checkbox) return;
+      const targetDevice = selectedDevice;
+      const targetSystem = selectedSystem;
+      const name = game.dataset.name;
+      const revision = String(Number(game.dataset.selectionRevision || 0) + 1);
+      game.dataset.selectionRevision = revision;
+
+      // Preserve a new check against status polling immediately, while moving
+      // persistence and network work past the browser's next visual paint.
+      if (checkbox.checked) {
+        pendingTransferKeys.add(transferSelectionKey(targetDevice, targetSystem, name));
+        showConsoleTransferImmediately(targetDevice, targetSystem);
+      }
+      requestAnimationFrame(() => setTimeout(() => {
+        if (game.dataset.selectionRevision !== revision || !game.isConnected) return;
+        syncFolderTrackChecks(game, checkbox.checked);
+        rememberGameSelection(game, checkbox.checked);
+        syncWarehouseSelection(game, { device: targetDevice, system: targetSystem });
+      }, 0));
     }
 
     async function syncWarehouseSelection(game, scope = {}) {
@@ -7168,7 +7216,10 @@
       });
     }
 
-    applyVisibleSystems(readVisibleSystems());
+    // Do not imply that an unselected/offline placeholder owns a console list.
+    // The first green machine (or a machine the user clicks) will populate this
+    // pane through selectDeviceCard().
+    applyVisibleSystems(new Set());
 
     rows.forEach((row) => {
       row.addEventListener("click", () => {
@@ -7302,7 +7353,7 @@
     function bindDeviceCard(card) {
       if (card.dataset.bound === "true") return;
       card.dataset.bound = "true";
-      card.addEventListener("click", () => selectDeviceCard(card));
+      card.addEventListener("click", () => selectDeviceCard(card, { userInitiated: true }));
       card.addEventListener('contextmenu', event => {
         if (!['retrobat','retroarch','batocera','recalbox','lakka','retropie','esde','emustation','windows'].includes(card.dataset.platform)) return;
         event.preventDefault();
@@ -7318,7 +7369,7 @@
       const chevron = card.querySelector(".device-chevron");
       if (chevron) chevron.addEventListener("click", event => {
         event.stopPropagation();
-        selectDeviceCard(card);
+        selectDeviceCard(card, { userInitiated: true });
         openKaraokeInstall(card);
       });
     }
@@ -7385,14 +7436,23 @@
         return rank(a) - rank(b);
       }).forEach(card => machineList.insertBefore(card, addMachine));
       deviceCards = machineList.querySelectorAll(".device-card");
-      const selectedCard = [...deviceCards].find(card => card.classList.contains("selected"));
-      if (!selectedCard) {
-        const available = [...deviceCards].find(card => !card.hidden);
-        if (available) selectDeviceCard(available);
+      // Startup follows actual readiness, not the saved placeholder. Select the
+      // first card that becomes fully online (green), then leave selection under
+      // the user's control for the rest of the session.
+      if (!startupGreenMachineSelected) {
+        const firstOnline = [...deviceCards].find(card => !card.hidden && card.dataset.online === "true");
+        if (firstOnline) {
+          startupGreenMachineSelected = true;
+          selectDeviceCard(firstOnline);
+        }
       }
     }
 
-    function selectDeviceCard(card) {
+    function selectDeviceCard(card, { userInitiated = false } = {}) {
+      if (userInitiated) startupGreenMachineSelected = true;
+      // A machine selection is the sole gate for showing consoles and games.
+      // Keeping this on the body from initial HTML also prevents a startup flash.
+      document.body.classList.remove("machine-unselected");
       deviceCards.forEach(item => item.classList.remove("selected"));
       card.classList.add("selected");
       selectedDevice = card.dataset.device || "Batocera";
@@ -8121,6 +8181,7 @@
     async function openMachineDisplay(card) {
       const device = card.dataset.device;
       const finished = showXboxBiosDialog({title:'Display', device, message:'Reading display options…', confirmLabel:'Done'});
+      xboxBiosDialog.classList.add('display-compact');
       try {
         const response = await fetch(`/api/machine-display?device=${encodeURIComponent(device)}`, {cache:'no-store'});
         const result = await response.json();
@@ -8129,22 +8190,26 @@
         xboxBiosDialogMessage.textContent = '';
         xboxBiosDialogMessage.style.whiteSpace = 'normal';
         const row = document.createElement('label');
-        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:18px;padding:10px 0;border-bottom:1px solid #ffffff18;cursor:pointer';
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #ffffff18;cursor:pointer';
         const copy = document.createElement('span');
-        copy.innerHTML = '<strong style="display:block">Performance HUD</strong><small style="display:block;margin-top:3px;opacity:.72">FPS, CPU, GPU, temperatures and memory while playing.</small>';
+        copy.innerHTML = '<strong style="display:block">Automatic Performance HUD</strong><small style="display:block;margin-top:2px;opacity:.72">Uses a clean MangoHud overlay without console bezels on Xenia.</small>';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox'; checkbox.checked = Boolean(result.hud);
         checkbox.style.cssText = 'width:19px;height:19px;accent-color:#63b4ff';
         const status = document.createElement('div');
-        status.style.cssText = 'min-height:18px;margin-top:8px;font-size:11px;opacity:.8';
-        status.textContent = result.gameRunning && !result.hudAttached ? 'A game is already running. Relaunch it after enabling the HUD.' : 'Changes apply to the next game you launch.';
+        status.style.cssText = 'min-height:15px;margin-top:4px;font-size:11px;opacity:.8';
+        status.textContent = result.gameRunning && !result.hudAttached
+          ? 'A game is already running. Relaunch it after enabling the HUD.'
+          : result.xeniaCompatibilityMode
+            ? 'Enabled for Xbox 360/Xenia with its covering bezel disabled.'
+            : 'Changes apply to the next game you launch.';
         checkbox.addEventListener('change', async () => {
           checkbox.disabled = true; status.textContent = checkbox.checked ? 'Enabling performance HUD…' : 'Disabling performance HUD…';
           try {
             const save = await fetch('/api/machine-display', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device,hud:checkbox.checked})});
             const saved = await save.json();
             if (!save.ok || !saved.ok) throw new Error(saved.error || 'Could not save display settings.');
-            status.textContent = saved.requiresRelaunch ? 'Enabled. Exit and relaunch the current game to display it.' : checkbox.checked ? 'Enabled. It will display when the next game starts.' : 'Performance HUD disabled.';
+            status.textContent = saved.requiresRelaunch ? 'Saved. Exit and relaunch the current game.' : checkbox.checked ? 'Enabled. Xbox 360 will use MangoHud without a bezel.' : 'Performance HUD disabled.';
           } catch (error) {
             checkbox.checked = !checkbox.checked; status.textContent = error.message;
           } finally { checkbox.disabled = false; }
@@ -8152,6 +8217,7 @@
         row.append(copy, checkbox); xboxBiosDialogMessage.append(row, status);
       } catch (error) { xboxBiosDialogMessage.textContent = error.message; }
       await finished;
+      xboxBiosDialog.classList.remove('display-compact');
       xboxBiosDialogMessage.style.whiteSpace = 'pre-line';
     }
     function showRetroBatMachineMenu(card, x, y) {
@@ -8163,7 +8229,16 @@
       const showCompactMachineMenu = focusTarget => {
         document.body.append(menu);
         menu.style.boxSizing = 'border-box';
-        menu.style.width = `${Math.round(menu.getBoundingClientRect().width * 0.72)}px`;
+        menu.style.width = '112px';
+        menu.querySelectorAll('button').forEach(item => {
+          item.style.minWidth = '0';
+          item.style.width = '100%';
+          item.style.paddingLeft = '6px';
+          item.style.paddingRight = '6px';
+          item.style.fontSize = '10px';
+          item.style.whiteSpace = 'normal';
+          item.style.lineHeight = '1.05';
+        });
         menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
         menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
         retroBatMachineMenu = menu;
@@ -8193,7 +8268,7 @@
             const response = await fetch(`${apiBase}/api/windows/dual-boot/preflight?device=${encodeURIComponent(card.dataset.device)}`);
             const result = await response.json();
             if (!response.ok || !result.ok) throw new Error(result.error || 'Could not inspect this Windows drive.');
-            if (!result.workerReady) throw new Error(`This Windows PC needs RP2 1.0.55 or newer. ${result.workerVersion ? `RP1 found ${result.workerVersion}. ` : ''}Install the updated RP2 and run Configure All once on that PC.`);
+            if (!result.workerReady) throw new Error(`This Windows PC needs RP2 1.0.56 or newer. ${result.workerVersion ? `RP1 found ${result.workerVersion}. ` : ''}Install the updated RP2 and run Configure All once on that PC.`);
             report = result.report;
             installState = result.installState;
             report.sharedDualBoot = {canFinishExisting:result.canFinishExisting,stagedPlan:result.stagedPlan};

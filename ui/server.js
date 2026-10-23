@@ -1438,6 +1438,7 @@ async function getDeviceStatuses({ deep = false, background = true } = {}) {
 // Display labels are separate from stable device IDs used by layouts and transfers.
 const machineNameChecks = new Map();
 const verifiedInstallationIds = new Map();
+const pendingInstallationChecks = new Map();
 function reconcileBatoceraInstallation(id, installationId) {
   if (!installationId) return;
   const settings = readDeviceSettings();
@@ -1525,12 +1526,29 @@ async function ensureCurrentBatoceraInstallation(id, device) {
   if (!devices[id] || device.access !== "ssh") return;
   const savedId = String(readDeviceSettings()[id]?.installationId || "").trim();
   if (savedId && verifiedInstallationIds.get(id) === savedId) return;
-  await refreshMachineDisplayNames({[id]: {online:true, access:"ssh", host:device.host}});
-  for (let attempt = 0; attempt < 32 && machineNameChecks.get(id)?.pending; attempt += 1) await wait(250);
-  const currentId = String(readDeviceSettings()[id]?.installationId || "").trim();
-  if (!currentId || verifiedInstallationIds.get(id) !== currentId) {
-    throw new Error("Could not verify this Batocera installation yet. Wait for its machine card to connect, then retry.");
-  }
+  if (pendingInstallationChecks.has(id)) return pendingInstallationChecks.get(id);
+  const check = (async () => {
+    // The transfer gate only needs the userdata identity. The former full
+    // hostname/version refresh opened a second SSH session and could hold every
+    // newly checked ROM for several seconds. This lightweight command compares
+    // the same UUID directly; full reconciliation is reserved for a mismatch.
+    const output = await execSsh(device,
+      'source=$(findmnt -n -o SOURCE /userdata 2>/dev/null); installation_id=$(blkid -s UUID -o value "$source" 2>/dev/null); [ -n "$installation_id" ] || installation_id=$(cat /etc/machine-id 2>/dev/null); [ -n "$installation_id" ] || installation_id=$(stat -c "%d:%i" /userdata 2>/dev/null); printf "%s" "$installation_id"',
+      4000);
+    const liveId = String(output || "").trim();
+    if (savedId && liveId === savedId) {
+      verifiedInstallationIds.set(id, liveId);
+      return;
+    }
+    await refreshMachineDisplayNames({[id]: {online:true, access:"ssh", host:device.host}});
+    for (let attempt = 0; attempt < 32 && machineNameChecks.get(id)?.pending; attempt += 1) await wait(250);
+    const currentId = String(readDeviceSettings()[id]?.installationId || "").trim();
+    if (!liveId || !currentId || liveId !== currentId || verifiedInstallationIds.get(id) !== currentId) {
+      throw new Error("Could not verify this Batocera installation yet. Wait for its machine card to connect, then retry.");
+    }
+  })().finally(() => pendingInstallationChecks.delete(id));
+  pendingInstallationChecks.set(id, check);
+  return check;
 }
 
 function invalidateMachineConnection(name) {
@@ -2794,12 +2812,15 @@ async function getMachineDisplay(device) {
   }
   return sftpWithDevice(device, async (sftp, client) => {
     const config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
-    const processState = await execOnSshClient(client, "if pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' >/dev/null 2>&1; then game=1; else game=0; fi; if pgrep -f '[m]angohud' >/dev/null 2>&1; then hud=1; else hud=0; fi; echo GAME=$game,HUD=$hud", 10000);
+    const processState = await execOnSshClient(client, "pids=$(pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' || true); if [ -n \"$pids\" ]; then game=1; else game=0; fi; hud=0; for pid in $pids; do if tr '\\0' '\\n' </proc/$pid/environ 2>/dev/null | grep -q -E '^MANGOHUD(_CONFIG|_CONFIGFILE)?='; then hud=1; break; fi; done; echo GAME=$game,HUD=$hud", 10000);
+    const hudEnabled = String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf";
+    const xeniaHudEnabled = String(batoceraSetting(config, "xbox360.hud_support") || "").toLowerCase() === "true";
     return {
       supported: true,
-      hud: String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf",
+      hud: hudEnabled && xeniaHudEnabled,
       gameRunning: /GAME=1/.test(processState),
-      hudAttached: /HUD=1/.test(processState)
+      hudAttached: /HUD=1/.test(processState),
+      xeniaCompatibilityMode: xeniaHudEnabled
     };
   });
 }
@@ -2808,18 +2829,36 @@ async function setMachineDisplay(device, values) {
   if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
     throw new Error("This machine does not expose a compatible performance HUD.");
   }
-  const enabled = values.hud === true;
   return sftpWithDevice(device, async (sftp, client) => {
     let config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
-    config = enabled ? setBatoceraSetting(config, "global.hud", "perf") : removeBatoceraSetting(config, "global.hud");
+    if (typeof values.hud === "boolean") {
+      if (values.hud) {
+        config = setBatoceraSetting(config, "global.hud", "perf");
+        // Xenia needs the MangoHud wrapper explicitly enabled. Batocera's default
+        // console bezel must also be disabled or it becomes a full-screen HUD
+        // background that covers the sides of the running game.
+        config = setBatoceraSetting(config, "xbox360.hud_support", "true");
+        config = setBatoceraSetting(config, "xbox360.bezel", "none");
+      } else {
+        config = removeBatoceraSetting(config, "global.hud");
+        config = removeBatoceraSetting(config, "xbox360.hud_support");
+        config = removeBatoceraSetting(config, "xbox360.bezel");
+      }
+    }
     const temporary = "/userdata/system/batocera.conf.rp1-display";
     await writeSftpFile(sftp, temporary, config);
     await new Promise(resolve => sftp.unlink("/userdata/system/batocera.conf", () => resolve()));
     await new Promise((resolve, reject) => sftp.rename(temporary, "/userdata/system/batocera.conf", error => error ? reject(error) : resolve()));
-    const processState = await execOnSshClient(client, "sync; if pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' >/dev/null 2>&1; then game=1; else game=0; fi; if pgrep -f '[m]angohud' >/dev/null 2>&1; then attached=1; else attached=0; fi; echo GAME=$game,HUD=$attached", 10000);
+    const processState = await execOnSshClient(client, "sync; pids=$(pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' || true); if [ -n \"$pids\" ]; then game=1; else game=0; fi; attached=0; for pid in $pids; do if tr '\\0' '\\n' </proc/$pid/environ 2>/dev/null | grep -q -E '^MANGOHUD(_CONFIG|_CONFIGFILE)?='; then attached=1; break; fi; done; echo GAME=$game,HUD=$attached", 10000);
     const gameRunning = /GAME=1/.test(processState);
     const hudAttached = /HUD=1/.test(processState);
-    return { supported: true, hud: enabled, gameRunning, hudAttached, requiresRelaunch: gameRunning && !hudAttached };
+    return {
+      supported: true,
+      hud: String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf",
+      gameRunning,
+      hudAttached,
+      requiresRelaunch: gameRunning
+    };
   });
 }
 
@@ -3353,8 +3392,26 @@ async function installNintendoPicturePresentation(device, systems) {
     const command = `settings=/userdata/system/configs/emulationstation/es_settings.cfg
 theme_set=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' "$settings" | head -n 1)
 base=""
-for candidate in "/userdata/themes/$theme_set/${folder}/theme.xml" "/userdata/themes/$theme_set/theme.xml" "/usr/share/emulationstation/themes/$theme_set/${folder}/theme.xml" "/usr/share/emulationstation/themes/$theme_set/theme.xml" "/etc/emulationstation/themes/$theme_set/${folder}/theme.xml" "/etc/emulationstation/themes/$theme_set/theme.xml"; do [ -f "$candidate" ] && { base="$candidate"; break; }; done
-[ -n "$base" ] || { echo "Theme base not found for $theme_set/${folder}" >&2; exit 1; }
+if [ -n "$theme_set" ]; then
+  for candidate in "/userdata/themes/$theme_set/${folder}/theme.xml" "/userdata/themes/$theme_set/theme.xml" "/usr/share/emulationstation/themes/$theme_set/${folder}/theme.xml" "/usr/share/emulationstation/themes/$theme_set/theme.xml" "/etc/emulationstation/themes/$theme_set/${folder}/theme.xml" "/etc/emulationstation/themes/$theme_set/theme.xml"; do [ -f "$candidate" ] && { base="$candidate"; break; }; done
+fi
+if [ -z "$base" ]; then
+  for themes_root in /userdata/themes /usr/share/emulationstation/themes /etc/emulationstation/themes; do
+    [ -d "$themes_root" ] || continue
+    for theme_dir in "$themes_root"/*; do
+      [ -d "$theme_dir" ] || continue
+      candidate="$theme_dir/${folder}/theme.xml"
+      [ -f "$candidate" ] && { base="$candidate"; break 2; }
+    done
+  done
+fi
+if [ -z "$base" ]; then
+  for themes_root in /userdata/themes /usr/share/emulationstation/themes /etc/emulationstation/themes; do
+    [ -d "$themes_root" ] || continue
+    for candidate in "$themes_root"/*/theme.xml; do [ -f "$candidate" ] && { base="$candidate"; break 2; }; done
+  done
+fi
+[ -n "$base" ] || { echo "No installed EmulationStation theme could be used for ${folder}" >&2; exit 1; }
 cat > /userdata/roms/${folder}/theme.xml <<EOF
 ${factory('$base')}
 EOF
@@ -5955,62 +6012,63 @@ async function getDeviceStorage(device) {
   };
 }
 
-async function setupXbox360Xenia(device) {
-  if (device.access !== "ssh") {
-    throw new Error("Xbox 360 + Xenia setup requires an online Batocera machine with SSH access.");
+async function getXbox360XeniaStatus(device) {
+  if (device.access !== "ssh") return { installed: false, xenia: false, wine: false, bottle: false, storageReady: false };
+  const command = [
+    "wine=0; xenia=0; bottle=0; storage=0",
+    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && wine=1; done",
+    "find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | grep -q . && xenia=1 || true",
+    "[ -s /userdata/system/wine-bottles/xbox360/system.reg ] && bottle=1",
+    "fstype=$(findmnt -n -o FSTYPE /userdata 2>/dev/null || true); case \"$fstype\" in ext2|ext3|ext4|btrfs|xfs|f2fs) storage=1;; *) grep -qs ' /userdata/system/wine-bottles/xbox360 ext4 ' /proc/mounts && storage=1 || true;; esac",
+    "echo WINE=$wine,XENIA=$xenia,BOTTLE=$bottle,STORAGE=$storage,FSTYPE=$fstype"
+  ].join("; ");
+  // This is a readiness probe, not a transfer. A busy Batocera machine may
+  // need longer than 20 seconds to traverse its Wine and Xenia directories.
+  const output = (await execSsh(device, command, 60000)).trim();
+  const wine = /WINE=1/.test(output);
+  const xenia = /XENIA=1/.test(output);
+  const bottle = /BOTTLE=1/.test(output);
+  const storageReady = /STORAGE=1/.test(output);
+  const fileSystem = output.match(/FSTYPE=([^,\r\n]*)/)?.[1] || "";
+  // Xbox 360 availability means Batocera provides Xenia. RP1 must not create
+  // or initialize a Wine prefix merely because the console was selected.
+  return { installed: xenia && storageReady, xenia, wine, bottle, storageReady, fileSystem, managedByBatocera: true };
+}
+
+async function prepareXbox360RuntimeStorage(device) {
+  if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("Xbox 360 storage preparation requires an online Batocera machine with SSH access.");
   }
   const command = [
     "set -e",
     "prefix=/userdata/system/wine-bottles/xbox360",
-    "wine64=''",
-    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && { wine64=\"$candidate\"; break; }; done",
-    "[ -n \"$wine64\" ] || { echo MISSING_WINE; exit 20; }",
-    "xenia=$(find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | head -n 1)",
-    "[ -n \"$xenia\" ] || { echo MISSING_XENIA; exit 21; }",
-    "mkdir -p \"$prefix\" /userdata/saves/xbox360",
-    "if [ -s \"$prefix/system.reg\" ]; then echo ALREADY_READY; exit 0; fi",
-    "runner=${wine64%%/bin/*}; case \"$wine64\" in */lib/wine/*) runner=${wine64%%/lib/wine/*};; esac",
-    "export WINEPREFIX=\"$prefix\" WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES='mscoree=d;mshtml=d'",
-    "export PATH=\"$runner/bin:$PATH\" LD_LIBRARY_PATH=\"/usr/lib:/lib32:$runner/lib/wine\"",
-    "if [ -z \"$DISPLAY\" ]; then for socket in /tmp/.X11-unix/X*; do [ -S \"$socket\" ] && { export DISPLAY=:\"${socket##*/X}\"; break; }; done; fi",
-    "if ! \"$wine64\" wineboot --update >/tmp/bw-xenia-wineboot.log 2>&1; then echo 'Xbox 360 Wine initialization failed:' >&2; tail -n 20 /tmp/bw-xenia-wineboot.log >&2; exit 22; fi",
-    "wineserver=\"$runner/bin/wineserver\"; [ -x \"$wineserver\" ] && \"$wineserver\" -w >/dev/null 2>&1 || true",
-    "[ -s \"$prefix/system.reg\" ] || { echo INIT_FAILED; exit 22; }",
-    "touch \"$prefix/.batocera-warehouse-initialized\"",
-    "echo INITIALIZED"
+    "fstype=$(findmnt -n -o FSTYPE /userdata 2>/dev/null || true)",
+    "case \"$fstype\" in ext2|ext3|ext4|btrfs|xfs|f2fs) echo NATIVE:$fstype; exit 0;; esac",
+    "if grep -qs \" $prefix ext4 \" /proc/mounts; then echo READY:$fstype; exit 0; fi",
+    "helper=/userdata/system/ready-player-one/xenia-storage.sh",
+    "[ -f \"$helper\" ] || { echo MISSING_RP2_BOOTSTRAP >&2; exit 22; }",
+    "chmod 755 \"$helper\" 2>/dev/null || true",
+    "/bin/bash \"$helper\" prepare",
+    "grep -qs \" $prefix ext4 \" /proc/mounts || { echo STORAGE_MOUNT_FAILED >&2; exit 23; }",
+    "echo PREPARED:$fstype"
   ].join("; ");
   try {
-    const output = (await execSsh(device, command, 240000)).trim();
-    return { alreadyReady: output.includes("ALREADY_READY"), output };
+    const output = (await execSsh(device, command, 180000)).trim();
+    return { prepared: /^(?:NATIVE|READY|PREPARED):/m.test(output), output };
   } catch (error) {
     const message = String(error?.message || error);
-    if (message.includes("MISSING_WINE")) throw new Error("Batocera's Wine runner is missing. Update Batocera before using Xbox 360 games.");
-    if (message.includes("MISSING_XENIA")) throw new Error("Xenia is missing from this Batocera build. Xbox 360 requires an x86-64 Batocera build with Xenia.");
+    if (message.includes("MISSING_RP2_BOOTSTRAP")) throw new Error("This shared-drive Batocera installation needs the current RP2 runtime preflight. Install the updated Ready Player Two in Windows and run Configure All once.");
+    if (message.includes("STORAGE_MOUNT_FAILED")) throw new Error("Batocera could not mount the Linux-compatible Xbox 360 runtime container. No Wine console was installed.");
     throw error;
   }
-}
-
-async function getXbox360XeniaStatus(device) {
-  if (device.access !== "ssh") return { installed: false, xenia: false, wine: false, bottle: false };
-  const command = [
-    "wine=0; xenia=0; bottle=0",
-    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && wine=1; done",
-    "find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | grep -q . && xenia=1 || true",
-    "[ -s /userdata/system/wine-bottles/xbox360/system.reg ] && bottle=1",
-    "echo WINE=$wine,XENIA=$xenia,BOTTLE=$bottle"
-  ].join("; ");
-  const output = (await execSsh(device, command, 20000)).trim();
-  const wine = /WINE=1/.test(output);
-  const xenia = /XENIA=1/.test(output);
-  const bottle = /BOTTLE=1/.test(output);
-  return { installed: wine && xenia && bottle, wine, xenia, bottle };
 }
 
 async function openXbox360XeniaProfile(device) {
   if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
     throw new Error("Xenia profile setup requires an online Batocera machine with SSH access.");
   }
-  await setupXbox360Xenia(device);
+  const status = await getXbox360XeniaStatus(device);
+  if (!status.xenia) throw new Error("Xenia is missing from this Batocera build. RP1 did not install Wine.");
   const command = [
     "set -e",
     "if pgrep -f '[x]enia.*(exe|edge)' >/dev/null 2>&1; then echo XENIA_RUNNING; exit 23; fi",
@@ -8036,8 +8094,8 @@ const server = http.createServer(async (req, res) => {
         try { worker = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\dual-boot-worker.json`,'utf8')); } catch {}
         const workerVersion = String(worker?.version || '');
         const workerMatch = /^1\.0\.(\d+)$/.exec(workerVersion);
-        const workerCompatible = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 55 && worker.computer === report.computer;
-        if (!workerCompatible) throw new Error('This Windows PC needs RP2 1.0.55 or newer. Run Configure All once in the updated RP2 before using Install Dual Boot.');
+        const workerCompatible = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 56 && worker.computer === report.computer;
+        if (!workerCompatible) throw new Error('This Windows PC needs RP2 1.0.56 or newer. Run Configure All once in the updated RP2 before using Install Dual Boot.');
         if (plan.targetComputerName !== report.computer || Number(body.diskNumber) !== Number(report.diskNumber) || Number(body.windowsGb) !== Number(plan.windowsGb) || body.defaultOs !== plan.defaultOs) throw new Error('The selected Windows disk or dual-boot options changed since confirmation.');
         const existingInstallState = await readOptional('install-state.json');
         const repairableExistingInstall = ['awaiting-first-boot','complete'].includes(existingInstallState?.phase);
@@ -8097,7 +8155,7 @@ const server = http.createServer(async (req, res) => {
           const worker = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\dual-boot-worker.json`,'utf8'));
           workerVersion = String(worker?.version || '');
           const workerMatch = /^1\.0\.(\d+)$/.exec(workerVersion);
-          workerReady = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 55 && worker.computer === report.computer;
+          workerReady = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 56 && worker.computer === report.computer;
         } catch {}
         let installState = null;
         try {
@@ -8700,8 +8758,19 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
-      const result = await setupXbox360Xenia(device);
-      sendJson(res, 200, { ok: true, ...result });
+      const result = await getXbox360XeniaStatus(device);
+      if (!result.xenia) { sendJson(res, 400, {ok:false,error:"Xenia is missing from this Batocera build. RP1 did not install Wine or create a Wine prefix."}); return; }
+      sendJson(res, 200, { ok: true, ...result, note:"Xenia is supplied by Batocera. RP1 made no Wine changes." });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/xbox360-xenia/storage") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false,error:"Device is not configured."}); return; }
+      const storage = await prepareXbox360RuntimeStorage(device);
+      const status = await getXbox360XeniaStatus(device);
+      sendJson(res, 200, {ok:true, ...storage, status});
       return;
     }
 
@@ -8917,6 +8986,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/3dsen/setup") {
       const body = JSON.parse((await readBody(req)) || "{}");
       const device = await getRuntimeDevice(body.device);
+      const windowsWine = await getWindowsWineStatus(device);
+      if (!windowsWine.installed) {
+        throw new Error("3D NEC requires Wine. Select and apply Windows (Wine) first; RP1 will not install Wine automatically for another console.");
+      }
       const runtime = await install3dSenWineRuntime(device);
       await ensure3dSenSystem(device);
       await runSoftReset(device);
@@ -9081,7 +9154,7 @@ ${check}
       if (!local) { sendJson(res, 403, { ok: false, error: "Create companion programs from Ready Player One on this PC." }); return; }
       const body = JSON.parse((await readBody(req)) || "{}");
       const companion = String(body.companion || "").toLowerCase();
-      const fileName = companion === "two" ? "Ready Player Two 1.0.54.exe" : "";
+      const fileName = companion === "two" ? "Ready Player Two 1.0.56.exe" : "";
       if (!fileName) { sendJson(res, 400, { ok: false, error: "Choose Ready Player Two." }); return; }
       const source = path.join(uiRoot, "ready-player-two.exe");
       if (!fs.existsSync(source)) { sendJson(res, 500, { ok: false, error: `${fileName} is not included in this Ready Player One build.` }); return; }

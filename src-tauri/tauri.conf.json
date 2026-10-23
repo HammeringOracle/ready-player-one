@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ready Player One",
-  "version": "1.0.372",
+  "version": "1.0.383",
   "identifier": "com.batocera.warehouse",
   "build": {
     "devUrl": "http://localhost:8789",

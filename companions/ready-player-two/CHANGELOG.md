@@ -1,3 +1,8 @@
+# Ready Player Two 1.0.56
+
+- Prepare shared-drive Batocera installations with a persistent ext4 container for Xenia's internal runtime when `/userdata` uses NTFS or exFAT.
+- Preserve native Linux userdata filesystems and avoid installing or configuring the Windows/Wine console.
+
 # Ready Player Two 1.0.22
 
 - Bring the RP2 window to the front when it opens without leaving it always-on-top.

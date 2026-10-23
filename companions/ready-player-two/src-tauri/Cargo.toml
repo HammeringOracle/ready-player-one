@@ -1,6 +1,6 @@
 [package]
 name = "ready-player-two"
-version = "1.0.55"
+version = "1.0.56"
 description = "Ready Player Two sharing assistant for RetroBat, RetroArch, ES-DE, and Emu-Station"
 authors = ["Ready Player One"]
 edition = "2021"
