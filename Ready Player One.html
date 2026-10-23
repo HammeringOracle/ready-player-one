@@ -324,6 +324,30 @@
       border: 1px solid rgba(255, 255, 255, 0.14);
     }
 
+    :is(.device-card,.layout-machine-card)[data-platform="windows"] .mini-pc:not(.usb-drive) {
+      width: 44px;
+      height: 36px;
+      place-self: center;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: url('/ui/windows-mini-pc.png') center 46% / contain no-repeat;
+      transform: translateY(-3px);
+    }
+    :is(.device-card,.layout-machine-card)[data-platform="windows"] .mini-pc:not(.usb-drive)::before { content: none; }
+    .device-card[data-platform="windows"] > div:not(.mini-pc),
+    .layout-machine-card[data-platform="windows"] > span:not(.mini-pc) {
+      align-self: stretch;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      transform: translateY(-3px);
+    }
+    :is(.device-card,.layout-machine-card)[data-platform="windows"] .device-meta {
+      line-height: 1;
+    }
+
     .device-card[data-platform="batocera"] .mini-pc:not(.usb-drive),
     .layout-machine-card[data-platform="batocera"] .mini-pc:not(.usb-drive) {
       width: 42px;
@@ -1455,6 +1479,16 @@
       color: var(--red);
     }
 
+    #confirmXboxBiosDialog:disabled {
+      color: #7d8794;
+      border-color: #626b77;
+      background: #343a43;
+      box-shadow: none;
+      opacity: 0.72;
+      cursor: not-allowed;
+      filter: grayscale(1);
+    }
+
     button.ready {
       color: var(--green);
     }
@@ -1866,6 +1900,26 @@
       gap: 10px;
       padding: 0 18px 18px;
     }
+
+    #xboxBiosDialog .confirm-body,
+    #xboxBiosDialogMessage { min-width: 0; }
+    #xboxBiosDialogMessage {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    #xboxBiosDialog.dual-boot-working #xboxBiosDialogTitle::after {
+      content: '';
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      margin-left: 12px;
+      vertical-align: -3px;
+      border: 3px solid rgba(110, 171, 255, 0.28);
+      border-top-color: #78b3ff;
+      border-radius: 50%;
+      animation: dual-boot-spin 0.8s linear infinite;
+    }
+    @keyframes dual-boot-spin { to { transform: rotate(360deg); } }
 
     .wifi-field {
       display: grid;
@@ -7568,6 +7622,7 @@
     }
 
     function showXboxBiosDialog({ title = "Xbox BIOS Install", device = selectedDevice, message = "", confirmLabel = "OK", cancelLabel = "Cancel", cancellable = false, alternateLabel = "", alternateValue = "alternate" } = {}) {
+      xboxBiosDialog.classList.remove('dual-boot-working');
       xboxBiosDialogTitle.textContent = title;
       xboxBiosDialogDevice.textContent = machineDisplayName(device);
       xboxBiosDialogMessage.textContent = message;
@@ -7584,6 +7639,7 @@
           if (settled) return;
           settled = true;
           xboxBiosDialog.classList.remove("open");
+          xboxBiosDialog.classList.remove('dual-boot-working');
           confirmXboxBiosDialog.onclick = null;
           cancelXboxBiosDialog.onclick = null;
           alternateXboxBiosDialog.onclick = null;
@@ -8104,6 +8160,15 @@
       menu.setAttribute('role', 'menu');
       menu.setAttribute('aria-label', `${machineDisplayName(card.dataset.device)} options`);
       menu.style.cssText = 'position:fixed;z-index:10000;padding:8px;border:1px solid #779aca;border-radius:12px;background:#182130;box-shadow:0 12px 30px #0007;';
+      const showCompactMachineMenu = focusTarget => {
+        document.body.append(menu);
+        menu.style.boxSizing = 'border-box';
+        menu.style.width = `${Math.round(menu.getBoundingClientRect().width * 0.72)}px`;
+        menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
+        retroBatMachineMenu = menu;
+        focusTarget.focus();
+      };
       if (card.dataset.platform === 'windows') {
         const credentialsButton = document.createElement('button');
         credentialsButton.type = 'button';
@@ -8117,27 +8182,73 @@
         dualBootButton.className = 'advanced-item';
         dualBootButton.setAttribute('role', 'menuitem');
         dualBootButton.textContent = 'Shared Dual Boot';
+        dualBootButton.style.marginTop = '4px';
         dualBootButton.addEventListener('click', async () => {
           closeRetroBatMachineMenu();
           const preferenceKey = `rp1-shared-dual-boot-windows-gb:${card.dataset.device}:${card.dataset.host}`;
+          const imagePreferenceKey = `${preferenceKey}:image`;
           let report;
+          let installState;
           try {
             const response = await fetch(`${apiBase}/api/windows/dual-boot/preflight?device=${encodeURIComponent(card.dataset.device)}`);
             const result = await response.json();
             if (!response.ok || !result.ok) throw new Error(result.error || 'Could not inspect this Windows drive.');
+            if (!result.workerReady) throw new Error(`This Windows PC needs RP2 1.0.55 or newer. ${result.workerVersion ? `RP1 found ${result.workerVersion}. ` : ''}Install the updated RP2 and run Configure All once on that PC.`);
             report = result.report;
+            installState = result.installState;
+            report.sharedDualBoot = {canFinishExisting:result.canFinishExisting,stagedPlan:result.stagedPlan};
           } catch (error) {
             await showXboxBiosDialog({title:'Shared Dual Boot',device:card.dataset.device,message:error.message,confirmLabel:'OK'});
             return;
           }
           const gb = bytes => (Number(bytes) / (1024 ** 3)).toFixed(1);
-          const minWindowsGb = Math.ceil(Number(report.smallestSupportedWindowsSizeBytes) / (1024 ** 3));
-          const maxWindowsGb = Math.floor(Number(report.windowsPartitionSizeBytes) / (1024 ** 3));
+          if (report.sharedDualBoot?.canFinishExisting) {
+            const plan = report.sharedDualBoot.stagedPlan;
+            const finishConfirmed = await showXboxBiosDialog({
+              title:'Shared Dual Boot',
+              device:`${card.dataset.device} · ${card.dataset.host}`,
+              message:`RP2 successfully prepared Batocera and the boot files. The installation is waiting for RP1 to finish or repair the boot menu.\n\nCurrent status: ${installState.phase} — ${installState.detail}\n\nThis will reuse the verified image and existing partitions. It will not transfer the image or resize Windows again.`,
+              confirmLabel:'Finish / Repair Dual Boot',
+              cancellable:true
+            });
+            if (!finishConfirmed) return;
+            const progressDialog = showXboxBiosDialog({title:'Shared Dual Boot — working',device:card.dataset.device,message:'Asking RP2 to finish and verify the boot menu…',confirmLabel:'Close'});
+            xboxBiosDialog.classList.add('dual-boot-working');
+            const progressText = xboxBiosDialogMessage;
+            let dialogOpen = true;
+            progressDialog.then(() => { dialogOpen = false; });
+            try {
+              const installResponse = await fetch(`${apiBase}/api/windows/dual-boot/install`, {
+                method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:plan.windowsGb,defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true})
+              });
+              const install = await installResponse.json();
+              if (!installResponse.ok || !install.ok) throw new Error(install.error || 'RP2 did not accept the finish request.');
+              for (;;) {
+                await new Promise(resolve => setTimeout(resolve,1500));
+                const statusResponse = await fetch(`${apiBase}/api/windows/dual-boot/install?device=${encodeURIComponent(card.dataset.device)}&host=${encodeURIComponent(card.dataset.host)}`);
+                const status = await statusResponse.json();
+                if (!statusResponse.ok || !status.ok) throw new Error(status.error || 'Could not read RP2 status.');
+                const matchingResult = status.result?.requestId === install.requestId ? status.result : null;
+                if (matchingResult?.ok === true) {
+                  if (dialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = 'Dual boot is finished and the boot menu was verified. Reboot this Windows PC to test Windows 11 and Batocera.'; }
+                  break;
+                }
+                if (matchingResult?.phase === 'failed' || matchingResult?.error) throw new Error(matchingResult.error || matchingResult.detail || 'RP2 could not finish the boot menu.');
+                if (dialogOpen) progressText.textContent = `${status.state?.phase || 'working'}: ${status.state?.detail || 'RP2 is verifying the boot menu…'}`;
+              }
+            } catch (error) {
+              if (dialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = `Shared Dual Boot stopped: ${error.message}`; }
+            }
+            return;
+          }
+          const minWindowsGb = Math.ceil(Number(report.smallestSupportedWindowsSizeBytes) / (1024 ** 3) + 5);
+          const maxWindowsGb = Math.floor(Number(report.windowsPartitionSizeBytes) / (1024 ** 3) - 12);
           const dialogResult = showXboxBiosDialog({
             title: 'Shared Dual Boot',
             device: `${card.dataset.device} · ${card.dataset.host}`,
-            message: `RP2 inspected disk ${report.diskNumber} (${gb(report.diskSizeBytes)} GB, ${report.partitionStyle}). Windows currently occupies ${gb(report.windowsPartitionSizeBytes)} GB; ${gb(report.windowsUsedBytes)} GB is used. Windows reports it can shrink no smaller than ${gb(report.smallestSupportedWindowsSizeBytes)} GB. Report captured ${report.capturedAt || 'recently'}.\n\nChoose how much Windows keeps and the preferred boot OS. These are preferences only: image transfer, partitioning, installation, and boot changes are not enabled yet.`,
-            confirmLabel: 'Save preferences',
+            message: `RP2 inspected disk ${report.diskNumber} (${gb(report.diskSizeBytes)} GB, ${report.partitionStyle}). Windows currently occupies ${gb(report.windowsPartitionSizeBytes)} GB; ${gb(report.windowsUsedBytes)} GB is used. Windows reports it can shrink no smaller than ${gb(report.smallestSupportedWindowsSizeBytes)} GB. Report captured ${report.capturedAt || 'recently'}.${installState ? `\n\nPreparation status: ${installState.phase} — ${installState.detail}` : ''}\n\nChoose the Batocera image, how much space Windows keeps, and the preferred boot OS. Install Dual Boot transfers and verifies the image, prepares partitions, and installs the rEFInd boot menu through RP2. Do not begin without a verified backup and Windows recovery USB.`,
+            confirmLabel: 'Install Dual Boot',
             cancellable: true
           });
           const sizeLabel = document.createElement('label');
@@ -8150,34 +8261,143 @@
           sizeInput.step = '1';
           sizeInput.inputMode = 'numeric';
           sizeInput.placeholder = `${minWindowsGb}–${maxWindowsGb} GB`;
-          sizeInput.value = localStorage.getItem(preferenceKey) || '';
-          sizeInput.style.cssText = 'display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:8px';
+          const savedWindowsGb = Number(localStorage.getItem(preferenceKey));
+          sizeInput.value = Number.isInteger(savedWindowsGb) && savedWindowsGb >= minWindowsGb && savedWindowsGb <= maxWindowsGb ? String(savedWindowsGb) : String(minWindowsGb);
+          sizeInput.style.cssText = 'display:block;width:100px;max-width:100%;box-sizing:border-box;margin-top:6px;padding:8px';
           sizeLabel.append(sizeInput);
+          const imageRow = document.createElement('div');
+          imageRow.style.cssText = 'display:flex;align-items:center;gap:10px;margin-top:12px;min-width:0;max-width:100%';
+          const chooseImageButton = document.createElement('button');
+          chooseImageButton.type = 'button';
+          chooseImageButton.textContent = 'Choose Image';
+          chooseImageButton.style.cssText = 'flex:none;padding:7px 12px';
+          const imageStatus = document.createElement('span');
+          imageStatus.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+          imageStatus.textContent = 'No Batocera image attached';
+          imageRow.append(chooseImageButton, imageStatus);
+          let selectedImage = null;
+          const showImage = image => {
+            selectedImage = image;
+            const bootGb = Number(image.partitions?.[0]?.sizeBytes || 0) / (1024 ** 3);
+            imageStatus.textContent = `${image.name} (${gb(image.sizeBytes)} GB${image.compressed ? ' compressed' : ''}; ${bootGb.toFixed(1)} GB boot)`;
+            imageStatus.title = image.path;
+            updateSaveState();
+          };
+          chooseImageButton.addEventListener('click', async () => {
+            chooseImageButton.disabled = true;
+            try {
+              const response = await fetch(`${apiBase}/api/windows/dual-boot/choose-image`, {method:'POST'});
+              const result = await response.json();
+              if (!response.ok || !result.ok) throw new Error(result.error || 'Could not select the image.');
+              if (!result.cancelled) showImage(result.image);
+            } catch (error) { imageStatus.textContent = error.message; }
+            finally { chooseImageButton.disabled = false; }
+          });
+          const savedImagePath = localStorage.getItem(imagePreferenceKey);
+          if (savedImagePath) {
+            fetch(`${apiBase}/api/windows/dual-boot/inspect-image`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:savedImagePath})})
+              .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Image no longer available.'); showImage(result.image); })
+              .catch(() => { imageStatus.textContent = 'Saved image unavailable — choose it again'; });
+          }
           const defaultBootLabel = document.createElement('label');
           defaultBootLabel.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px';
           const defaultBootCheckbox = document.createElement('input');
           defaultBootCheckbox.type = 'checkbox';
           defaultBootCheckbox.checked = localStorage.getItem(`${preferenceKey}:batocera-default`) === 'true';
           defaultBootLabel.append(defaultBootCheckbox, document.createTextNode('Boot Batocera by default (otherwise Windows)'));
-          xboxBiosDialogMessage.append(sizeLabel, defaultBootLabel);
+          const backupLabel = document.createElement('label');
+          backupLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-top:14px;color:#ffcf72;font-weight:700';
+          const backupCheckbox = document.createElement('input');
+          backupCheckbox.type = 'checkbox';
+          backupCheckbox.style.cssText = 'margin-top:3px;flex:none';
+          backupLabel.append(backupCheckbox, document.createTextNode('I have made and verified a restorable backup of this Windows drive. RP1 does not create that backup here.'));
+          const recoveryLabel = document.createElement('label');
+          recoveryLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-top:8px;color:#ffcf72;font-weight:700';
+          const recoveryCheckbox = document.createElement('input');
+          recoveryCheckbox.type = 'checkbox';
+          recoveryCheckbox.style.cssText = 'margin-top:3px;flex:none';
+          recoveryLabel.append(recoveryCheckbox, document.createTextNode('I have a Windows recovery USB for this PC if its first boot fails.'));
+          xboxBiosDialogMessage.append(imageRow, sizeLabel, defaultBootLabel, backupLabel, recoveryLabel);
           const validSize = () => {
             const value = Number(sizeInput.value);
-            return Number.isInteger(value) && value >= minWindowsGb && value < maxWindowsGb;
+            const remainingBytes = Number(report.windowsPartitionSizeBytes) - value * (1024 ** 3);
+            const imagePartitionBytes = selectedImage?.partitions?.reduce((sum, partition) => sum + Number(partition.sizeBytes || 0), 0) || 0;
+            return Number.isInteger(value) && value >= minWindowsGb && value < maxWindowsGb && imagePartitionBytes > 0 && remainingBytes >= imagePartitionBytes;
           };
-          confirmXboxBiosDialog.disabled = !validSize();
-          sizeInput.addEventListener('input', () => { confirmXboxBiosDialog.disabled = !validSize(); });
+          const updateSaveState = () => { confirmXboxBiosDialog.disabled = !validSize() || !selectedImage || !backupCheckbox.checked || !recoveryCheckbox.checked; };
+          updateSaveState();
+          sizeInput.addEventListener('input', updateSaveState);
+          backupCheckbox.addEventListener('change', updateSaveState);
+          recoveryCheckbox.addEventListener('change', updateSaveState);
           sizeInput.focus();
           if (await dialogResult) {
             localStorage.setItem(preferenceKey, sizeInput.value.trim());
             localStorage.setItem(`${preferenceKey}:batocera-default`, String(defaultBootCheckbox.checked));
+            localStorage.setItem(imagePreferenceKey, selectedImage.path);
+            const progressDialog = showXboxBiosDialog({title:'Shared Dual Boot — working',device:card.dataset.device,message:'Starting image transfer…',confirmLabel:'Close'});
+            xboxBiosDialog.classList.add('dual-boot-working');
+            const messageNode = xboxBiosDialogMessage;
+            const progressText = document.createElement('span');
+            messageNode.replaceChildren(progressText);
+            let stagingDialogOpen = true;
+            const showProgress = message => { if (stagingDialogOpen) progressText.textContent = message; };
+            showProgress('Starting image transfer…');
+            progressDialog.then(() => { stagingDialogOpen = false; });
+            try {
+              const response = await fetch(`${apiBase}/api/windows/dual-boot/stage`, {
+                method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,imagePath:selectedImage.path,windowsGb:Number(sizeInput.value),defaultOs:defaultBootCheckbox.checked?'batocera':'windows'})
+              });
+              const result = await response.json();
+              if (!response.ok || !result.ok) throw new Error(result.error || 'Could not stage the image.');
+              showProgress('Copying the Batocera image to this Windows PC…');
+              (async () => {
+                for (;;) {
+                  await new Promise(resolve => setTimeout(resolve, 750));
+                  const statusResponse = await fetch(`${apiBase}/api/windows/dual-boot/stage?job=${encodeURIComponent(result.jobId)}`);
+                  const status = await statusResponse.json();
+                  if (!statusResponse.ok || !status.ok) throw new Error(status.error || 'Could not read staging progress.');
+                  const job = status.job;
+                  if (job.phase === 'failed') throw new Error(job.error || 'Image staging failed.');
+                  if (job.phase === 'staged') {
+                    showProgress('Image and rEFInd verified. Asking RP2 to prepare the drive…');
+                    const installResponse = await fetch(`${apiBase}/api/windows/dual-boot/install`, {
+                      method:'POST',headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:Number(sizeInput.value),defaultOs:defaultBootCheckbox.checked?'batocera':'windows',backupConfirmed:true,recoveryMediaConfirmed:true})
+                    });
+                    const install = await installResponse.json();
+                    if (!installResponse.ok || !install.ok) throw new Error(install.error || 'RP2 did not accept the install request.');
+                    let waitingSince = Date.now();
+                    for (;;) {
+                      await new Promise(resolve => setTimeout(resolve, 1500));
+                      const installStatusResponse = await fetch(`${apiBase}/api/windows/dual-boot/install?device=${encodeURIComponent(card.dataset.device)}&host=${encodeURIComponent(card.dataset.host)}`);
+                      const installStatus = await installStatusResponse.json();
+                      if (!installStatusResponse.ok || !installStatus.ok) throw new Error(installStatus.error || 'Could not read RP2 install status.');
+                      const result = installStatus.result;
+                      if (result?.requestId === install.requestId && result.ok === true) {
+                        if (stagingDialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = 'rEFInd and Batocera boot entries installed. Reboot the Windows PC and test both Windows and Batocera before considering dual boot verified.'; }
+                        break;
+                      }
+                      if (result?.requestId === install.requestId && (result.phase === 'failed' || result.error)) throw new Error(result.error || result.detail || 'RP2 preparation failed.');
+                      const phase = installStatus.state?.phase || (result?.requestId === install.requestId ? result.phase : 'waiting-for-rp2');
+                      const detail = installStatus.state?.detail || (result?.requestId === install.requestId ? result.detail : 'Waiting for the protected RP2 worker…');
+                      if (phase !== 'waiting-for-rp2') waitingSince = Date.now();
+                      if (phase === 'waiting-for-rp2' && Date.now() - waitingSince > 30000) throw new Error('RP2 did not accept the install request. Run Configure All once with the updated RP2 to install its protected worker. No new disk action was started by RP1.');
+                      showProgress(`${phase}: ${detail}`);
+                    }
+                    break;
+                  }
+                  const percentage = job.totalBytes ? Math.min(100, Math.floor(100 * job.copiedBytes / job.totalBytes)) : 0;
+                  showProgress(job.phase === 'verifying' ? 'Transfer complete. Verifying the image on the Windows PC…' : `Transferring Batocera image: ${percentage}%`);
+                }
+              })().catch(error => { if (stagingDialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = `Shared Dual Boot stopped: ${error.message}`; } });
+            } catch (error) {
+              if (stagingDialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = `Shared Dual Boot stopped: ${error.message}`; }
+            }
           }
         });
         menu.append(dualBootButton);
-        document.body.append(menu);
-        menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
-        menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
-        retroBatMachineMenu = menu;
-        dualBootButton.focus();
+        showCompactMachineMenu(credentialsButton);
         return;
       }
       const button = document.createElement('button');
@@ -8226,13 +8446,7 @@
         displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineDisplay(card); });
         menu.append(displayButton);
       }
-      document.body.append(menu);
-      menu.style.boxSizing = 'border-box';
-      menu.style.width = `${Math.round(menu.getBoundingClientRect().width * 0.72)}px`;
-      menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
-      menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
-      retroBatMachineMenu = menu;
-      button.focus();
+      showCompactMachineMenu(button);
     }
     document.addEventListener('pointerdown', event => {
       if (retroBatMachineMenu && !retroBatMachineMenu.contains(event.target)) closeRetroBatMachineMenu();

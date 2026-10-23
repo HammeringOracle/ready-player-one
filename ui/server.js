@@ -13,6 +13,8 @@ const { Client } = require("ssh2");
 // The launcher uses this hash to replace an outdated backend after edits.
 const runningSourceHash = crypto.createHash("sha256").update(fs.readFileSync(__filename)).digest("hex");
 const { readUsbLibrary } = require('./usb-library');
+const { inspectSharedDualBootImage } = require('./shared-dual-boot-image');
+const { stageSharedDualBootImage } = require('./shared-dual-boot-stage');
 const { copyFileResumableLocal } = require('./usb-copy');
 const { queueDeletion, cancelDeletion, deletionState, stageController } = require('./usb-deletions');
 const cleanRomName = require('./rom-name');
@@ -29,6 +31,7 @@ function displayGameTitle(system, fileName) {
 const uiRoot = __dirname;
 const root = path.dirname(uiRoot);
 const port = Number(process.env.PORT || 8789);
+const sharedDualBootStageJobs = new Map();
 const controllerSettingsPath = path.join(root, "controller-settings.json");
 const ipac4DefaultPath = path.join(root, "ipac4-default.json");
 const ipac4GeneratedPath = path.join(root, "ipac4-generated.json");
@@ -727,6 +730,37 @@ function chooseTransferLayoutPath(mode = "save") {
         reject(new Error(String(stderr || error.message || "Layout dialog failed.").trim()));
         return;
       }
+      resolve(String(stdout || "").trim());
+    });
+  });
+}
+
+function chooseSharedDualBootImage() {
+  if (process.platform !== "win32") throw new Error("Choose Image is available on the Windows RP1 computer.");
+  const command = [
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$dialog = New-Object System.Windows.Forms.OpenFileDialog",
+    "$dialog.Title = 'Choose Batocera 43.1 Image'",
+    "$dialog.Filter = 'Batocera images (*.img.gz;*.img)|*.img.gz;*.img'",
+    "$dialog.CheckFileExists = $true",
+    "$dialog.Multiselect = $false",
+    `$dialog.InitialDirectory = ${powershellSingleQuoted(root)}`,
+    "$dialog.FileName = 'batocera-x86_64-43.1-20260529.img.gz'",
+    "$owner = New-Object System.Windows.Forms.Form",
+    "$owner.ShowInTaskbar = $false",
+    "$owner.TopMost = $true",
+    "$owner.StartPosition = 'CenterScreen'",
+    "$owner.Size = New-Object System.Drawing.Size(1, 1)",
+    "$owner.Opacity = 0",
+    "$owner.Show()",
+    "$owner.Activate()",
+    "$result = $dialog.ShowDialog($owner)",
+    "$owner.Close()",
+    "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.FileName) }"
+  ].join("; ");
+  return new Promise((resolve, reject) => {
+    execFile("powershell.exe", ["-NoProfile", "-STA", "-Command", command], { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) return reject(new Error(String(stderr || error.message || "Image dialog failed.").trim()));
       resolve(String(stdout || "").trim());
     });
   });
@@ -1443,11 +1477,11 @@ async function refreshMachineDisplayNames(statuses) {
       return;
     }
     const previous = machineNameChecks.get(id);
-    if (!previous?.pending && !(previous?.host === status.host && Date.now() - previous.at < 60000)) {
+    if (!previous?.pending && !(previous?.host === status.host && Date.now() - previous.at < 15000)) {
       const check = { host: status.host, at: Date.now(), pending: true };
       machineNameChecks.set(id, check);
       try {
-        const output = await execSsh({ ...devices[id], host: status.host }, "batocera-settings-get system.hostname 2>/dev/null; hostname; source=$(findmnt -n -o SOURCE /userdata 2>/dev/null); installation_id=$(blkid -s UUID -o value \"$source\" 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(cat /etc/machine-id 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(stat -c '%d:%i' /userdata 2>/dev/null); printf '\\nRPO_INSTALLATION_ID=%s\\nRPO_OS_VERSION=%s\\n' \"$installation_id\" \"$(batocera-version 2>/dev/null)\"", 8000);
+        const output = await execSsh({ ...devices[id], host: status.host }, "configured_hostname=$(sed -n 's/^[[:space:]]*system\\.hostname[[:space:]]*=[[:space:]]*//p' /userdata/system/batocera.conf 2>/dev/null | tail -n 1); [ -n \"$configured_hostname\" ] && printf '%s\\n' \"$configured_hostname\"; batocera-settings-get system.hostname 2>/dev/null; hostname; source=$(findmnt -n -o SOURCE /userdata 2>/dev/null); installation_id=$(blkid -s UUID -o value \"$source\" 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(cat /etc/machine-id 2>/dev/null); [ -n \"$installation_id\" ] || installation_id=$(stat -c '%d:%i' /userdata 2>/dev/null); printf '\\nRPO_INSTALLATION_ID=%s\\nRPO_OS_VERSION=%s\\n' \"$installation_id\" \"$(batocera-version 2>/dev/null)\"", 8000);
         const lines = String(output).split(/\r?\n/).map(line => line.trim());
         const validNames = lines.filter(line => line && !line.startsWith("RPO_") && /^[\p{L}\p{N} ._-]{1,128}$/u.test(line));
         // Batocera's configured name is authoritative; the live hostname is
@@ -1468,6 +1502,7 @@ async function refreshMachineDisplayNames(statuses) {
               ...(installationId ? {installationId, installationDisplayName:displayName} : {})
             };
             writeDeviceSettings(current);
+            fastDeviceStatusCache.at = 0;
           }
         }
       } catch { /* Keep the last verified label during a connection interruption. */ }
@@ -7931,6 +7966,120 @@ const server = http.createServer(async (req, res) => {
       catch(error) {if(!res.destroyed)sendJson(res,400,{ok:false,error:error.message});}
       return;
     }
+    if (['GET', 'POST'].includes(req.method) && url.pathname === '/api/windows/dual-boot/stage') {
+      const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+      let trustedOrigin = !req.headers.origin;
+      if (req.headers.origin) {
+        try { const origin = new URL(req.headers.origin); trustedOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname) && origin.port === String(port); } catch {}
+      }
+      if (!local || !trustedOrigin) { sendJson(res, 403, {ok:false,error:'Open Shared Dual Boot from Ready Player One on this PC.'}); return; }
+      if (req.method === 'GET') {
+        const job = sharedDualBootStageJobs.get(url.searchParams.get('job'));
+        sendJson(res, job ? 200 : 404, job ? {ok:true,job} : {ok:false,error:'Staging job not found.'});
+        return;
+      }
+      if (!String(req.headers['content-type'] || '').startsWith('application/json')) { sendJson(res, 400, {ok:false,error:'Expected a JSON staging request.'}); return; }
+      try {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        const machine = retroBatDiscovery.refresh()[body.device];
+        if (machine?.platform !== 'windows' || !machine.online || machine.host !== body.host || !isAddressOnActiveLan(machine.host)) throw new Error('Choose a currently detected Windows machine running RP2.');
+        const targetReport = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\preflight.json`,'utf8'));
+        if (targetReport.ok !== true || typeof targetReport.computer !== 'string' || !targetReport.computer) throw new Error('RP2 did not provide a valid Windows computer identity.');
+        try { await fs.promises.readdir(`\\\\${machine.host}\\RP2Stage`); }
+        catch (error) { throw new Error(`The RP2Stage share is not available on ${machine.host}. Reinstalling RP2 alone does not create this share. On that Windows PC, open RP2, choose the home network and Windows account, click Configure All, and approve the administrator prompt. If setup fails, report its exact message. No image was sent or disk changed. (${error.code || 'network error'})`); }
+        let existingState = null;
+        try { existingState = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Stage\\install-state.json`,'utf8')); }
+        catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
+        if (['resizing-windows','creating-partitions','copying-boot-files','awaiting-refind','installing-refind','awaiting-first-boot','complete'].includes(existingState?.phase)) throw new Error('Batocera preparation has already begun on this Windows PC. RP1 will not replace its staged plan.');
+        if ([...sharedDualBootStageJobs.values()].some(job => job.host === machine.host && ['copying','verifying'].includes(job.phase))) throw new Error('An image is already being staged to this machine.');
+        const jobId = crypto.randomUUID();
+        const job = {id:jobId,host:machine.host,phase:'copying',copiedBytes:0,totalBytes:0,startedAt:new Date().toISOString()};
+        sharedDualBootStageJobs.set(jobId,job);
+        stageSharedDualBootImage({imagePath:body.imagePath,host:machine.host,targetComputerName:targetReport.computer,windowsGb:Number(body.windowsGb),defaultOs:body.defaultOs,onProgress:progress => Object.assign(job,progress)})
+          .then(plan => { job.phase='staged'; job.plan=plan; job.finishedAt=new Date().toISOString(); })
+          .catch(error => { job.phase='failed'; job.error=error.message; job.finishedAt=new Date().toISOString(); });
+        sendJson(res,202,{ok:true,jobId});
+      } catch (error) { sendJson(res,400,{ok:false,error:error.message}); }
+      return;
+    }
+    if (['GET','POST'].includes(req.method) && url.pathname === '/api/windows/dual-boot/install') {
+      const local = ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+      let trustedOrigin = !req.headers.origin;
+      if (req.headers.origin) {
+        try { const origin = new URL(req.headers.origin); trustedOrigin = ['localhost','127.0.0.1','[::1]'].includes(origin.hostname) && origin.port === String(port); } catch {}
+      }
+      if (!local || !trustedOrigin) { sendJson(res,403,{ok:false,error:'Open Shared Dual Boot from Ready Player One on this PC.'}); return; }
+      try {
+        const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : Object.fromEntries(url.searchParams);
+        const machine = retroBatDiscovery.refresh()[body.device];
+        if (machine?.platform !== 'windows' || !machine.online || machine.host !== body.host || !isAddressOnActiveLan(machine.host)) throw new Error('The selected Windows PC is not announcing RP2 on this LAN.');
+        const stageRoot = `\\\\${machine.host}\\RP2Stage`;
+        const readOptional = async name => {
+          try { return JSON.parse(await fs.promises.readFile(path.win32.join(stageRoot,name),'utf8')); }
+          catch (error) { if (['ENOENT','UNKNOWN'].includes(error.code)) return null; throw error; }
+        };
+        if (req.method === 'GET') {
+          const result = await readOptional('install-result.json');
+          const state = await readOptional('install-state.json');
+          sendJson(res,200,{ok:true,result,state});
+          return;
+        }
+        if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw new Error('Expected a JSON install request.');
+        if (body.backupConfirmed !== true || body.recoveryMediaConfirmed !== true) throw new Error('Confirm a verified backup and Windows recovery USB before installing dual boot.');
+        const planPath = path.win32.join(stageRoot,'plan.json');
+        const planBuffer = await fs.promises.readFile(planPath);
+        if (planBuffer.length > 8192) throw new Error('The staged plan is unexpectedly large.');
+        const plan = JSON.parse(planBuffer.toString('utf8'));
+        if (plan.schema !== 1 || plan.status !== 'staged-only' || plan.refindName !== 'refind-bin-0.14.2.zip' || plan.refindSha256 !== '410c7828c4fec2f2179bd956073522415831d27c00416381b8f71153c190a311') throw new Error('This staged plan does not include the approved rEFInd package. Stage the image again from RP1.');
+        const report = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\preflight.json`,'utf8'));
+        let worker = null;
+        try { worker = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\dual-boot-worker.json`,'utf8')); } catch {}
+        const workerVersion = String(worker?.version || '');
+        const workerMatch = /^1\.0\.(\d+)$/.exec(workerVersion);
+        const workerCompatible = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 55 && worker.computer === report.computer;
+        if (!workerCompatible) throw new Error('This Windows PC needs RP2 1.0.55 or newer. Run Configure All once in the updated RP2 before using Install Dual Boot.');
+        if (plan.targetComputerName !== report.computer || Number(body.diskNumber) !== Number(report.diskNumber) || Number(body.windowsGb) !== Number(plan.windowsGb) || body.defaultOs !== plan.defaultOs) throw new Error('The selected Windows disk or dual-boot options changed since confirmation.');
+        const existingInstallState = await readOptional('install-state.json');
+        const repairableExistingInstall = ['awaiting-first-boot','complete'].includes(existingInstallState?.phase);
+        if (existingInstallState && existingInstallState.phase !== 'failed' && !repairableExistingInstall) throw new Error('An install is already in progress on this Windows PC. RP1 will not start a second disk operation.');
+        const requestPath = path.win32.join(stageRoot,'install-request.json');
+        try { await fs.promises.stat(requestPath); throw new Error('An install request is already pending on this Windows PC.'); }
+        catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
+        const requestId = crypto.randomUUID();
+        const request = {schema:1,action:'dual-boot-remote-install',requestId,targetComputerName:report.computer,planSha256:crypto.createHash('sha256').update(planBuffer).digest('hex'),diskNumber:report.diskNumber,windowsGb:plan.windowsGb,defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true,createdAt:new Date().toISOString()};
+        const requestTemp = path.win32.join(stageRoot,`install-request.${requestId}.partial`);
+        try {
+          await fs.promises.writeFile(requestTemp,JSON.stringify(request,null,2),{flag:'wx'});
+          await fs.promises.rename(requestTemp,requestPath);
+        } finally { await fs.promises.rm(requestTemp,{force:true}).catch(() => {}); }
+        sendJson(res,202,{ok:true,requestId});
+      } catch (error) { sendJson(res,400,{ok:false,error:error.message}); }
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/windows/dual-boot/choose-image") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      let trustedOrigin = !req.headers.origin;
+      if (req.headers.origin) {
+        try { const origin = new URL(req.headers.origin); trustedOrigin = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname) && origin.port === String(port); } catch {}
+      }
+      if (!local || !trustedOrigin) {sendJson(res,403,{ok:false,error:'Choose the image from Ready Player One on this PC.'});return;}
+      try {
+        const selectedPath = await chooseSharedDualBootImage();
+        sendJson(res,200,selectedPath ? {ok:true,cancelled:false,image:await inspectSharedDualBootImage(selectedPath)} : {ok:true,cancelled:true});
+      } catch(error) {sendJson(res,400,{ok:false,error:error.message});}
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/windows/dual-boot/inspect-image") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      let trustedOrigin = !req.headers.origin;
+      if (req.headers.origin) {
+        try { const origin = new URL(req.headers.origin); trustedOrigin = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname) && origin.port === String(port); } catch {}
+      }
+      if (!local || !trustedOrigin || !String(req.headers['content-type'] || '').startsWith('application/json')) {sendJson(res,403,{ok:false,error:'Inspect the image from Ready Player One on this PC.'});return;}
+      try { const body = JSON.parse((await readBody(req)) || '{}'); sendJson(res,200,{ok:true,image:await inspectSharedDualBootImage(body.path)}); }
+      catch(error) {sendJson(res,400,{ok:false,error:error.message});}
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/windows/dual-boot/preflight") {
       const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
       if (!local) {sendJson(res,403,{ok:false,error:'Open Shared Dual Boot from Ready Player One on this PC.'});return;}
@@ -7942,7 +8091,34 @@ const server = http.createServer(async (req, res) => {
         if(raw.length>65536)throw new Error('The RP2 report is unexpectedly large.');
         const report=JSON.parse(raw);
         if(report?.ok!==true||!Number.isFinite(report.diskSizeBytes)||!Number.isFinite(report.windowsPartitionSizeBytes)||!Array.isArray(report.partitions))throw new Error('RP2 returned an invalid drive report.');
-        sendJson(res,200,{ok:true,host:machine.host,report});
+        let workerReady = false;
+        let workerVersion = null;
+        try {
+          const worker = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\dual-boot-worker.json`,'utf8'));
+          workerVersion = String(worker?.version || '');
+          const workerMatch = /^1\.0\.(\d+)$/.exec(workerVersion);
+          workerReady = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 55 && worker.computer === report.computer;
+        } catch {}
+        let installState = null;
+        try {
+          const stateRaw = await fs.promises.readFile(`\\\\${machine.host}\\RP2Stage\\install-state.json`,'utf8');
+          if (stateRaw.length < 16384) {
+            const parsed = JSON.parse(stateRaw);
+            if (typeof parsed.phase === 'string') installState = {phase:parsed.phase,detail:String(parsed.detail || '').slice(0,500),updatedAt:parsed.updatedAt};
+          }
+        } catch {}
+        let stagedPlan = null;
+        try {
+          const planRaw = await fs.promises.readFile(`\\\\${machine.host}\\RP2Stage\\plan.json`,'utf8');
+          if (planRaw.length < 16384) {
+            const parsed = JSON.parse(planRaw);
+            if (parsed?.schema === 1 && parsed.status === 'staged-only' && parsed.targetComputerName === report.computer) {
+              stagedPlan = {diskNumber:Number(parsed.diskNumber ?? report.diskNumber),windowsGb:Number(parsed.windowsGb),defaultOs:parsed.defaultOs};
+            }
+          }
+        } catch {}
+        const canFinishExisting = workerReady && ['awaiting-first-boot','complete'].includes(installState?.phase) && stagedPlan && Number.isFinite(stagedPlan.windowsGb) && ['windows','batocera'].includes(stagedPlan.defaultOs);
+        sendJson(res,200,{ok:true,host:machine.host,report,installState,workerReady,workerVersion,stagedPlan,canFinishExisting:Boolean(canFinishExisting)});
       } catch(error) {sendJson(res,400,{ok:false,error:`Could not read RP2's drive report. Add / Update Credentials for this Windows machine, then run the updated RP2 setup. ${error.message}`});}
       return;
     }
@@ -8015,6 +8191,7 @@ const server = http.createServer(async (req, res) => {
       try {known=JSON.parse(fs.readFileSync(path.join(root,'retrobat-machines.json'),'utf8'));} catch {}
       const registeredMachine=known[body.device];
       if (!registeredMachine || registeredMachine.host!==body.host) {sendJson(res,400,{ok:false,error:'Choose a detected EmulationStation machine.'});return;}
+      if (registeredMachine.platform === 'windows') {sendJson(res,400,{ok:false,error:'This is a Windows machine running Ready Player Two, not RetroBat. Use its Windows Add / Update Credentials option.'});return;}
       // The server registry is authoritative. Do not trust or depend on a
       // cached browser card to choose the remote share.
       body.platform=registeredMachine.platform;
@@ -8888,20 +9065,32 @@ ${check}
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/companion/open-downloads") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      if (!local) { sendJson(res, 403, { ok: false, error: "Open Downloads from Ready Player One on this PC." }); return; }
+      const downloads = path.join(os.homedir(), "Downloads");
+      fs.mkdirSync(downloads, { recursive: true });
+      execFile("explorer.exe", [downloads], error => {
+        if (error) console.error("Could not open Downloads:", error.message);
+      });
+      sendJson(res, 200, { ok: true, path: downloads });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/companion/download") {
       const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
       if (!local) { sendJson(res, 403, { ok: false, error: "Create companion programs from Ready Player One on this PC." }); return; }
       const body = JSON.parse((await readBody(req)) || "{}");
       const companion = String(body.companion || "").toLowerCase();
-      const fileName = companion === "two" ? "Ready Player Two.exe" : "";
+      const fileName = companion === "two" ? "Ready Player Two 1.0.54.exe" : "";
       if (!fileName) { sendJson(res, 400, { ok: false, error: "Choose Ready Player Two." }); return; }
       const source = path.join(uiRoot, "ready-player-two.exe");
       if (!fs.existsSync(source)) { sendJson(res, 500, { ok: false, error: `${fileName} is not included in this Ready Player One build.` }); return; }
       const downloads = path.join(os.homedir(), "Downloads");
       fs.mkdirSync(downloads, { recursive: true });
-      let destination = path.join(downloads, fileName), suffix = 1;
-      while (fs.existsSync(destination)) destination = path.join(downloads, `${path.basename(fileName, ".exe")} (${suffix++}).exe`);
-      fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
+      // Keep one exported file for each RP2 version. Repeated or duplicate
+      // requests replace that version instead of producing (1), (2), etc.
+      const destination = path.join(downloads, fileName);
+      fs.copyFileSync(source, destination);
       // A byte-for-byte companion copy can retain the bundled executable's old
       // modified timestamp on Windows. Stamp the newly created PE so Explorer
       // correctly groups it under Today in Downloads.

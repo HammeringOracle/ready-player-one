@@ -1,8 +1,22 @@
 # Ready Player Two
 
-Ready Player Two advertises the Windows PC itself by computer name to Ready Player One, even when no supported game frontend is installed. Run setup on the Windows PC to install the persistent discovery beacon. Version 1.0.14 has **Inspect Windows Drive**, a read-only Shared Dual Boot preflight showing disk and partition size, Windows used/free space, Windows' supported shrink limit, BitLocker protection, and Secure Boot. Setup publishes that report in an account-restricted, read-only `RP2Status` SMB share on the trusted Private LAN. RP1 can authenticate with Add / Update Credentials and read the report. It does not install Batocera or alter partitions or boot settings. The Shared Dual Boot installer is not yet available.
+Ready Player Two advertises the Windows PC itself by computer name to Ready Player One, even when no supported game frontend is installed. **Inspect Windows Drive** remains an optional read-only check. **Configure All** creates the account-restricted `RP2Status` and `RP2Stage` shares, persistent discovery, and an administrator-protected dual-boot worker. Shared Dual Boot in RP1 stages the Batocera image and pinned rEFInd package, then sends a confirmed request to that worker. The worker rechecks the disk, prepares BATOCERA and SHARE partitions, installs the rEFInd boot menu, and reports status to RP1. The first boot of both operating systems still requires physical verification; no software can guarantee that solely from the Windows session before reboot.
 
-Latest portable: **Ready Player Two 1.0.11.exe**. Copy it to the Windows PC with RetroBat, RetroArch, ES-DE, or Emu-Station and run it there.
+## Shared-drive dual boot (version 1.0.22)
+
+1. Back up the Windows disk and have Windows recovery media available. This operation can leave Windows unbootable if partitioning or boot setup goes wrong.
+2. Install the current `ui/ready-player-two.exe` from RP1 on the Windows PC; open it and run **Configure All** once on a trusted Private LAN. The staging account must be a direct local administrator. This installs the protected worker; older RP2 builds cannot accept the install request.
+3. In RP1, use **Add / Update Credentials** for that Windows machine, then right-click it and open **Shared Dual Boot**. Choose the Batocera 43.1 image, Windows size, and desired default OS. Confirm a restorable backup and Windows recovery USB, then select **Install Dual Boot**. RP1 transfers and verifies the image and rEFInd archive before sending the install request.
+4. Keep the RP2 window open on the Windows PC to see live status and blockers on its display; RP1 shows the same installation progress. RP2 repeats the disk and image safety checks, prepares BATOCERA and SHARE partitions, backs up the boot configuration, installs rEFInd, and writes an install journal. Do not retry a failed install blindly. The journal is `%ProgramData%\Ready Player Two\staging\install-state.json`.
+5. Reboot and test both Windows and Batocera. An `awaiting-first-boot` status means installation commands completed, not that both operating systems have been boot-tested.
+
+The partition and boot-manager actions have not been exercised on this user's physical Windows PC or a disposable Windows test VM. Do not treat a successful build or image stage as proof of a bootable dual boot.
+
+**Configure All** now honors the explicit blank-password checkbox even when no game frontend is detected. That checkbox changes Windows network-logon policy for *all local accounts* on this PC; leave it unchecked unless needed. A real Windows account password is safer and is not the same as a PIN. RP2 reports whether its local network-logon check passed; remote SMB access still needs verification from RP1. Windows error 1327 can also be caused by other account restrictions.
+
+Latest portable built into RP1: **`ui/ready-player-two.exe` (1.0.22)**. Copy it to the Windows PC and run Configure All once to update the protected worker.
+
+The pinned rEFInd 0.14.2 binary archive comes from [the upstream SourceForge project](https://sourceforge.net/projects/refind/files/0.14.2/refind-bin-0.14.2.zip/download), SHA-256 `410c7828c4fec2f2179bd956073522415831d27c00416381b8f71153c190a311`. Its bundled license and upstream source references are retained in the archive.
 
 At startup, choose the installed application. No check runs until you choose. You can switch later using the Application dropdown.
 
@@ -12,7 +26,7 @@ Choose the application first. RetroBat and RetroArch share their application fol
 
 Classic authentication is a PC-wide setting. To restore Guest-only mode if desired, use Local Security Policy > Local Policies > Security Options > Network access: Sharing and security model for local accounts. A password-protected local sharing account is recommended. The client must use the displayed account, rather than its own Windows login; incorrect saved credentials on the client still need correction there.
 
-Run **Ready Player Two 1.0.11.exe on the Windows PC containing your selected installation**, not the Ready Player One PC unless that frontend is installed there too.
+Run the current **`ui/ready-player-two.exe` on the Windows PC**, not the Ready Player One PC.
 
 1. Check the detected computer name, folder, and Windows account.
 2. Choose your trusted home Wi-Fi or Ethernet network, not a VPN.

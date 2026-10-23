@@ -1,6 +1,6 @@
 # Ready Player One
 
-Ready Player One is a Tauri desktop game-library manager with a local Node backend. It discovers supported machines, manages console libraries, and transfers user-supplied games and artwork. Wired mostly for Batocera, it will also discover Recalbox, Lakka, Retrobat, RetroArch, RetroPie, ES-DE and Emu-Station.
+Tauri desktop wrapper for the Ready Player One interface and its local Node backend.
 
 ## Development
 
@@ -9,16 +9,7 @@ npm install
 npm run dev
 ```
 
-The Node backend serves the interface on `http://localhost:8789` and handles discovery, SSH, and file transfers. A system installation of Node.js is required for development and source builds.
-
-## Build
-
-```powershell
-npm install
-npm run build
-```
-
-Compiled applications and bundled runtimes are release artifacts and are not stored in this source repository.
+The Node backend serves the original interface on `http://localhost:8787` and handles Batocera discovery, SSH, and file transfers.
 
 ## Local folders
 
@@ -29,8 +20,19 @@ Genesis uses `roms/megadrive/`; PS1 uses `roms/ps1/` locally and maps to
 
 The application identifier and existing browser storage keys intentionally retain
 their legacy names so saved layouts, machine selections, and settings survive.
-Machine-side Batocera paths are unchanged.
+Machine-side Batocera paths are unchanged. Start with `Start Ready Player One.bat`.
 
-## Content policy
+## Ready Player Two source
 
-This source repository does not contain game ROMs, cover libraries, BIOS or firmware files, encryption keys, proprietary emulator libraries, purchased software, bundled installers, credentials, machine data, or compiled executables. Users must supply content they are legally entitled to use. See [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md).
+The complete Ready Player Two Windows-companion source is embedded at
+`companions/ready-player-two`. RP1 distributes the compiled companion from
+`ui/ready-player-two.exe`.
+
+To rebuild the companion and automatically replace RP1's bundled executable:
+
+```powershell
+npm run build:rp2
+```
+
+The build requires a working Rust/Cargo toolchain. Generated Cargo output remains
+excluded from the RP1 project.

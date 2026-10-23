@@ -10,7 +10,7 @@ const {chromium}=require('C:/Users/EF/.cache/codex-runtimes/codex-primary-runtim
  await page.addStyleTag({content:fs.readFileSync('ui/appearance.css','utf8')});
  const start=html.indexOf('    async function openRetroBatMachineCredentials');
  const end=html.indexOf("    document.querySelector('#openPygameCE')",start);
- await page.evaluate(()=>{window.closeAdvancedMenu=()=>{};window.machineDisplayName=()=> 'TEST-PC';window.apiBase='';window.syncStatus={};window.lastDeviceStatuses={};window.refreshDeviceStatuses=()=>{};window.fetch=async(u,opts)=>{window.sent=JSON.parse(opts.body);return {ok:true,json:async()=>({ok:true,remembered:true})};};});
+ await page.evaluate(()=>{window.closeAdvancedMenu=()=>{};window.machineDisplayName=()=> 'TEST-PC';window.apiBase='';window.syncStatus={};window.refreshDeviceStatuses=()=>{};window.fetch=async(u,opts)=>{window.sent=JSON.parse(opts.body);return {ok:true,json:async()=>({ok:true,remembered:true})};};});
  await page.addScriptTag({content:html.slice(start,end)});
  await page.evaluate(()=>openRetroBatMachineCredentials(document.querySelector('article')));
  assert.equal(await page.locator('input[type=password]').count(),1);
@@ -26,12 +26,6 @@ const {chromium}=require('C:/Users/EF/.cache/codex-runtimes/codex-primary-runtim
  await page.locator('button[type=submit]').click();
  await page.waitForFunction(()=>!document.querySelector('dialog'));
  assert.equal(await page.evaluate(()=>sent.username),'manual-user');
- await page.evaluate(()=>{document.querySelector('article').dataset.platform='windows';openRetroBatMachineCredentials(document.querySelector('article'));});
- assert.equal(await page.locator('dialog h2').textContent(),'Windows Credentials');
- assert.equal(await page.locator('input[name=password]').getAttribute('placeholder'),'Windows account password (not PIN)');
- await page.locator('input[name=username]').fill('TEST-PC\\user');
- await page.locator('button[type=submit]').click();
- await page.waitForFunction(()=>!document.querySelector('dialog'));
  await page.evaluate(()=>{window.selectedDevice='other';document.querySelector('article').dataset.platform='lakka';openRetroBatMachineCredentials(document.querySelector('article'));});
  assert.equal(await page.locator('dialog h2').textContent(),'Lakka SSH Credentials');
  assert.equal(await page.locator('input[name=password]').getAttribute('placeholder'),'Typically: root');

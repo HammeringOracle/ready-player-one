@@ -1,6 +1,6 @@
 [package]
 name = "ready-player-one"
-version = "1.0.349"
+version = "1.0.372"
 description = "Ready Player One desktop application"
 authors = ["Ready Player One"]
 edition = "2021"

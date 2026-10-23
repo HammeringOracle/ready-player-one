@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ready Player One",
-  "version": "1.0.349",
+  "version": "1.0.372",
   "identifier": "com.batocera.warehouse",
   "build": {
     "devUrl": "http://localhost:8789",
@@ -30,6 +30,7 @@
     "icon": ["icons/icon.ico"],
     "resources": {
       "../ui": "ui",
+      "../companions/ready-player-two/vendor/refind": "companions/ready-player-two/vendor/refind",
       "../frontend": "frontend",
       "../Ready Player One.html": "Ready Player One.html",
       "../node.exe": "node.exe",

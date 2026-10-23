@@ -6,9 +6,10 @@ try {
     'retroarch' { 'RetroArch' }
     'esde' { 'ROMs' }
     'emustation' { 'Emu-Station' }
-    default { 'RetroBat' }
+    'retrobat' { 'RetroBat' }
+    default { throw "Unknown machine platform '$($request.platform)'; no share was selected." }
   }
-  $librarySuffix = if ([string]$request.platform -eq 'esde') { '' } else { 'roms' }
+  $librarySuffix = if ([string]$request.platform -in @('esde','windows')) { '' } else { 'roms' }
   Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -29,6 +30,7 @@ public static class RetroBatCredentials {
     $message = switch ($code) {
       1219 { 'Windows already has a connection to this machine using another account. Disconnect that machine in File Explorer, then try again.' }
       1326 { 'The username or password was not accepted.' }
+      1327 { 'Windows blocked this account from network sign-in. If it has no password, set a real Windows password (recommended), or explicitly enable blank-password network logons in Ready Player Two and run Configure All again. A Windows PIN is not an account password. Account policy can also block network sign-in.' }
       1331 { 'That Windows account is disabled. Use the enabled account shown in Ready Player Two; do not use the disabled built-in Administrator account.' }
       1909 { 'That Windows account is locked. Unlock it on the remote computer before trying again.' }
       5 { "Access denied. Check the account and $share share permissions." }

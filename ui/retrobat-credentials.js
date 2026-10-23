@@ -1,8 +1,9 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {spawn}=require('node:child_process');
-module.exports=async function connect({host,username,password,remember}) {
+module.exports=async function connect({host,username,password,remember,platform}) {
   if (typeof host!=='string' || !/^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$/.test(host) || typeof username!=='string' || !username.trim() || username.length>256 || typeof password!=='string' || password.length>2560) throw new Error('Enter a valid machine address and username.');
+  if (!['windows','retrobat','retroarch','esde','emustation'].includes(platform)) throw new Error('This machine type does not have a supported Windows share.');
   const source=fs.readFileSync(path.join(__dirname,'retrobat-credentials.ps1'),'utf8');
   return new Promise((resolve,reject)=>{
     const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(source,'utf16le').toString('base64')],{windowsHide:true,stdio:['pipe','pipe','pipe']});
@@ -15,6 +16,6 @@ module.exports=async function connect({host,username,password,remember}) {
     child.on('close',()=>{try{finish(null,JSON.parse(output.replace(/^\uFEFF/,'')));}catch{finish(new Error('Windows could not complete the login.'));}});
     child.stdin.on('error',()=>{});
     // Secrets are sent through stdin, never command arguments, logs, or app files.
-    child.stdin.end(JSON.stringify({host,username:username.trim(),password,remember:remember===true}));
+    child.stdin.end(JSON.stringify({host,username:username.trim(),password,remember:remember===true,platform}));
   });
 };

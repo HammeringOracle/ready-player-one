@@ -1,3 +1,25 @@
+# Ready Player Two 1.0.22
+
+- Bring the RP2 window to the front when it opens without leaving it always-on-top.
+
+# Ready Player Two 1.0.21
+
+- Show live Shared Dual Boot status and failure on the Windows PC while the RP2 window is open.
+- Show the current minimum safe Windows size and which disk has a BATOCERA volume during drive inspection and preflight failure.
+
+# Ready Player Two 1.0.20
+
+- Make Shared Dual Boot a single confirmed RP1 workflow after one-time RP2 configuration.
+- Install an administrator-protected RP2 worker that accepts only machine-matched, time-limited dual-boot requests from the restricted staging share.
+- Stage a pinned, SHA-256-verified rEFInd package and add Windows/Batocera boot entries with a selected default, BCD backup, failure journal, and rollback attempt.
+- Report `awaiting-first-boot` only after installation commands finish; both operating systems still require real boot testing.
+
+# Ready Player Two 1.0.17
+
+- Add restricted staging share for a Batocera image sent by RP1 and a local SHA-256 review with fresh drive checks.
+- Bundle 7-Zip command-line files and license for local image extraction.
+- Add an explicit, elevated Prepare Dual Boot action with fresh disk checks, a stop-on-error journal, and a guided Grub2Win handoff. The action is never automatic when RP2 starts or when RP1 stages an image.
+
 # Ready Player Two 1.0.11
 
 - Announces every detected supported program immediately when RP2 opens.
