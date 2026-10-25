@@ -156,11 +156,21 @@
     .find-machines:is(.finding,.awaiting-machine) {
       color: var(--yellow);
       border-color: var(--yellow);
-      box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 0 0 3px rgba(250,204,21,.18), 0 0 20px rgba(250,204,21,.34);
-      animation: find-pulse 1s ease-in-out infinite;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,.2), 0 0 0 2px rgba(250,204,21,.22), 0 0 12px rgba(250,204,21,.3), 0 0 28px rgba(250,204,21,.14);
+      animation: find-pulse 2.8s cubic-bezier(.45, 0, .55, 1) infinite;
+      will-change: box-shadow, filter;
     }
     .find-machines.finding svg { animation:refresh-spin .9s linear infinite; }
-    @keyframes find-pulse {50%{box-shadow:0 0 0 7px rgba(250,204,21,.12),0 0 28px rgba(250,204,21,.52)}}
+    @keyframes find-pulse {
+      0%, 100% {
+        box-shadow: inset 0 1px 1px rgba(255,255,255,.2), 0 0 0 2px rgba(250,204,21,.18), 0 0 10px rgba(250,204,21,.28), 0 0 24px rgba(250,204,21,.12);
+        filter: drop-shadow(0 0 1px rgba(255,232,120,.22));
+      }
+      50% {
+        box-shadow: inset 0 1px 2px rgba(255,255,255,.3), 0 0 0 4px rgba(250,204,21,.28), 0 0 18px rgba(250,204,21,.62), 0 0 42px rgba(250,204,21,.34), 0 0 64px rgba(250,204,21,.12);
+        filter: drop-shadow(0 0 5px rgba(255,232,120,.48));
+      }
+    }
     @keyframes refresh-spin {to{transform:rotate(360deg)}}
 
     .hidden-file-input {
@@ -1053,7 +1063,16 @@
       display: flex;
       align-items: center;
       min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      font-size: 14px;
       line-height: 1.15;
+    }
+
+    .systems-list .row[data-system="atari800"] > span:nth-child(2),
+    .systems-list .row[data-system="atarist"] > span:nth-child(2) {
+      font-size: 12px;
+      letter-spacing: -0.15px;
     }
 
     .systems-list .row.console-transfer-active > span:nth-child(2) {
@@ -1087,6 +1106,7 @@
 
     .systems-list .row > .count {
       align-self: center;
+      white-space: nowrap;
     }
 
     .systems-list .row > .count::before { content: "("; }
@@ -2739,6 +2759,45 @@
       background: linear-gradient(145deg, #ff6962, #b62222 72%);
     }
     :is(.game, .device-game) .cover.playability-shield.unplayable::after { content: "×"; }
+    :is(.device-game.transfer-pending) .cover.playability-shield.downloading {
+      clip-path: none;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
+      position: relative;
+      z-index: 2;
+      height: 13px;
+      align-self: start;
+      transform: translateY(1px);
+    }
+    :is(.device-game.transfer-pending) .cover.playability-shield.downloading::after {
+      content: "↓";
+      color: #facc15;
+      font-size: 13px;
+      line-height: .8;
+      text-shadow: 0 0 7px rgba(250, 204, 21, .68);
+    }
+    .transfer-download-arrow {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 13px;
+      align-self: start;
+      transform: translateY(1px);
+      color: #facc15;
+      font: 1000 13px/.8 Arial, sans-serif;
+      text-shadow: 0 0 7px rgba(250, 204, 21, .68);
+    }
+    .device-game.transfer-pending > .active-item-check,
+    .device-game.transfer-pending > .device-game-title,
+    .device-game.transfer-pending > .badge {
+      position: relative;
+      z-index: 2;
+    }
     .device-game.has-no-picture-match:not([data-system="music"]) {
       grid-template-columns: 18px 24px minmax(0, 1fr) max-content max-content;
     }
@@ -2756,6 +2815,7 @@
       height: 3px;
       background: rgba(255, 255, 255, 0.14);
       pointer-events: none;
+      z-index: 1;
     }
     .transfer-row-progress > span {
       display: block;
@@ -2795,7 +2855,7 @@
     }
     .device-card[hidden] { display: none !important; }
     .device-game[data-transfer-placeholder]:not([data-system="music"][data-kind="folder"]) {
-      grid-template-columns: 18px minmax(0, 1fr) max-content;
+      grid-template-columns: 18px 24px minmax(0, 1fr) max-content;
       min-width: 0;
     }
     .device-game.transfer-queued:not(.transfer-pending) {
@@ -2865,7 +2925,6 @@
         <div class="advanced-menu" id="advancedMenu">
           <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
           <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
-          <button class="advanced-item" id="openDualBootUndo" type="button">Dual Boot Undo</button>
           <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
           <button class="advanced-item" id="openPygameCE" type="button">Pygame CE</button>
           <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
@@ -2883,7 +2942,7 @@
     <section class="main">
       <input class="device-filter" id="warehouseFilter" type="search" placeholder="Filter games">
       <aside class="panel">
-        <div class="panel-title" id="consolesPanelTitle">Consoles <span class="systems-title-actions"><span class="count" id="visibleSystemCount">11</span><button class="systems-add" id="openSystemPicker" type="button" aria-label="Choose consoles">+</button></span></div>
+        <div class="panel-title" id="consolesPanelTitle">Consoles <span class="systems-title-actions"><span class="count" id="visibleSystemCount">(0)</span><button class="systems-add" id="openSystemPicker" type="button" aria-label="Choose consoles">+</button></span></div>
         <div class="systems-list">
           <div class="row active" data-system="mame"><span class="icon">AR</span><span>MAME</span><span class="count">0</span></div>
           <div class="row" data-system="nes"><span class="icon">8B</span><span>NES</span><span class="count">512</span></div>
@@ -2926,6 +2985,11 @@
           <div class="row" data-system="atari5200"><span class="icon">52</span><span>Atari 5200</span><span class="count">0</span></div>
           <div class="row" data-system="atari7800"><span class="icon">78</span><span>Atari 7800</span><span class="count">0</span></div>
           <div class="row" data-system="atarilynx"><span class="icon">LX</span><span>Atari Lynx</span><span class="count">0</span></div>
+          <div class="row" data-system="xegs"><span class="icon">XG</span><span>Atari XEGS</span><span class="count">0</span></div>
+          <div class="row" data-system="jaguar"><span class="icon">JG</span><span>Atari Jaguar</span><span class="count">0</span></div>
+          <div class="row" data-system="jaguarcd"><span class="icon">JC</span><span>Atari Jaguar CD</span><span class="count">0</span></div>
+          <div class="row" data-system="atari800"><span class="icon">8B</span><span>Atari 400/800/XL/XE</span><span class="count">0</span></div>
+          <div class="row" data-system="atarist"><span class="icon">ST</span><span>Atari ST/STE/TT/Falcon</span><span class="count">0</span></div>
           <div class="row" data-system="pcengine"><span class="icon">PC</span><span>PC Engine</span><span class="count">0</span></div>
           <div class="row" data-system="dos"><span class="icon">PC</span><span>DOS</span><span class="count">0</span></div>
         </div>
@@ -3815,8 +3879,9 @@
       n64:"n64", gb:"gb", gbc:"gbc", nds:"nds", "3ds":"3ds", gamecube:"gc", wii:"wii",
       mastersystem:"mastersystem", gamegear:"gamegear", segacd:"segacd", saturn:"saturn",
       dreamcast:"dreamcast", psp:"psp", neogeo:"neogeo", atari2600:"atari2600",
-      atari5200:"atari5200", atari7800:"atari7800", atarilynx:"lynx", pcengine:"pcengine"
-      , wiiu:"wiiu", ps3:"ps3", ps4:"ps4", xbox:"xbox", xbox360:"xbox360"
+      atari5200:"atari5200", atari7800:"atari7800", atarilynx:"lynx", xegs:"xegs",
+      jaguar:"jaguar", jaguarcd:"jaguarcd", atari800:"atari800", atarist:"atarist", pcengine:"pcengine"
+      , wiiu:"wiiu", ps3:"ps3", ps4:"ps4", xbox:"xbox", xbox360:"xbox360", music:"music"
     };
     document.querySelectorAll('.systems-list .row[data-system]').forEach(row => {
       const folder = batoceraSystemArtFolders[row.dataset.system];
@@ -4057,6 +4122,9 @@
     let remapCaptureReadyAt = 0;
     const assignedKeys = new Map();
     const defaultVisibleSystems = ["mame", "nes", "snes", "sega", "gba", "ps1", "ps2", "ps3", "n64", "karaoke", "music"];
+    // Streaming/audio services are selectable features, not emulated game
+    // consoles. Keep them in the list without inflating the console total.
+    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music"]);
     const systemVisibilityKey = "batoceraWarehouse.visibleSystems";
     const systemRequirementWarning = document.querySelector('#systemRequirementWarning');
     let selectTopSystemOnNextVisibleList = true;
@@ -4140,7 +4208,10 @@
       [...rows].sort((a, b) => systemLabelForRow(a).localeCompare(systemLabelForRow(b), undefined,
         {sensitivity:'base', numeric:true})).forEach(row => list.append(row));
       rows.forEach(row => { row.hidden = !visible.has(row.dataset.system); });
-      visibleSystemCount.textContent = String([...rows].filter(row => !row.hidden).length);
+      // The header reports RP1's complete supported-console catalog, not only
+      // the subset enabled on the currently selected machine.
+      const consoleCount = [...rows].filter(row => !consoleCountExclusions.has(row.dataset.system)).length;
+      visibleSystemCount.textContent = `(${consoleCount})`;
       const first = list.querySelector('.row:not([hidden])');
       const activeRow = [...rows].find(row => row.classList.contains("active"));
       if ((selectTopSystemOnNextVisibleList && first) || !activeRow || activeRow.hidden) {
@@ -4380,6 +4451,7 @@
       localStorage.setItem(c64DiscoveryKey(visibilityDevice), 'done');
       if (selectedDevice === visibilityDevice) applyVisibleSystems(selected);
       const results = [];
+      const collectionLayoutsPrepared = new Set();
       saveSystemPicker.disabled = true;
       const setupWork = new Set();
       for (const device of machines) for (const {system} of names) {
@@ -4436,7 +4508,17 @@
         }
         for (const device of machines) for (const {system, label} of names) {
           const contributesToProgress = setupWork.has(`${device}\u0000${system}`);
-          if (['nes', 'snes', 'gba', 'n64', 'wii', 'ps1', 'ps2', 'xbox', 'xbox360'].includes(system) && !previous.has(system)) {
+          const picturePresentationSystems = ['nes', 'snes', 'gba', 'n64', 'wii', 'ps1', 'ps2', 'xbox', 'xbox360'];
+          if (!previous.has(system) && !picturePresentationSystems.includes(system) &&
+              lastDeviceStatuses[device]?.platform === 'batocera' && !collectionLayoutsPrepared.has(device)) {
+            try {
+              await request('/api/console-artwork/collections', {device});
+              collectionLayoutsPrepared.add(device);
+            } catch (error) {
+              results.push(`${resultPrefix(device)}All Games: five-column console artwork layout FAILED — ${error.message}`);
+            }
+          }
+          if (picturePresentationSystems.includes(system) && !previous.has(system)) {
             syncStatus.textContent = `Preparing ${label} artwork and cartridge view on ${device}...`;
             try {
               const artwork = await request('/api/console-artwork/setup', {device, system});
@@ -4900,6 +4982,23 @@
           .filter(job => !job.partialDeleted)
           .map(job => transferSelectionKey(job.device, job.system, job.fileName))
           .filter(key => !dismissedTransferKeys.has(key)));
+        // A click owns its pending check until the backend status poll has
+        // actually observed that transfer (or the open inventory already
+        // contains the game). Releasing it when /api/roms/add merely returns
+        // creates a race where this poll briefly redraws the box unchecked.
+        const observedTransferKeys = new Set(selectedJobs
+          .filter(job => (job.running || job.completed) && !job.partialDeleted && !job.cancelRequested)
+          .map(job => transferSelectionKey(job.device, job.system, job.fileName)));
+        for (const key of [...pendingTransferKeys]) {
+          if (observedTransferKeys.has(key)) {
+            pendingTransferKeys.delete(key);
+            continue;
+          }
+          const currentPrefix = `${requestDevice}\u0000${requestSystem}\u0000`;
+          if (key.startsWith(currentPrefix) && activeNames.has(key.slice(currentPrefix.length))) {
+            pendingTransferKeys.delete(key);
+          }
+        }
         markWarehouseChecks();
         const selectedSystems = [...new Set([requestSystem, ...Object.keys(transferLayoutSelections)
           .filter(system => Array.isArray(transferLayoutSelections[system]))])];
@@ -5438,6 +5537,14 @@
         ? `${tracks.length} song${tracks.length === 1 ? "" : "s"}${sizeLabel ? ` • ${sizeLabel}` : ""}`
         : `${item[1]}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
       const discCount = discSet ? `<span class="multi-disc-count">(${discSet.files.length} discs)</span>` : "";
+      const rowSelectionKey = transferSelectionKey(selectedDevice, selectedSystem, item[0]);
+      // A library/status refresh may rebuild this row between pointer-down and
+      // the upload handshake. The replacement must inherit the user's click;
+      // otherwise the browser briefly shows the check and then recreates an
+      // unchecked element from stale machine inventory.
+      const optimisticallyChecked = optimisticWarehouseSelections.get(rowSelectionKey) === true
+        || pendingTransferKeys.has(rowSelectionKey)
+        || selectionSetFor(selectedSystem).has(item[0]);
       const trackList = selectedSystem !== "music" && isFolder && tracks.length
         ? `<div class="track-list">${tracks.map(track => {
             const path = `${item[0]}/${track}`;
@@ -5447,7 +5554,7 @@
       return `
         <div class="game${index === 0 ? " active" : ""}${isBad ? " bad-rom" : ""}" data-system="${selectedSystem}" data-name="${item[0]}" data-meta="${item[1]}" data-type="${item[2]}" data-valid="${item[3] || "OK"}" data-kind="${item[4] || "file"}" data-size="${Number(item[7] || 0)}">
           <div class="game-head">
-            ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${activeNames.has(item[0]) || transferIsPending(item[0]) ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
+            ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${activeNames.has(item[0]) || transferIsPending(item[0]) || optimisticallyChecked ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
             <div class="cover ${iconClass(item, selectedSystem)}" title="${isFolder ? "Open folder — " : ""}${iconTitle(item, selectedSystem)}" ${isFolder ? 'data-expandable="true"' : ""}></div>
             <div>
               <div class="game-name"><span class="game-name-text">${displayName}</span>${discCount}</div>
@@ -6330,6 +6437,7 @@
       activeList.querySelectorAll('.transfer-pending').forEach(row => {
         row.classList.remove('transfer-pending');
         row.classList.remove('artwork-stage');
+        row.querySelector('.cover.playability-shield')?.classList.remove('downloading');
         row.querySelectorAll('.transfer-row-progress,.transfer-row-percent,.transfer-row-stage').forEach(element => element.remove());
       });
     }
@@ -6358,6 +6466,7 @@
           : Number(job.percent);
         const percent = Math.max(0, Math.min(100, legacyArtworkPercent || 0));
         row.classList.toggle('artwork-stage', artworkStage);
+        row.querySelector('.cover.playability-shield')?.classList.add('downloading');
         const track = document.createElement('div');
         track.className = 'transfer-row-progress';
         const fill = document.createElement('span');
@@ -6419,13 +6528,15 @@
         row.className = 'device-game transfer-queued';
         row.dataset.transferPlaceholder = 'true';
         row.dataset.name = fileName;
-        const indicator = document.createElement('span'); indicator.className = 'transfer-queue-indicator'; indicator.textContent = '↓';
+        const checkbox = document.createElement('input'); checkbox.className = 'active-item-check'; checkbox.type = 'checkbox'; checkbox.checked = true;
+        checkbox.setAttribute('aria-label', `Cancel transfer ${queuedDisplayTitle(fileName)}`);
+        const indicator = document.createElement('span'); indicator.className = 'transfer-download-arrow'; indicator.textContent = '↓'; indicator.title = 'Waiting to download';
         const title = document.createElement('span'); title.className = 'device-game-title'; title.title = fileName;
         const titleText = document.createElement('span'); titleText.className = 'device-game-title-text';
         titleText.textContent = queuedDisplayTitle(fileName);
         title.append(titleText);
         const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = gameExtensionBadge(fileName, item?.[2] || 'ROM');
-        row.append(indicator, title, badge);
+        row.append(checkbox, indicator, title, badge);
         activeList.append(row);
         existingNames.add(fileName);
         rowsChanged = true;
@@ -6450,17 +6561,22 @@
         row.className = 'device-game transfer-queued transfer-pending';
         row.dataset.transferPlaceholder = 'true';
         row.dataset.name = job.fileName;
-        const indicator = document.createElement('span'); indicator.className = 'transfer-queue-indicator'; indicator.textContent = '↓';
+        const checkbox = document.createElement('input'); checkbox.className = 'active-item-check'; checkbox.type = 'checkbox'; checkbox.checked = true;
+        checkbox.setAttribute('aria-label', `Cancel transfer ${displayTitleForFile(job.system, job.fileName)}`);
+        const indicator = document.createElement('span'); indicator.className = 'transfer-download-arrow'; indicator.textContent = '↓'; indicator.title = 'Downloading';
         const title = document.createElement('span'); title.className = 'device-game-title'; title.title = job.fileName;
         const titleText = document.createElement('span'); titleText.className = 'device-game-title-text'; titleText.textContent = displayTitleForFile(job.system, job.fileName);
         title.append(titleText);
         const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = gameExtensionBadge(job.fileName, 'ROM');
-        row.append(indicator, title, badge);
+        row.append(checkbox, indicator, title, badge);
         addProgress(row, job);
         activeList.append(row);
         rowsChanged = true;
       }
-      if (rowsChanged || jobs.length) sortActiveGameRows();
+      if (rowsChanged || jobs.length) {
+        sortActiveGameRows();
+        bindActiveRemoves();
+      }
       if (activeList.querySelector('.device-game')) {
         activeList.querySelector('.library-connection-message.is-empty')?.remove();
         if (!activeList.querySelector('.library-connection-message')) activeList.classList.remove('empty-state');
@@ -6502,9 +6618,13 @@
           const selectionKey = transferSelectionKey(selectedDevice, selectedSystem, gameName);
           const installed = activeNames.has(gameName) && !runningNames.has(gameName);
           const authoritative = installed || runningNames.has(gameName) || transferIsPending(gameName);
+          const requested = selectionSetFor(selectedSystem).has(gameName);
+          // Polling may add a check, but it cannot erase a check that the user
+          // already made. Only an explicit uncheck records false in the
+          // optimistic state and persisted selection set.
           const checked = optimisticWarehouseSelections.has(selectionKey)
             ? optimisticWarehouseSelections.get(selectionKey)
-            : authoritative;
+            : gameCheckbox.checked || requested || authoritative;
           if (gameCheckbox.checked !== checked) gameCheckbox.checked = checked;
           gameCheckbox.dataset.installed = String(installed);
           gameCheckbox.title = installed ? 'Installed on this machine' : 'Pending transfer to this machine';
@@ -6939,7 +7059,15 @@
           scheduleWarehouseSelectionSync(game);
         });
 
-        checkbox.addEventListener("change", () => {
+        // Let the browser perform exactly one native toggle. Earlier code
+        // checked on pointer-down and then cancelled/reapplied click, which
+        // allowed WebView's native activation rollback to flash the check and
+        // restore it to unchecked. Capture the browser's final click state
+        // synchronously, then protect that state from background rerenders.
+        checkbox.addEventListener("click", event => {
+          event.stopPropagation();
+          const selectionKey = transferSelectionKey(selectedDevice, selectedSystem, game.dataset.name);
+          optimisticWarehouseSelections.set(selectionKey, checkbox.checked);
           syncFolderTrackChecks(game, checkbox.checked);
           activateGame(game);
           scheduleWarehouseSelectionSync(game);
@@ -6985,10 +7113,16 @@
         showConsoleTransferImmediately(targetDevice, targetSystem);
       }
       requestAnimationFrame(() => setTimeout(() => {
-        if (game.dataset.selectionRevision !== revision || !game.isConnected) return;
+        // A background library refresh can replace the row before this frame.
+        // The detached row still contains the click snapshot and must start
+        // its operation; only a newer click revision may supersede it.
+        if (game.dataset.selectionRevision !== revision) return;
         checkbox.checked = desiredChecked;
         syncFolderTrackChecks(game, desiredChecked);
-        rememberGameSelection(game, desiredChecked);
+        setLayoutSelection(targetSystem, name, desiredChecked);
+        if (targetSystem === "music" && game.dataset.kind === "folder") {
+          folderTrackNames(game).forEach(track => setLayoutSelection(targetSystem, track, desiredChecked));
+        }
         Promise.resolve(syncWarehouseSelection(game, { device: targetDevice, system: targetSystem })).finally(() => {
           if (game.dataset.selectionRevision !== revision) return;
           optimisticWarehouseSelections.delete(selectionKey);
@@ -7003,6 +7137,7 @@
       const checkbox = game.querySelector("input");
       const name = game.dataset.name;
       let pendingSelectionKey = null;
+      let pendingSelectionAccepted = false;
       try {
         if (!checkbox.checked) {
           removeReconnectRetry(targetDevice, targetSystem, name);
@@ -7094,6 +7229,9 @@
             clearOptimisticConsoleTransfer(targetDevice, targetSystem);
             return false;
           }
+          // Keep pendingTransferKeys as the bridge between the immediate UI
+          // click and the first status response that contains this job.
+          pendingSelectionAccepted = true;
           if (targetSystem === "music" && game.dataset.kind === "folder") {
             folderTrackNames(game).forEach(track => activeNames.add(track));
             syncFolderTrackChecks(game, true);
@@ -7138,7 +7276,7 @@
         checkbox.checked = activeNames.has(name) || transferIsPending(name, targetSystem, targetDevice);
         return false;
       } finally {
-        if (pendingSelectionKey !== null) {
+        if (pendingSelectionKey !== null && !pendingSelectionAccepted) {
           pendingTransferKeys.delete(pendingSelectionKey);
           if (targetDevice === selectedDevice && targetSystem === selectedSystem) markWarehouseChecks();
         }
@@ -7322,12 +7460,48 @@
 
     function bindActiveRemoves() {
       activeList.querySelectorAll(".device-game .active-item-check").forEach((checkbox) => {
+        if (checkbox.dataset.bound === "true") return;
+        checkbox.dataset.bound = "true";
         checkbox.addEventListener("change", async () => {
           if (!checkbox.checked) {
             const row = checkbox.closest(".device-game");
             const fileName = row.dataset.name;
 
             try {
+              if (row.classList.contains("transfer-queued") || row.classList.contains("transfer-pending")
+                || transferIsPending(fileName, selectedSystem, selectedDevice)) {
+                const device = selectedDevice;
+                const system = selectedSystem;
+                const transferKey = transferSelectionKey(device, system, fileName);
+                dismissedTransferKeys.add(transferKey);
+                pendingTransferKeys.delete(transferKey);
+                trackedTransferKeys.delete(transferKey);
+                optimisticWarehouseSelections.set(transferKey, false);
+                setLayoutSelection(system, fileName, false);
+                row.remove();
+                const warehouseControl = warehouseGameControls.get(fileName)?.checkbox;
+                if (warehouseControl) warehouseControl.checked = false;
+                let response = await fetch(`${apiBase}/api/transfers/stop`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ device, system, fileName })
+                });
+                let result = await response.json();
+                if (response.status === 404) {
+                  response = await fetch(`${apiBase}/api/transfers/dismiss`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ device, system, fileName })
+                  });
+                  result = await response.json();
+                }
+                if (!response.ok || !result.ok) throw new Error(result.error || `Could not abort ${fileName}.`);
+                optimisticWarehouseSelections.delete(transferKey);
+                syncStatus.textContent = `Stopped ${fileName}`;
+                refreshTransferActivity();
+                updateWarehouseAllControl();
+                return;
+              }
               await removeFromSelectedDevice(fileName);
             } catch (error) {
               console.error(error);
@@ -10226,7 +10400,6 @@
   <script src="/ui/volume-ui.js"></script>
   <script src="/ui/installed-features-ui.js"></script>
   <script src="/ui/ready-player-two-ui.js?v=1.0.22"></script>
-  <script src="/ui/dual-boot-undo-ui.js?v=1.0.0"></script>
   <script src="/ui/welcome-ui.js"></script>
   <script src="/ui/tour-ui.js"></script>
 </body>

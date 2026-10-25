@@ -1,10 +1,15 @@
 const assert = require('node:assert/strict');
 const theme = require('./collection-cover-theme')('/theme/base.xml', 'All Games');
+const server = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
 assert.match(theme, /RP1CollectionCovers/u);
 assert.match(theme, /<imageSource>image<\/imageSource>/u);
-assert.match(theme, /<maxSize>0\.92 0\.92<\/maxSize>/u);
+assert.match(theme, /<autoLayout>5 2<\/autoLayout>/u);
+assert.match(theme, /<maxSize>0\.88 0\.88<\/maxSize>/u);
+assert.match(theme, /<padding>-10 -10<\/padding>/u);
 assert.match(theme, /<selectionMode>image<\/selectionMode>/u);
 assert.doesNotMatch(theme, /<size>/u);
 assert.doesNotMatch(theme, /<include>/u);
 assert.doesNotMatch(theme, /theme\.rp1-base/u);
-console.log('Mixed collection covers preserve their full aspect ratio.');
+assert.match(server, /\/api\/console-artwork\/collections/u);
+assert.match(server, /await installRp1CollectionCoverPresentation\(device\)/u);
+console.log('Mixed collection covers use five columns and preserve their full aspect ratio.');

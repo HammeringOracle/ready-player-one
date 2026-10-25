@@ -11,7 +11,6 @@ const labels = [...menu.matchAll(/<button[^>]*>([^<]+)<\/button>/gu)].map(match 
 assert.deepEqual(labels, [
   'Ready Player Two',
   'Back Up & Restore',
-  'Dual Boot Undo',
   'Music over Games',
   'Pygame CE',
   'Remapper',

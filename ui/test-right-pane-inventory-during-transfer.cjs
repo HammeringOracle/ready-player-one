@@ -24,7 +24,13 @@ assert.match(html, /row\.className = 'device-game transfer-queued'/u,
   'Every waiting ROM must receive a stable right-pane row before its worker starts.');
 assert.doesNotMatch(html, /querySelectorAll\('\[data-transfer-placeholder\]'\)\.forEach\(row => row\.remove\(\)\)/u,
   'Polling must not destroy and rebuild the complete waiting list.');
-assert.match(html, /if \(rowsChanged \|\| jobs\.length\) sortActiveGameRows\(\);/u,
+assert.match(html, /if \(rowsChanged \|\| jobs\.length\) \{[\s\S]*?sortActiveGameRows\(\);[\s\S]*?bindActiveRemoves\(\);/u,
   'The combined installed, active, and waiting list must remain naturally sorted.');
+assert.match(html, /checkbox\.className = 'active-item-check'; checkbox\.type = 'checkbox'; checkbox\.checked = true;/u,
+  'Every queued or downloading right-pane row must retain a checked abort control.');
+assert.match(html, /indicator\.className = 'transfer-download-arrow'; indicator\.textContent = '↓'/u,
+  'The download arrow must occupy the shield position rather than replacing the checkbox.');
+assert.match(html, /row\.classList\.contains\("transfer-queued"\)[\s\S]*?\/api\/transfers\/stop/u,
+  'Unchecking a right-pane transfer row must abort its transfer.');
 
 console.log('PASS: the right pane preserves its full machine inventory while transfers update in place.');

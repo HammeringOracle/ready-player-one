@@ -66,15 +66,18 @@ const systemArtCachePath = path.join(root, "system-art-cache");
 const batoceraSystemArtFolders = new Set([
   "c64",
   "mame", "nes", "snes", "megadrive", "gba", "psx", "ps2", "n64", "gb", "gbc", "nds", "3ds", "gc", "wii",
-  "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "pcengine",
-  "wiiu", "ps3", "ps4", "xbox", "xbox360"
+  "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "xegs", "jaguar", "jaguarcd", "atari800", "atarist", "pcengine",
+  "wiiu", "ps3", "ps4", "xbox", "xbox360", "music"
 ]);
 const supplementalSystemArt = {
   wiiu: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Wii_U_Console_and_Gamepad.png?width=512",
   ps3: "https://commons.wikimedia.org/wiki/Special:Redirect/file/PS3-slim-console.png?width=512",
   ps4: "https://commons.wikimedia.org/wiki/Special:Redirect/file/PS4-Console-wDS4.png?width=512",
   xbox: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Xbox_console_transparent.png?width=512",
-  xbox360: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Xbox360.png?width=512"
+  xbox360: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Xbox360.png?width=512",
+  // The bundled RP1 artwork is authoritative. This URL is used only if a
+  // damaged installation is missing that bundled asset.
+  music: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Vinyl_record.svg?width=512"
 };
 function softResetMachineIdentity(deviceName) {
   const settings = readDeviceSettings();
@@ -408,6 +411,11 @@ const systemFolders = {
   atari5200: "atari5200",
   atari7800: "atari7800",
   atarilynx: "lynx",
+  xegs: "xegs",
+  jaguar: "jaguar",
+  jaguarcd: "jaguarcd",
+  atari800: "atari800",
+  atarist: "atarist",
   pcengine: "pcengine",
   dos: "dos",
   karaoke: "karaoke",
@@ -452,6 +460,11 @@ const localFolders = {
   atari5200: "atari5200",
   atari7800: "atari7800",
   atarilynx: "atarilynx",
+  xegs: "xegs",
+  jaguar: "jaguar",
+  jaguarcd: "jaguarcd",
+  atari800: "atari800",
+  atarist: "atarist",
   pcengine: "pcengine",
   dos: "dos",
   karaoke: "karaoke",
@@ -501,6 +514,11 @@ const systemLabels = {
   atari5200: "Atari 5200",
   atari7800: "Atari 7800",
   atarilynx: "Atari Lynx",
+  xegs: "Atari XEGS",
+  jaguar: "Atari Jaguar",
+  jaguarcd: "Atari Jaguar CD",
+  atari800: "Atari 400/800/XL/XE",
+  atarist: "Atari ST/STE/TT/Falcon",
   pcengine: "PC Engine",
   dos: "DOS",
   karaoke: "Karaoke",
@@ -545,6 +563,11 @@ const localExtensions = {
   atari5200: [".a52", ".bin", ".rom", ".zip", ".7z"],
   atari7800: [".a78", ".bin", ".zip", ".7z"],
   atarilynx: [".lnx", ".lyx", ".o", ".zip", ".7z"],
+  xegs: [".atr", ".dsk", ".xfd", ".bin", ".rom", ".car", ".zip", ".7z"],
+  jaguar: [".j64", ".jag", ".rom", ".abs", ".cof", ".bin", ".prg", ".zip", ".7z"],
+  jaguarcd: [".cue", ".cdi", ".chd", ".jcd", ".zip", ".7z"],
+  atari800: [".atr", ".atx", ".dsk", ".xfd", ".bin", ".rom", ".car", ".cas", ".xex", ".com", ".zip", ".7z"],
+  atarist: [".st", ".msa", ".stx", ".dim", ".ipf", ".m3u", ".zip", ".7z"],
   pcengine: [".pce", ".cue", ".chd", ".zip", ".7z"],
   dos: [".pc", ".dos", ".zip", ".7z"],
   karaoke: [".cdg"],
@@ -3248,7 +3271,8 @@ const localOnlyArtworkSystems = new Set([
   "mame", "nes", "3dsen", "snes", "sega", "gba", "ps1", "ps2", "ps3", "ps4", "n64",
   "gb", "gbc", "nds", "3ds", "gamecube", "wii", "wiiu", "switch", "mastersystem",
   "gamegear", "segacd", "saturn", "dreamcast", "psp", "psvita", "xbox", "xbox360",
-  "neogeo", "atari2600", "atari5200", "atari7800", "atarilynx", "pcengine", "dos"
+  "neogeo", "atari2600", "atari5200", "atari7800", "atarilynx", "xegs", "jaguar", "jaguarcd",
+  "atari800", "atarist", "pcengine", "dos"
 ]);
 const styledFallbackArtworkSystems = new Set([
   "nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"
@@ -3429,8 +3453,8 @@ PY`;
         !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : system === "wiiu" || system === "mame" ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
-        !installed.includes(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}</padding><selectionMode>image</selectionMode>`) ||
-        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
+        !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
         !installed.includes(`rp1-${system}-selector.png`) ||
@@ -3472,7 +3496,9 @@ PY`;
     const installed = await execSsh(device, `cat /userdata/themes/$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n 1)/${collection.folder}/theme.xml`, 15000);
     if (!installed.includes(`READY PLAYER ONE ${collection.label.toUpperCase()} COVERS`) ||
         !installed.includes('<imageSource>image</imageSource>') ||
-        !installed.includes('<maxSize>0.92 0.92</maxSize>') ||
+        !installed.includes('<autoLayout>5 2</autoLayout>') ||
+        !installed.includes('<maxSize>0.88 0.88</maxSize>') ||
+        !installed.includes('<padding>-10 -10</padding>') ||
         !installed.includes('<selectionMode>image</selectionMode>')) {
       throw new Error(`Ready Player One could not verify the ${collection.label} cover layout on ${device.host}.`);
     }
@@ -3489,6 +3515,12 @@ async function uploadNintendoPictureSelector(device, system) {
   const transparentBlankPath = path.join(root, "scraper-cache", system, `rp1-${system}-transparent.png`);
   fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
   const standardShape = "$path.StartFigure();$path.AddArc(24,24,32,32,180,90);$path.AddLine(40,24,472,24);$path.AddArc(456,24,32,32,270,90);$path.AddLine(488,40,488,472);$path.AddArc(456,456,32,32,0,90);$path.AddLine(472,488,40,488);$path.AddArc(24,456,32,32,90,90);$path.AddLine(24,472,24,40);$path.CloseFigure()";
+  // SNES intentionally uses one-third of the standard selector curvature.
+  // Keep the generated PNG and EmulationStation's nine-patch corner size in
+  // agreement so the tighter corners do not stretch or clip at runtime.
+  const snesShape = "$path.StartFigure();$path.AddArc(24,24,11,11,180,90);$path.AddLine(30,24,482,24);$path.AddArc(477,24,11,11,270,90);$path.AddLine(488,30,488,482);$path.AddArc(477,477,11,11,0,90);$path.AddLine(482,488,30,488);$path.AddArc(24,477,11,11,90,90);$path.AddLine(24,482,24,30);$path.CloseFigure()";
+  // GBA uses half of the standard selector curvature.
+  const gbaShape = "$path.StartFigure();$path.AddArc(24,24,16,16,180,90);$path.AddLine(32,24,480,24);$path.AddArc(472,24,16,16,270,90);$path.AddLine(488,32,488,480);$path.AddArc(472,472,16,16,0,90);$path.AddLine(480,488,32,488);$path.AddArc(24,472,16,16,90,90);$path.AddLine(24,480,24,32);$path.CloseFigure()";
   // Match the original NES shell: tall body, lower side steps, and squared
   // cartridge feet. This intentionally is not a rounded square.
   const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,507),[System.Drawing.Point]::new(488,507),[System.Drawing.Point]::new(488,552),[System.Drawing.Point]::new(24,552),[System.Drawing.Point]::new(24,507),[System.Drawing.Point]::new(12,507),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
@@ -3499,7 +3531,7 @@ async function uploadNintendoPictureSelector(device, system) {
   // Keep the widest glow comfortably inside the PNG. Batocera otherwise
   // clips the outermost pixels, most visibly across the top of disc artwork.
   const wiiShape = "$path.StartFigure();$path.AddEllipse(36,36,440,440);$path.CloseFigure()";
-  const shape = system === "nes" ? nesShape : system === "n64" ? n64Shape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
+  const shape = system === "nes" ? nesShape : system === "snes" ? snesShape : system === "gba" ? gbaShape : system === "n64" ? n64Shape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
   const penWidths = system === "nes" ? [20, 12, 5] : [44, 26, 8];
   const script = [
     "Add-Type -AssemblyName System.Drawing",
@@ -4436,9 +4468,7 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
       image = await cacheNesPictureArtwork(metadata.localImagePath, fileName);
     } else if (localSnesArtwork) {
       image = await cacheSnesPictureArtwork(metadata.localImagePath, fileName);
-    } else if (localPs3Artwork) {
-      image = await cachePs3DiscArtwork(metadata.localImagePath, fileName);
-    } else if (localGbaArtwork || localN64Artwork || localGameCubeArtwork || localWiiArtwork || localWiiUArtwork || localPs1Artwork || localPs2Artwork || localPs4Artwork || localXboxArtwork || localXbox360Artwork || localMameArtwork) {
+    } else if (localGbaArtwork || localN64Artwork || localGameCubeArtwork || localWiiArtwork || localWiiUArtwork || localPs1Artwork || localPs2Artwork || localPs3Artwork || localPs4Artwork || localXboxArtwork || localXbox360Artwork || localMameArtwork) {
       image = await cacheNesPictureArtwork(metadata.localImagePath, fileName, system);
     } else {
       if (system === "snes") background = cacheLocalConsoleBackground(metadata.localImagePath, system, fileName);
@@ -9564,6 +9594,19 @@ ${check}
       await installNintendoPicturePresentation(device, systems);
       await execSsh(device, 'sh -c "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 & echo OK"', 15000);
       sendJson(res, 200, { ok: true, systems });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/console-artwork/collections") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device || device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+        sendJson(res, 409, { ok: false, error: "The All Games layout requires a live Batocera machine with SSH access." });
+        return;
+      }
+      await installRp1CollectionCoverPresentation(device);
+      await execSsh(device, 'sh -c "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 & echo OK"', 15000);
+      sendJson(res, 200, { ok: true, columns: 5, collections: ["all", "favorites"] });
       return;
     }
 

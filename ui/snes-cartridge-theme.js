@@ -32,7 +32,7 @@ module.exports = function snesPictureTheme(base) {
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/snes/media/rp1-snes-selector.png</path>
-      <cornerSize>32 32</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
+      <cornerSize>11 11</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
       <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>

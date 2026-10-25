@@ -1,5 +1,7 @@
-// Mixed-system collections must preserve each game's own cover/disc aspect
-// ratio.  A maxSize constraint fits the full image without cropping it.
+// Mixed-system collections contain cartridges, discs and boxes at the same
+// time. Keep the whole source image visible and let EmulationStation size the
+// selected highlight from that image instead of forcing every console into a
+// generic cover rectangle.
 module.exports = function collectionCoverTheme(_base, label) {
   const title = String(label || 'COLLECTION').toUpperCase();
   return `<!-- READY PLAYER ONE ${title} COVERS -->
@@ -8,20 +10,20 @@ module.exports = function collectionCoverTheme(_base, label) {
   <customView name="RP1CollectionCovers" inherits="grid" displayName="Pictures">
     <imagegrid name="gamegrid">
       <autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>
-      <autoLayout>6 2</autoLayout>
+      <autoLayout>5 2</autoLayout>
       <margin>0.001823 0.003241</margin>
       <imageSource>image</imageSource>
     </imagegrid>
     <gridtile name="default">
-      <padding>0 0</padding><selectionMode>image</selectionMode>
+      <padding>-10 -10</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
-      <padding>0 0</padding><selectionMode>image</selectionMode>
-      <backgroundColor>4FA9FF55</backgroundColor><backgroundCenterColor>4FA9FF22</backgroundCenterColor><backgroundEdgeColor>FFFFFFFF</backgroundEdgeColor>
+      <padding>-10 -10</padding><selectionMode>image</selectionMode>
+      <backgroundColor>00000000</backgroundColor><backgroundCenterColor>4FA9FF20</backgroundCenterColor><backgroundEdgeColor>4FA9FFFF</backgroundEdgeColor>
     </gridtile>
     <image name="gridtile.image">
-      <maxSize>0.92 0.92</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
+      <maxSize>0.88 0.88</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
     </image>
   </customView>
 </theme>

@@ -25,7 +25,7 @@ module.exports = function gbaPictureTheme(base) {
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/gba/media/rp1-gba-selector.png</path>
-      <cornerSize>32 32</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
+      <cornerSize>16 16</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
       <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>
