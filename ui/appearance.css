@@ -84,6 +84,7 @@ dialog,.confirm-modal,.controller-modal { border-radius:10px!important; }
 .settings-dialog .appearance-tour-icon { width:27px;height:27px;border-radius:7px;font-size:15px; }
 .settings-dialog .appearance-tour-icon.remove-machine-icon { font-size:23px; }
 .settings-dialog .appearance-tour-icon.machine-behavior-icon { background:linear-gradient(145deg,#f3b44f,#dc6d3d);font-size:25px; }
+.settings-dialog .appearance-tour-icon.topology-icon { background:linear-gradient(145deg,#5d9cff,#8a65ed);font-size:17px; }
 .settings-dialog .appearance-tour strong { font-size:12px; }
 .settings-dialog .appearance-tour small { margin-top:0;font-size:9px;line-height:1.2; }
 .settings-dialog .appearance-tour-arrow { font-size:16px; }
@@ -238,6 +239,9 @@ html[data-appearance=light] * { scrollbar-color:#6d95b0 #c7d9e5; }
 @media(prefers-reduced-motion:reduce) { .appearance-dialog[open] {animation:none;} #appearanceCog svg,.appearance-option,.appearance-switch::after {transition:none;} }
 
 /* Ready Player Two companion modal. */
+.dual-boot-undo-content .rp2-summary{display:grid;grid-template-columns:112px 1fr;align-items:center;gap:16px}
+.dual-boot-undo-art{width:108px;height:108px;object-fit:contain;filter:drop-shadow(0 8px 14px rgba(0,153,255,.25))}
+.dual-boot-undo-content .rp2-summary h3,.dual-boot-undo-content .rp2-summary p{margin-top:4px;margin-bottom:4px}
 .rp2-dialog{width:min(540px,calc(100vw - 24px));max-width:540px;height:max-content;min-height:0;max-height:calc(100dvh - 24px);padding:0;overflow:auto;border:1px solid #5076a9;border-radius:10px;color:#edf5ff;background:#111925;box-shadow:0 28px 90px #000c,0 0 0 1px #6ea8ff24,0 0 40px #1c76d226}
 .rp2-dialog::backdrop{background:#05080dcc;backdrop-filter:blur(7px)}
 .rp2-dialog[open]{animation:rp2-enter .18s ease-out}.rp2-shell{background:radial-gradient(circle at 8% 0,#277ac12b,transparent 38%),linear-gradient(150deg,#172333,#101720 62%)}

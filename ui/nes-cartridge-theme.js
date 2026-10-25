@@ -15,25 +15,24 @@ module.exports = function nesPictureTheme(base) {
       <gameImage>/userdata/roms/nes/media/rp1-nes-blank.png</gameImage>
     </imagegrid>
     <gridtile name="default">
-      <padding>0 0</padding>
-      <selectionMode>image</selectionMode>
+      <padding>0 0</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
       <backgroundCenterColor>00000000</backgroundCenterColor>
       <backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
-      <padding>0 0</padding>
-      <selectionMode>image</selectionMode>
+      <padding>0 0</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
       <backgroundCenterColor>00000000</backgroundCenterColor>
       <backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <image name="gridtile.image">
-      <maxSize>0.99 0.99</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
+      <!-- Leave vertical room for the complete NES cartridge and its glow. -->
+      <maxSize>0.94 0.94</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/nes/media/rp1-nes-selector.png</path>
-      <cornerSize>32 32</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
+      <cornerSize>64 64</cornerSize><padding>-8 -8</padding><color>4FA9FFFF</color>
       <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>

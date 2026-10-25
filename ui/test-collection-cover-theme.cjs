@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const theme = require('./collection-cover-theme')('/theme/base.xml', 'All Games');
+assert.match(theme, /RP1CollectionCovers/u);
+assert.match(theme, /<imageSource>image<\/imageSource>/u);
+assert.match(theme, /<maxSize>0\.92 0\.92<\/maxSize>/u);
+assert.match(theme, /<selectionMode>image<\/selectionMode>/u);
+assert.doesNotMatch(theme, /<size>/u);
+assert.doesNotMatch(theme, /<include>/u);
+assert.doesNotMatch(theme, /theme\.rp1-base/u);
+console.log('Mixed collection covers preserve their full aspect ratio.');

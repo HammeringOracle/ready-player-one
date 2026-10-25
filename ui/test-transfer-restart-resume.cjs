@@ -19,7 +19,8 @@ assert(html.includes('saveSelectionSet(selectedSystem, new Set(completeConsoleNa
 assert(server.includes('url.searchParams.get("unfinished") === "1"'), 'The backend must expose the complete unfinished transfer set');
 assert(server.includes('!item.completed && !item.partialDeleted'), 'Only completed and deleted transfers must be excluded from restart recovery');
 assert(server.includes('autoQueued: !wasStopping,') && server.includes('queuedAt: wasStopping ? "" : (job.queuedAt || new Date().toISOString())'), 'Interrupted uploads must resume automatically, but user-stopped uploads must stay stopped');
-assert(server.includes('Math.min(99.9, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1)))'), 'Sending every byte must not be reported as a completed transfer');
+assert(server.includes('job.percent = Math.min(75, Number((job.romPercent * 0.75).toFixed(1)))'), 'Sending every ROM byte must reserve progress for cover publication');
+assert(server.includes('percent: Math.min(99.9, Number(job.percent || 0))'), 'An interrupted transfer must not be restored as completed');
 assert(server.includes('SFTP upload completion timed out.'), 'A stuck final SFTP acknowledgement must be recoverable');
 assert(server.includes('sourceHash: runningSourceHash'), 'Health must identify the loaded backend so the launcher can replace stale code');
 assert(server.includes('activeUploadCancels.get(transferKey)?.();'), 'Stopping a transfer must close its active upload connection instead of waiting for the next byte callback');

@@ -1,6 +1,6 @@
 {
   "name": "ready-player-one",
-  "version": "1.0.383",
+  "version": "1.0.408",
   "private": true,
   "description": "Ready Player One desktop game library manager",
   "scripts": {
@@ -9,6 +9,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "build:rp2": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ready-player-two.ps1"
+    ,"build:undo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-dual-boot-undo.ps1"
   },
   "dependencies": {
     "ssh2": "^1.17.0"

@@ -211,7 +211,8 @@ const types = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".pdf": "application/pdf"
 };
 
 const batoceraAliases = [
@@ -3425,11 +3426,11 @@ PY`;
     await execSsh(device, command, 30000);
     const installed = await execSsh(device, `cat /userdata/roms/${folder}/theme.xml`, 15000);
     if (!installed.includes("<autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>") ||
-        !installed.includes(`<maxSize>${system === "nes" ? "0.99 0.99" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : system === "wiiu" || system === "mame" ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
+        !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : system === "wiiu" || system === "mame" ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         !installed.includes(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}</padding><selectionMode>image</selectionMode>`) ||
-        !installed.includes(`<cornerSize>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
         !installed.includes(`rp1-${system}-selector.png`) ||
@@ -3439,16 +3440,58 @@ PY`;
       throw new Error(`Ready Player One could not verify the ${system.toUpperCase()} picture layout on ${device.host}.`);
     }
   }
+  await installRp1CollectionCoverPresentation(device);
+}
+
+async function installRp1CollectionCoverPresentation(device) {
+  const factory = require("./collection-cover-theme");
+  const collections = [
+    { name: "all", folder: "auto-allgames", label: "All Games" },
+    { name: "favorites", folder: "auto-favorites", label: "Favorites" }
+  ];
+  for (const collection of collections) {
+    const command = `settings=/userdata/system/configs/emulationstation/es_settings.cfg
+theme_set=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' "$settings" | head -n 1)
+[ -n "$theme_set" ] || { echo "No active EmulationStation theme is selected" >&2; exit 1; }
+target_dir="/userdata/themes/$theme_set/${collection.folder}"
+target="$target_dir/theme.xml"
+backup="$target_dir/theme.rp1-base.xml"
+mkdir -p "$target_dir"
+rm -f "$backup"
+cat > "$target" <<EOF
+${factory('', collection.label)}
+EOF
+python - <<'PY'
+import xml.etree.ElementTree as ET
+p='/userdata/system/configs/emulationstation/es_settings.cfg'; t=ET.parse(p); r=t.getroot(); name='${collection.name}.defaultView'
+n=next((x for x in r if x.get('name')==name),None)
+if n is None: n=ET.SubElement(r,'string',{'name':name})
+n.set('value','RP1CollectionCovers'); t.write(p,encoding='unicode',xml_declaration=True)
+PY`;
+    await execSsh(device, command, 30000);
+    const installed = await execSsh(device, `cat /userdata/themes/$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n 1)/${collection.folder}/theme.xml`, 15000);
+    if (!installed.includes(`READY PLAYER ONE ${collection.label.toUpperCase()} COVERS`) ||
+        !installed.includes('<imageSource>image</imageSource>') ||
+        !installed.includes('<maxSize>0.92 0.92</maxSize>') ||
+        !installed.includes('<selectionMode>image</selectionMode>')) {
+      throw new Error(`Ready Player One could not verify the ${collection.label} cover layout on ${device.host}.`);
+    }
+  }
 }
 
 async function uploadNintendoPictureSelector(device, system) {
   const folder = systemFolders[system] || system;
   const width = 512;
-  const height = 512;
+  // NES artwork is a portrait cartridge (roughly 0.9:1), not a square tile.
+  // Keeping that aspect ratio preserves the shell and its lower feet.
+  const height = system === "nes" ? 568 : 512;
   const selectorPath = path.join(root, "scraper-cache", system, `rp1-${system}-selector.png`);
   const transparentBlankPath = path.join(root, "scraper-cache", system, `rp1-${system}-transparent.png`);
   fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
   const standardShape = "$path.StartFigure();$path.AddArc(24,24,32,32,180,90);$path.AddLine(40,24,472,24);$path.AddArc(456,24,32,32,270,90);$path.AddLine(488,40,488,472);$path.AddArc(456,456,32,32,0,90);$path.AddLine(472,488,40,488);$path.AddArc(24,456,32,32,90,90);$path.AddLine(24,472,24,40);$path.CloseFigure()";
+  // Match the original NES shell: tall body, lower side steps, and squared
+  // cartridge feet. This intentionally is not a rounded square.
+  const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,507),[System.Drawing.Point]::new(488,507),[System.Drawing.Point]::new(488,552),[System.Drawing.Point]::new(24,552),[System.Drawing.Point]::new(24,507),[System.Drawing.Point]::new(12,507),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
   const ps4Shape = "$path.StartFigure();$path.AddArc(24,24,8,8,180,90);$path.AddLine(28,24,484,24);$path.AddArc(480,24,8,8,270,90);$path.AddLine(488,28,488,484);$path.AddArc(480,480,8,8,0,90);$path.AddLine(484,488,28,488);$path.AddArc(24,480,8,8,90,90);$path.AddLine(24,484,24,28);$path.CloseFigure()";
   // Match the N64 cartridge silhouette: rounded shoulders rise into the broad
   // curved crown instead of drawing a generic rectangular top edge.
@@ -3456,13 +3499,14 @@ async function uploadNintendoPictureSelector(device, system) {
   // Keep the widest glow comfortably inside the PNG. Batocera otherwise
   // clips the outermost pixels, most visibly across the top of disc artwork.
   const wiiShape = "$path.StartFigure();$path.AddEllipse(36,36,440,440);$path.CloseFigure()";
-  const shape = system === "n64" ? n64Shape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
+  const shape = system === "nes" ? nesShape : system === "n64" ? n64Shape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
+  const penWidths = system === "nes" ? [20, 12, 5] : [44, 26, 8];
   const script = [
     "Add-Type -AssemblyName System.Drawing",
     `$canvas=[System.Drawing.Bitmap]::new(${width},${height},[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)`,
     "$graphics=[System.Drawing.Graphics]::FromImage($canvas);$graphics.SmoothingMode='AntiAlias';$graphics.Clear([System.Drawing.Color]::Transparent)",
     "$path=[System.Drawing.Drawing2D.GraphicsPath]::new()", shape,
-    "$wide=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(90,255,255,255),44);$glow=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(180,255,255,255),26);$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::White,8)",
+    `$wide=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(90,255,255,255),${penWidths[0]});$glow=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(180,255,255,255),${penWidths[1]});$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::White,${penWidths[2]})`,
     "$wide.LineJoin='Round';$glow.LineJoin='Round';$edge.LineJoin='Round';$graphics.DrawPath($wide,$path);$graphics.DrawPath($glow,$path);$graphics.DrawPath($edge,$path)",
     `$canvas.Save(${powershellSingleQuoted(selectorPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
     "$edge.Dispose();$glow.Dispose();$wide.Dispose();$path.Dispose();$graphics.Dispose();$canvas.Dispose()"
@@ -3797,18 +3841,6 @@ async function cacheSnesPictureArtwork(sourcePath, fileName) {
   return { localPath, fileName: path.basename(localPath) };
 }
 
-async function cachePs3DiscArtwork(sourcePath, fileName) {
-  const safe = cleanRomName(fileName).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "game";
-  const suffix = crypto.createHash("sha1").update(fileName).digest("hex").slice(0, 8);
-  const cacheDir = path.join(root, "scraper-cache", "ps3");
-  fs.mkdirSync(cacheDir, { recursive: true });
-  const sourceExtension = path.extname(sourcePath).toLowerCase();
-  const extension = [".jpg", ".jpeg", ".png", ".webp"].includes(sourceExtension) ? sourceExtension : ".png";
-  const localPath = path.join(cacheDir, `${safe}-${suffix}-disc${extension}`);
-  fs.copyFileSync(sourcePath, localPath);
-  return { localPath, fileName: path.basename(localPath) };
-}
-
 async function cacheCartridgePlaceholder(system, fileName) {
   if (!["nes", "snes"].includes(system)) return null;
   const cacheDir = path.join(root, "scraper-cache", system);
@@ -3983,6 +4015,20 @@ function cacheLocalConsoleBackground(sourcePath, system, fileName) {
 }
 
 const artworkPublishLocks = new Map();
+// Installing the console presentation is intentionally more expensive than
+// publishing one game's XML and image.  Do it before the first artwork publish
+// for each machine/system in this process, then remember the verified result.
+// This repairs machines that still have an older cartridge/box layout without
+// adding the same SSH/theme work to every ROM in a batch.
+const verifiedArtworkPresentations = new Set();
+
+async function ensureArtworkPresentation(device, system) {
+  if (!["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(system)) return;
+  const key = `${device.host || device.name || "machine"}\u0000${system}`;
+  if (verifiedArtworkPresentations.has(key)) return;
+  await installNintendoPicturePresentation(device, [system]);
+  verifiedArtworkPresentations.add(key);
+}
 
 async function execUploadedArtworkScript(device, script) {
   const digest = crypto.createHash('sha1').update(script).digest('hex').slice(0, 16);
@@ -4129,168 +4175,7 @@ for entry in entries:
     const verify = `import json,os,xml.etree.ElementTree as ET\nroot=${JSON.stringify(remoteRoot)}\nexpected=json.loads(${JSON.stringify(JSON.stringify(expected))})\ngamelist=os.path.join(root,"gamelist.xml")\ntree=ET.parse(gamelist); by_path={g.findtext("path"):g for g in tree.getroot().findall("game")}\nfor item in expected:\n g=by_path.get(item["relative"])\n if g is None: raise RuntimeError("Artwork entry missing for "+item["relative"])\n for field,relative in item["media"].items():\n  if g.findtext(field)!=relative: raise RuntimeError(field+" link missing for "+item["relative"])\n  media=os.path.normpath(os.path.join(root,relative))\n  if not os.path.isfile(media) or os.path.getsize(media)<1: raise RuntimeError(field+" file missing for "+item["relative"])\n`;
     await execUploadedArtworkScript(device, verify);
   }
-  if (ensurePresentation && system === "nes") await installNesCartridgePresentation(device);
-  if (ensurePresentation && system === "snes") await installSnesCartridgePresentation(device);
-  if (ensurePresentation && ["n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(system)) await installNintendoPicturePresentation(device, [system]);
-}
-
-async function installNesCartridgePresentation(device) {
-  // Compatibility entry point used by the artwork publisher. Keep one source
-  // of truth: the current RP1Pictures installer, selector, and view name.
-  return installNintendoPicturePresentation(device, ["nes"]);
-  /* legacy implementation retained below for reference but unreachable */
-  const selectorPath = path.join(root, "scraper-cache", "nes", "rp1-nes-selector.png");
-  fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
-  const selectorScript = [
-    "Add-Type -AssemblyName System.Drawing",
-    "$canvas=[System.Drawing.Bitmap]::new(1240,1380,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
-    "$graphics=[System.Drawing.Graphics]::FromImage($canvas)",
-    "$graphics.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias",
-    "$graphics.Clear([System.Drawing.Color]::Transparent)",
-    "$path=[System.Drawing.Drawing2D.GraphicsPath]::new()",
-    "$outline=[System.Drawing.Point[]]@([System.Drawing.Point]::new(44,30),[System.Drawing.Point]::new(1196,30),[System.Drawing.Point]::new(1210,44),[System.Drawing.Point]::new(1210,1230),[System.Drawing.Point]::new(1182,1230),[System.Drawing.Point]::new(1182,1340),[System.Drawing.Point]::new(58,1340),[System.Drawing.Point]::new(58,1230),[System.Drawing.Point]::new(30,1230),[System.Drawing.Point]::new(30,44))",
-    "$path.AddPolygon($outline)",
-    "$glowWide=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(55,255,255,255),42)",
-    "$glow=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(135,255,255,255),24)",
-    "$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255,255,255,255),10)",
-    "$glowWide.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round;$glow.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round;$edge.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round",
-    "$graphics.DrawPath($glowWide,$path);$graphics.DrawPath($glow,$path);$graphics.DrawPath($edge,$path)",
-    `$canvas.Save(${powershellSingleQuoted(selectorPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
-    "$edge.Dispose();$glow.Dispose();$glowWide.Dispose();$path.Dispose();$graphics.Dispose();$canvas.Dispose()"
-  ].join(";");
-  await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-Command", selectorScript], { windowsHide: true, timeout: 30000 },
-    (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
-  await sftpWithDevice(device, async sftp => {
-    await mkdirpSftp(sftp, "/userdata/roms/nes/media");
-    await fastPutSftp(sftp, selectorPath, "/userdata/roms/nes/media/rp1-nes-selector.png");
-  });
-  const command = `settings=/userdata/system/configs/emulationstation/es_settings.cfg
-theme_set=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' "$settings" | head -n 1)
-[ -n "$theme_set" ] || exit 0
-base=""
-for candidate in "/userdata/themes/$theme_set/nes/theme.xml" "/userdata/themes/$theme_set/theme.xml" "/usr/share/emulationstation/themes/$theme_set/nes/theme.xml" "/usr/share/emulationstation/themes/$theme_set/theme.xml" "/etc/emulationstation/themes/$theme_set/nes/theme.xml" "/etc/emulationstation/themes/$theme_set/theme.xml"; do
-  if [ -f "$candidate" ]; then base="$candidate"; break; fi
-done
-[ -n "$base" ] || exit 0
-target=/userdata/roms/nes/theme.xml
-if [ -f "$target" ] && ! grep -q 'READY PLAYER ONE NES CARTRIDGE' "$target"; then exit 0; fi
-tmp="$target.rp1-new"
-cat > "$tmp" <<EOF
-${require('./nes-cartridge-theme')('$base')}
-EOF
-if [ ! -f "$target" ] || ! cmp -s "$tmp" "$target"; then
-  mv "$tmp" "$target"
-else
-  rm -f "$tmp"
-fi
-python - <<'PY'
-import xml.etree.ElementTree as ET
-p='/userdata/system/configs/emulationstation/es_settings.cfg'
-t=ET.parse(p); r=t.getroot()
-n=next((x for x in r if x.get('name')=='nes.defaultView'),None)
-if n is None: n=ET.SubElement(r,'string',{'name':'nes.defaultView'})
-n.set('value','RP1Cartridge')
-t.write(p,encoding='unicode',xml_declaration=True)
-PY
-true`;
-  await execSsh(device, command, 30000);
-}
-
-async function installSnesCartridgePresentation(device) {
-  // Compatibility entry point used by the artwork publisher. Keep SNES on
-  // the current RP1Pictures layout so the legacy RP1Cartridge view cannot
-  // overwrite the shared NES-style selector behavior.
-  return installNintendoPicturePresentation(device, ["snes"]);
-  /* legacy implementation retained below for reference but unreachable */
-  const selectorPath = path.join(root, "scraper-cache", "snes", "rp1-snes-selector.png");
-  fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
-  const selectorScript = [
-    "Add-Type -AssemblyName System.Drawing",
-    "$canvas=[System.Drawing.Bitmap]::new(1400,900,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
-    "$graphics=[System.Drawing.Graphics]::FromImage($canvas)",
-    "$graphics.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::AntiAlias",
-    "$graphics.Clear([System.Drawing.Color]::Transparent)",
-    "$path=[System.Drawing.Drawing2D.GraphicsPath]::new()",
-    "$path.StartFigure();$path.AddLine(250,55,1150,55);$path.AddBezier(1150,55,1170,55,1170,82,1170,105);$path.AddLine(1170,105,1325,105);$path.AddBezier(1325,105,1355,105,1355,135,1355,165);$path.AddLine(1355,165,1355,820);$path.AddBezier(1355,820,1355,842,1333,850,1310,850);$path.AddLine(1310,850,90,850);$path.AddBezier(90,850,45,850,45,820,45,790);$path.AddLine(45,790,45,165);$path.AddBezier(45,165,45,135,75,105,105,105);$path.AddLine(105,105,230,105);$path.AddLine(230,105,230,82);$path.AddBezier(230,82,230,55,250,55,250,55);$path.CloseFigure()",
-    "$glowWide=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(55,255,255,255),42)",
-    "$glow=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(135,255,255,255),24)",
-    "$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255,255,255,255),10)",
-    "$glowWide.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round;$glow.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round;$edge.LineJoin=[System.Drawing.Drawing2D.LineJoin]::Round",
-    "$graphics.DrawPath($glowWide,$path);$graphics.DrawPath($glow,$path);$graphics.DrawPath($edge,$path)",
-    `$canvas.Save(${powershellSingleQuoted(selectorPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
-    "$edge.Dispose();$glow.Dispose();$glowWide.Dispose();$path.Dispose();$graphics.Dispose();$canvas.Dispose()"
-  ].join(";");
-  await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-Command", selectorScript], { windowsHide: true, timeout: 30000 },
-    (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
-  await sftpWithDevice(device, async sftp => {
-    await mkdirpSftp(sftp, "/userdata/roms/snes/media");
-    await fastPutSftp(sftp, selectorPath, "/userdata/roms/snes/media/rp1-snes-selector.png");
-  });
-  const command = `settings=/userdata/system/configs/emulationstation/es_settings.cfg
-theme_set=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' "$settings" | head -n 1)
-[ -n "$theme_set" ] || exit 0
-base=""
-for candidate in "/userdata/themes/$theme_set/snes/theme.xml" "/userdata/themes/$theme_set/theme.xml" "/usr/share/emulationstation/themes/$theme_set/snes/theme.xml" "/usr/share/emulationstation/themes/$theme_set/theme.xml" "/etc/emulationstation/themes/$theme_set/snes/theme.xml" "/etc/emulationstation/themes/$theme_set/theme.xml"; do
-  if [ -f "$candidate" ]; then base="$candidate"; break; fi
-done
-[ -n "$base" ] || exit 0
-target=/userdata/roms/snes/theme.xml
-if [ -f "$target" ] && ! grep -q 'READY PLAYER ONE SNES CARTRIDGE' "$target"; then exit 0; fi
-tmp="$target.rp1-new"
-cat > "$tmp" <<EOF
-${require('./snes-cartridge-theme')('$base')}
-EOF
-if [ ! -f "$target" ] || ! cmp -s "$tmp" "$target"; then
-  mv "$tmp" "$target"
-else
-  rm -f "$tmp"
-fi
-python - <<'PY'
-import xml.etree.ElementTree as ET
-p='/userdata/system/configs/emulationstation/es_settings.cfg'
-t=ET.parse(p); r=t.getroot()
-n=next((x for x in r if x.get('name')=='snes.defaultView'),None)
-if n is None: n=ET.SubElement(r,'string',{'name':'snes.defaultView'})
-n.set('value','RP1Cartridge')
-t.write(p,encoding='unicode',xml_declaration=True)
-PY
-true`;
-  await execSsh(device, command, 30000);
-}
-
-async function installPs3DiscPresentation(device) {
-  return installNintendoPicturePresentation(device, ["ps3"]);
-  /* Legacy PS3 presentation retained below for reference but unreachable. */
-  const command = `settings=/userdata/system/configs/emulationstation/es_settings.cfg
-theme_set=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' "$settings" | head -n 1)
-[ -n "$theme_set" ] || exit 0
-base=""
-for candidate in "/userdata/themes/$theme_set/ps3/theme.xml" "/userdata/themes/$theme_set/theme.xml" "/usr/share/emulationstation/themes/$theme_set/ps3/theme.xml" "/usr/share/emulationstation/themes/$theme_set/theme.xml" "/etc/emulationstation/themes/$theme_set/ps3/theme.xml" "/etc/emulationstation/themes/$theme_set/theme.xml"; do
-  if [ -f "$candidate" ]; then base="$candidate"; break; fi
-done
-[ -n "$base" ] || exit 0
-target=/userdata/roms/ps3/theme.xml
-if [ -f "$target" ] && ! grep -q 'READY PLAYER ONE PS3 DISC' "$target"; then exit 0; fi
-tmp="$target.rp1-new"
-cat > "$tmp" <<EOF
-${require('./ps3-disc-theme')('$base')}
-EOF
-if [ ! -f "$target" ] || ! cmp -s "$tmp" "$target"; then
-  mv "$tmp" "$target"
-else
-  rm -f "$tmp"
-fi
-python - <<'PY'
-import xml.etree.ElementTree as ET
-p='/userdata/system/configs/emulationstation/es_settings.cfg'
-t=ET.parse(p); r=t.getroot()
-n=next((x for x in r if x.get('name')=='ps3.defaultView'),None)
-if n is None: n=ET.SubElement(r,'string',{'name':'ps3.defaultView'})
-n.set('value','RP1Disc')
-t.write(p,encoding='unicode',xml_declaration=True)
-PY
-true`;
-  await execSsh(device, command, 30000);
+  if (ensurePresentation) await ensureArtworkPresentation(device, system);
 }
 
 const artworkPublishQueue = require('./artwork-publish-queue')(
@@ -4451,9 +4336,7 @@ async function runConsoleScrape(device, requestedSystems, overwrite, deviceName,
                 image = await cacheNesPictureArtwork(metadata.localImagePath, item.fileName);
               } else if (system === "snes") {
                 image = await cacheSnesPictureArtwork(metadata.localImagePath, item.fileName);
-              } else if (system === "ps3") {
-                image = await cachePs3DiscArtwork(metadata.localImagePath, item.fileName);
-              } else if (["gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps4", "xbox", "xbox360", "mame"].includes(system)) {
+              } else if (["gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(system)) {
                 image = await cacheNesPictureArtwork(metadata.localImagePath, item.fileName, system);
               } else {
                 image = await cacheLocalConsoleArtwork(metadata.localImagePath, system, item.fileName);
@@ -4532,7 +4415,11 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
       : await cacheGenericConsoleFallbackArtwork(system, fileName);
     const fallbackMetadata = { name: displayGameTitle(system, fileName), desc: "", releasedate: "", rating: "", players: "" };
     const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), fallbackMetadata, `./media/images/${image.fileName}`)];
-    const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork: [image], ensurePresentation: false });
+    // Never assume the destination already has the current layout. The first
+    // transfer in a session verifies/repairs it; later transfers reuse that
+    // verified result. This is especially important for GameCube, where a
+    // legacy rectangular selector makes correct disc artwork look broken.
+    const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork: [image], ensurePresentation: true });
     progress(75, "No Picture Matches — copying default picture");
     const published = await artworkPublishQueue.retry(id);
     progress(100, "No Picture Matches");
@@ -4564,7 +4451,7 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
   } else image = await cacheCartridgePlaceholder(system, fileName);
   const artwork = [image, background].filter((item, index, all) => item && all.findIndex(other => other?.localPath === item.localPath) === index);
   const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), metadata, image ? `./media/images/${image.fileName}` : "")];
-  const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork, ensurePresentation: false });
+  const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork, ensurePresentation: true });
   progress(75, "Copying picture");
   const published = await artworkPublishQueue.retry(id);
   if (published && system === "ps1" && [".cue", ".m3u"].includes(path.posix.extname(fileName).toLowerCase())) {
@@ -5312,7 +5199,10 @@ function collapseLogicalMultiDiscEntries(system, names) {
     const discSet = primaryByName.get(key);
     if (hidden.has(key) && !discSet) continue;
     const extension = path.extname(name).slice(1).toUpperCase() || system.toUpperCase();
-    rows.push({ name, type: discSet ? `${discSet.count} DISCS` : extension, discSet });
+    // Keep the launcher/file format independent from the logical disc count.
+    // The UI renders discSet.count beside the title; replacing type with
+    // "2 DISCS" here hides whether Batocera will launch M3U, ISO, CHD, etc.
+    rows.push({ name, type: extension, discSet });
   }
   return rows;
 }
@@ -5515,6 +5405,50 @@ function musicFolderRows(fileNames, baseNote) {
     });
 }
 
+function isExcludedLibraryGame(system, fileName) {
+  // 2048 is an NES homebrew/demo that older RP1 fallback data and some
+  // preloaded images exposed as though it were part of the normal library.
+  // It is intentionally excluded from discovery, queues, and uploads.
+  return system === "nes" && /^2048(?:[^0-9]|$)/i.test(path.basename(String(fileName || ""), path.extname(String(fileName || ""))));
+}
+
+async function removeExcludedNes2048FromBatocera(device) {
+  if (!device || device.access !== "ssh") return { removed: 0 };
+  const script = String.raw`import os, re, xml.etree.ElementTree as ET
+root = '/userdata/roms/nes'
+blocked = re.compile(r'^2048(?:[^0-9]|$)', re.I)
+removed = 0
+for base, dirs, files in os.walk(root):
+    for name in files:
+        stem = os.path.splitext(name)[0]
+        if blocked.match(stem):
+            try:
+                os.remove(os.path.join(base, name))
+                removed += 1
+            except FileNotFoundError:
+                pass
+gamelist = os.path.join(root, 'gamelist.xml')
+if os.path.isfile(gamelist):
+    try:
+        tree = ET.parse(gamelist)
+        document = tree.getroot()
+        changed = False
+        for game in list(document.findall('game')):
+            game_path = game.findtext('path') or ''
+            stem = os.path.splitext(os.path.basename(game_path.replace('\\', '/')))[0]
+            if blocked.match(stem):
+                document.remove(game)
+                changed = True
+        if changed:
+            tree.write(gamelist, encoding='utf-8', xml_declaration=True)
+    except (ET.ParseError, OSError):
+        pass
+print('REMOVED=' + str(removed))`;
+  const payload = Buffer.from(script, "utf8").toString("base64");
+  const output = await execSsh(device, `printf '%s' '${payload}' | base64 -d | python3`, 30000);
+  return { removed: Number(String(output || "").match(/REMOVED=(\d+)/)?.[1] || 0) };
+}
+
 function listLocalLibrary() {
   return Object.fromEntries(Object.entries(localFolders).map(([system, folder]) => {
     const label = systemLabels[system] || system.toUpperCase();
@@ -5534,6 +5468,7 @@ function listLocalLibrary() {
           .filter(name => (["ps4", "xbox360", "ports", "pygame", "windows"].includes(system) && fs.statSync(path.join(folderPath, name)).isDirectory()) || allowedExtensions.has(path.extname(name).toLowerCase()))
         : [];
     names = hideMameSupportFiles(system, names);
+    names = names.filter(name => !isExcludedLibraryGame(system, name));
     if (system === "ps1") names = collapsePs1Sidecars(names);
     const logicalEntries = system === "music"
       ? names.map(name => ({ name, type: path.extname(name).slice(1).toUpperCase() || label }))
@@ -6516,6 +6451,7 @@ with open(os.path.join(destination,'autorun.cmd'),'w',newline='\\n') as output: 
 }
 
 async function uploadRom(device, system, fileName, progress = null, registerCancel = null) {
+  if (isExcludedLibraryGame(system, fileName)) throw new Error("2048 is excluded from RP1's NES library and will not be installed.");
   if (system === 'ps2') await medicinePs2Bios.ensure(device, progress);
   if (device.access === "usb") {
     return uploadRomUsb(device, system, fileName, progress);
@@ -8369,8 +8305,10 @@ const server = http.createServer(async (req, res) => {
             ? neighbors.find(entry => entry.mac === savedMac && isAddressOnActiveLan(entry.host))?.host || ""
             : "";
           const host = macHost || device.discoveredHost || device.host || "";
-          const ssh = Boolean(host) && await isTcpPortOpen(host, 22, 500);
-          const batoceraSsh = ssh && /dropbear/i.test(await sshServerBanner(host, 500));
+          // Half a second is too short while Batocera is copying, scraping, or
+          // restarting EmulationStation. A delayed banner is not a disconnect.
+          const ssh = Boolean(host) && await isTcpPortOpen(host, 22, 1200);
+          const batoceraSsh = ssh && /dropbear/i.test(await sshServerBanner(host, 1200));
           const cached = discoveryCache.devices?.[name] || {};
           const cachedOnline = Boolean(cached.online) && cached.host === host
             && Date.now() - discoveryCache.at < 15000;
@@ -9149,14 +9087,30 @@ ${check}
       sendJson(res, 200, { ok: true, path: downloads });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/api/program-topology/open") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      if (!local) { sendJson(res, 403, { ok: false, error: "Open Program Topology from Ready Player One on this PC." }); return; }
+      const documentPath = path.join(root, "output", "pdf", "ready-player-one-program-topology-v4.pdf");
+      if (!fs.existsSync(documentPath)) { sendJson(res, 404, { ok: false, error: "The Program Topology PDF is not included in this installation." }); return; }
+      execFile("explorer.exe", [documentPath], error => {
+        if (error) console.error("Could not open Program Topology:", error.message);
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/companion/download") {
       const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
       if (!local) { sendJson(res, 403, { ok: false, error: "Create companion programs from Ready Player One on this PC." }); return; }
       const body = JSON.parse((await readBody(req)) || "{}");
       const companion = String(body.companion || "").toLowerCase();
-      const fileName = companion === "two" ? "Ready Player Two 1.0.56.exe" : "";
-      if (!fileName) { sendJson(res, 400, { ok: false, error: "Choose Ready Player Two." }); return; }
-      const source = path.join(uiRoot, "ready-player-two.exe");
+      const companionFiles = {
+        two: { fileName: "Ready Player Two 1.0.57.exe", source: "ready-player-two.exe" },
+        "dual-boot-undo": { fileName: "Dual Boot Undo 1.0.0.exe", source: "dual-boot-undo.exe" }
+      };
+      const selected = companionFiles[companion];
+      const fileName = selected?.fileName || "";
+      if (!selected) { sendJson(res, 400, { ok: false, error: "Choose a supported companion program." }); return; }
+      const source = path.join(uiRoot, selected.source);
       if (!fs.existsSync(source)) { sendJson(res, 500, { ok: false, error: `${fileName} is not included in this Ready Player One build.` }); return; }
       const downloads = path.join(os.homedir(), "Downloads");
       fs.mkdirSync(downloads, { recursive: true });
@@ -9233,7 +9187,8 @@ ${check}
       }
       await ensureCurrentBatoceraInstallation(body.device, device);
       const system = String(body.system || "");
-      const names = [...new Set(Array.isArray(body.fileNames) ? body.fileNames.map(String) : [])];
+      const names = [...new Set(Array.isArray(body.fileNames) ? body.fileNames.map(String) : [])]
+        .filter(fileName => !isExcludedLibraryGame(system, fileName));
       let queued = 0;
       for (const fileName of names) {
         const transferKey = JSON.stringify([body.device, system, fileName]);
@@ -9291,6 +9246,9 @@ ${check}
         transferredBytes: 0,
         skippedFiles: 0,
         percent: 0,
+        romPercent: 0,
+        artworkPercent: 0,
+        phase: "rom",
         current: "Starting",
         error: "",
         cancelRequested: false,
@@ -9306,9 +9264,15 @@ ${check}
         const item = await uploadRom(device, body.system, body.fileName, update => {
           if (job.cancelRequested) throw new Error("Transfer paused by user.");
           Object.assign(job, update);
-          // 100% means the staged file was verified, renamed, and artwork
-          // handling finished. Bytes sent alone must not claim completion.
-          job.percent = job.totalBytes ? Math.min(99.9, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1))) : 0;
+          // One monotonic progress bar represents the complete operation.
+          // ROM bytes occupy 0-75%; picture matching/copying occupies 75-100%.
+          // This prevents a copied ROM from looking finished while its cover
+          // is still being published.
+          job.phase = "rom";
+          job.romPercent = job.totalBytes
+            ? Math.min(100, Number(((job.transferredBytes / job.totalBytes) * 100).toFixed(1)))
+            : 0;
+          job.percent = Math.min(75, Number((job.romPercent * 0.75).toFixed(1)));
           scheduleTransferPersistence();
         }, cancel => {
           activeUploadCancels.set(transferKey, cancel);
@@ -9317,22 +9281,26 @@ ${check}
         if (job.cancelRequested) throw new Error("Transfer paused by user.");
         let artwork = { status: "skipped", matched: false, artwork: false };
         try {
-          job.current = "Matching picture";
+          job.phase = "artwork";
+          job.percent = 75;
+          job.current = "Matching cover";
           job.artworkPercent = 0;
-          scheduleTransferPersistence();
+          scheduleTransferPersistence(true);
           artwork = await publishTransferredRomArtwork(device, body.device, body.system, body.fileName, (percent, current) => {
             job.artworkPercent = percent;
-            job.current = current;
+            job.percent = Math.min(99.9, Number((75 + (Math.max(0, Math.min(100, Number(percent) || 0)) * 0.25)).toFixed(1)));
+            job.current = /default/i.test(String(current || "")) ? "Transferring default cover" : "Transferring cover";
             scheduleTransferPersistence();
           });
         } catch (error) {
           artwork = { status: "failed", matched: false, artwork: false, error: error.message || String(error) };
           console.error(`Post-transfer artwork for ${body.system}/${body.fileName}:`, artwork.error);
         }
-        Object.assign(job, { running: false, completed: true, autoQueued: false, percent: 100, current: "", artwork, finishedAt: new Date().toISOString() });
+        Object.assign(job, { running: false, completed: true, autoQueued: false, phase: "complete", percent: 100, artworkPercent: 100, current: "Complete", artwork, finishedAt: new Date().toISOString() });
         const copiedAtLeastOneFile = Number(job.totalFiles || 0) > 0
           && Number(job.completedFiles || 0) > Number(job.skippedFiles || 0);
-        if (copiedAtLeastOneFile) markSoftResetNeeded(body.device, body.system, body.fileName, job.finishedAt);
+        job.resetNeeded = copiedAtLeastOneFile && body.system !== "music";
+        if (job.resetNeeded) markSoftResetNeeded(body.device, body.system, body.fileName, job.finishedAt);
         scheduleTransferPersistence(true);
         sendJson(res, 200, { ok: true, item, artwork, job });
       } catch (error) {
@@ -9569,6 +9537,7 @@ ${check}
         sendJson(res, 400, { ok: false, error: "Automatic cartridge artwork is not configured for this console yet." });
         return;
       }
+      if (system === "nes") await removeExcludedNes2048FromBatocera(device);
       if (["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(system)) {
         await clearLegacyNintendoArtwork(device, [system]);
         await installNintendoPicturePresentation(device, [system]);

@@ -55,8 +55,8 @@
       <div class="settings-card-grid">
         <button class="appearance-tour" id="openAppearance" type="button"><span class="appearance-tour-icon" aria-hidden="true">◐</span><span><strong>Appearance</strong><small>Choose colors and warmth</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
         <button class="appearance-tour" id="openRemoveMachine" type="button"><span class="appearance-tour-icon remove-machine-icon" aria-hidden="true">−</span><span><strong>Remove Machine</strong><small>Remove an offline saved machine</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
+        <button class="appearance-tour" id="openProgramTopology" type="button"><span class="appearance-tour-icon topology-icon" aria-hidden="true">⌘</span><span><strong>Program Topology</strong><small>Open the printable architecture brief</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
       </div>
-      <div class="appearance-bottom"><span></span><button class="appearance-done">Done</button></div>
     </div>`;
     const tour = dialog.querySelector('#openQuickTour');
     settings.querySelector('.settings-card-grid').append(tour);
@@ -209,10 +209,24 @@
       behavior.showModal();
       loadBehaviorMachines(device);
     };
-    settings.querySelectorAll('.appearance-close,.appearance-done').forEach(button => button.addEventListener('click', () => settings.close()));
+    settings.querySelectorAll('.appearance-close').forEach(button => button.addEventListener('click', () => settings.close()));
     tour.addEventListener('click', () => settings.close());
     settings.querySelector('#openAppearance').addEventListener('click', () => {
       settings.close(); apply(); dialog.showModal();
+    });
+    settings.querySelector('#openProgramTopology').addEventListener('click', async () => {
+      const button = settings.querySelector('#openProgramTopology');
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/program-topology/open', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not open Program Topology.');
+        settings.close();
+      } catch (error) {
+        document.querySelector('#syncStatus').textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
     });
     settings.querySelector('#openRemoveMachine').addEventListener('click', async () => {
       settings.close();
@@ -299,10 +313,7 @@
         await showXboxBiosDialog({title:'Remove Machine',device:'Could not remove machine',message:error.message,confirmLabel:'OK'});
       }
     });
-    settings.addEventListener('click', event => {
-      const box = settings.getBoundingClientRect();
-      if (event.target === settings && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) settings.close();
-    });
+    settings.addEventListener('click', event => { if (event.target === settings) settings.close(); });
     settings.addEventListener('close', () => { if (!dialog.open) cog.focus(); });
     dialog.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => { preference.mode = button.dataset.mode; apply(true); }));
     dialog.querySelector('.appearance-switch').addEventListener('click', () => { preference.warm = !preference.warm; apply(true); });

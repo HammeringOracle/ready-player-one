@@ -153,7 +153,12 @@
 
     .find-machines svg { width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round; }
     .find-machines:hover {color:#d9ebff;border-color:#b6d7ff;transform:translate(-50%,-50%) scale(1.06);box-shadow:inset 0 1px 1px rgba(255,255,255,.22),0 0 0 4px rgba(74,144,255,.18),0 0 24px rgba(54,139,255,.48)}
-    .find-machines.finding { color: var(--yellow); border-color:var(--yellow); animation:find-pulse 1s ease-in-out infinite; }
+    .find-machines:is(.finding,.awaiting-machine) {
+      color: var(--yellow);
+      border-color: var(--yellow);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 0 0 3px rgba(250,204,21,.18), 0 0 20px rgba(250,204,21,.34);
+      animation: find-pulse 1s ease-in-out infinite;
+    }
     .find-machines.finding svg { animation:refresh-spin .9s linear infinite; }
     @keyframes find-pulse {50%{box-shadow:0 0 0 7px rgba(250,204,21,.12),0 0 28px rgba(250,204,21,.52)}}
     @keyframes refresh-spin {to{transform:rotate(360deg)}}
@@ -751,8 +756,21 @@
     }
 
     body.machine-unselected .main {
+      visibility: visible;
+    }
+
+    body.machine-unselected .systems-list,
+    body.machine-unselected #warehouseList,
+    body.machine-unselected #activeList {
       visibility: hidden;
+    }
+
+    body.machine-unselected .device-filter,
+    body.machine-unselected #openSystemPicker,
+    body.machine-unselected .warehouse-all-control,
+    body.machine-unselected .header-scrape {
       pointer-events: none;
+      opacity: .42;
     }
 
     .main > * {
@@ -1305,7 +1323,29 @@
       font-size: 13px;
       min-width: 0;
       overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .game-name,
+    .device-game-title {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .game-name-text,
+    .device-game-title-text {
+      min-width: 0;
+      overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .multi-disc-count {
+      flex: 0 0 auto;
+      color: #e8a83a;
+      font-size: 10px;
+      font-weight: 900;
       white-space: nowrap;
     }
 
@@ -2755,10 +2795,16 @@
     }
     .device-card[hidden] { display: none !important; }
     .device-game[data-transfer-placeholder]:not([data-system="music"][data-kind="folder"]) {
-      grid-template-columns: 18px minmax(0, 1fr);
+      grid-template-columns: 18px minmax(0, 1fr) max-content;
       min-width: 0;
     }
-    .device-game[data-transfer-placeholder] > span:last-child,
+    .device-game.transfer-queued:not(.transfer-pending) {
+      color: #aeb8c7;
+    }
+    .device-game.transfer-queued:not(.transfer-pending) .transfer-queue-indicator {
+      color: #d59a2f;
+    }
+    .device-game[data-transfer-placeholder] > .device-game-title,
     .device-game[data-transfer-placeholder] small {
       min-width: 0;
       white-space: nowrap;
@@ -2819,6 +2865,7 @@
         <div class="advanced-menu" id="advancedMenu">
           <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
           <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
+          <button class="advanced-item" id="openDualBootUndo" type="button">Dual Boot Undo</button>
           <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
           <button class="advanced-item" id="openPygameCE" type="button">Pygame CE</button>
           <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
@@ -3733,6 +3780,10 @@
     const machineList = document.querySelector("#machineList");
     const addMachine = null;
     let deviceCards = document.querySelectorAll(".device-card");
+    // A busy but healthy Batocera box can miss a short SSH probe. Keep its
+    // confirmed card visible in yellow while several polls retry instead of
+    // removing it after one delayed response.
+    const machineDisconnectGraceMs = 60000;
     const softReset = document.querySelector("#softReset");
     const saveTransferLayout = document.querySelector("#saveTransferLayout");
     const openTransferLayout = document.querySelector("#openTransferLayout");
@@ -3856,9 +3907,9 @@
     }
     function completedGameUpload(job) {
       const total = Number(job?.totalFiles || 0);
-      return Boolean(job?.completed && job?.system !== "music" && total > 0
+      return Boolean(job?.completed && job?.system !== "music" && (job?.resetNeeded || (total > 0
         && Number(job?.completedFiles || 0) >= total
-        && Number(job?.skippedFiles || 0) < total);
+        && Number(job?.skippedFiles || 0) < total)));
     }
     let selectedSystem = "mame";
     let musicFolderView = "";
@@ -3887,6 +3938,12 @@
     }
     let trackedTransferKeys = new Set();
     const pendingTransferKeys = new Set();
+    // The user's latest click owns the checkbox until its matching operation
+    // settles. Polling and stale inventory responses must never repaint it.
+    const optimisticWarehouseSelections = new Map();
+    // Direct references avoid thousands of querySelector calls during the
+    // frequent transfer-status poll. Rebuilt whenever the middle pane renders.
+    const warehouseGameControls = new Map();
     const optimisticUploadingSystems = new Set();
     const dismissedTransferKeys = new Set();
     let activeLoadGeneration = 0;
@@ -5232,7 +5289,6 @@
       nes: {
         label: "NES",
         warehouse: [
-          ["2048(tone).nes", "This computer / nes", "NES"],
           ["1942.nes", "This computer / nes", "NES"],
           ["1943.NES", "This computer / nes", "NES"],
           ["Abadox.nes", "This computer / nes", "NES"],
@@ -5242,7 +5298,6 @@
           ["720.nes", "This computer / nes", "NES"]
         ],
         active: [
-          ["2048(tone).nes", "/userdata/roms/nes", "NES"],
           ["1942.nes", "/userdata/roms/nes", "NES"],
           ["Abadox.nes", "/userdata/roms/nes", "NES"]
         ]
@@ -5381,7 +5436,8 @@
       const sizeLabel = formatFileSize(item[7]);
       const displayMeta = isMusicFolder
         ? `${tracks.length} song${tracks.length === 1 ? "" : "s"}${sizeLabel ? ` • ${sizeLabel}` : ""}`
-        : `${item[1]}${discSet ? ` • ${discSet.files.length} discs` : ""}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
+        : `${item[1]}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
+      const discCount = discSet ? `<span class="multi-disc-count">(${discSet.files.length} discs)</span>` : "";
       const trackList = selectedSystem !== "music" && isFolder && tracks.length
         ? `<div class="track-list">${tracks.map(track => {
             const path = `${item[0]}/${track}`;
@@ -5394,10 +5450,10 @@
             ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${activeNames.has(item[0]) || transferIsPending(item[0]) ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
             <div class="cover ${iconClass(item, selectedSystem)}" title="${isFolder ? "Open folder — " : ""}${iconTitle(item, selectedSystem)}" ${isFolder ? 'data-expandable="true"' : ""}></div>
             <div>
-              <div class="game-name">${displayName}</div>
+              <div class="game-name"><span class="game-name-text">${displayName}</span>${discCount}</div>
               <div class="game-meta">${displayMeta}</div>
             </div>
-            <span class="badge">${isMusicFolder ? "OPEN ›" : isBad ? "BAD ZIP" : item[2]}</span>
+            <span class="badge">${isMusicFolder ? "OPEN ›" : isBad ? "BAD ZIP" : gameExtensionBadge(item[0], item[2])}</span>
           </div>
           ${trackList}
         </div>`;
@@ -5424,11 +5480,11 @@
       const storedExtension = String(item[0] || "").match(/\.([^./\\]+)$/)?.[1]?.toUpperCase() || "";
       const badge = tracks.length
         ? `${tracks.length} TRACK${tracks.length === 1 ? "" : "S"}`
-        : discSet ? `${discSet.files.length} DISCS`
-        : storedExtension === "M3U" && item[2] ? String(item[2]).toUpperCase() : gameExtensionBadge(item[0], item[2]);
+        : gameExtensionBadge(item[0], item[2]);
       const awaitingReset = pendingResetGames().has(item[0]) ? " pending-soft-reset" : "";
-      const location = `${item[1]}${discSet ? ` • ${discSet.files.length} discs` : ""}`;
-      return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span>${displayName}<small>${location}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
+      const location = `${item[1]}`;
+      const discCount = discSet ? `<span class="multi-disc-count">(${discSet.files.length} discs)</span>` : "";
+      return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span class="device-game-title"><span class="device-game-title-text">${displayName}</span>${discCount}<small>${location}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
     }
 
     function compareNaturalGameTitles(leftTitle, rightTitle) {
@@ -6271,7 +6327,6 @@
     }
 
     function clearActiveTransferRows() {
-      activeList.querySelectorAll('[data-transfer-placeholder]').forEach(row => row.remove());
       activeList.querySelectorAll('.transfer-pending').forEach(row => {
         row.classList.remove('transfer-pending');
         row.classList.remove('artwork-stage');
@@ -6293,9 +6348,15 @@
       // Never paint those rows into a pane owned by another machine or console.
       if (activeList.dataset.device !== selectedDevice || activeList.dataset.system !== selectedSystem) return;
       const addProgress = (row, job) => {
-        const artworkStage = Number.isFinite(Number(job.artworkPercent)) && (Number(job.percent || 0) >= 100 || /picture|matches/i.test(job.current || ''));
+        const artworkStage = job.phase === 'artwork' || /cover|picture|matches/i.test(job.current || '');
         const defaultPictureStage = artworkStage && (job.artwork?.matched === false || /default picture|no picture matches/i.test(job.current || ''));
-        const percent = Math.max(0, Math.min(100, Number(artworkStage ? job.artworkPercent : job.percent) || 0));
+        // Current backends expose one end-to-end, monotonic percentage. Keep
+        // compatibility with older backends whose artwork percentage was a
+        // separate 0-100 scale.
+        const legacyArtworkPercent = artworkStage && job.phase !== 'artwork'
+          ? 75 + (Math.max(0, Math.min(100, Number(job.artworkPercent) || 0)) * 0.25)
+          : Number(job.percent);
+        const percent = Math.max(0, Math.min(100, legacyArtworkPercent || 0));
         row.classList.toggle('artwork-stage', artworkStage);
         const track = document.createElement('div');
         track.className = 'transfer-row-progress';
@@ -6311,12 +6372,64 @@
         // local match is reported only after completion by the dark-yellow
         // marker below; while copying, identify only the fallback asset.
         stage.textContent = artworkStage
-          ? (defaultPictureStage ? 'Default Picture' : 'Picture')
+          ? (defaultPictureStage ? 'Default Cover' : 'Transferring Cover')
           : '';
         stage.hidden = !stage.textContent;
         row.append(track, stage, label);
       };
       const jobs = transferJobsForActivePane();
+      // Keep the complete console-scoped queue in the right pane. Installed
+      // rows remain authoritative; every waiting ROM gets one stable row which
+      // is decorated with progress when its worker starts. Polling must not
+      // collapse Upload All to only the handful of active workers.
+      const savedSelections = readDeviceTransferSelections(selectedDevice);
+      const selectedNames = new Set(Array.isArray(savedSelections[selectedSystem]) ? savedSelections[selectedSystem] : []);
+      // A stopped item can remain in an older persisted selection snapshot
+      // until the next save finishes. Do not resurrect it as a waiting row.
+      for (const fileName of [...selectedNames]) {
+        if (dismissedTransferKeys.has(transferSelectionKey(selectedDevice, selectedSystem, fileName))) selectedNames.delete(fileName);
+      }
+      for (const job of jobs) {
+        if (!job.cancelRequested && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName))) selectedNames.add(job.fileName);
+      }
+      const installedNames = new Set([...activeList.querySelectorAll('.device-game:not([data-transfer-placeholder])')]
+        .map(row => row.dataset.name).filter(Boolean));
+      let rowsChanged = false;
+      activeList.querySelectorAll('.device-game[data-transfer-placeholder]').forEach(row => {
+        if (!selectedNames.has(row.dataset.name) || installedNames.has(row.dataset.name)) {
+          row.remove();
+          rowsChanged = true;
+        }
+      });
+      const warehouseItems = new Map(((window.warehouseLibrary || fallbackLibrary)[selectedSystem]?.warehouse || [])
+        .map(item => [item[0], item]));
+      // Resolve each display title once. Upload All may contain more than a
+      // thousand rows; repeatedly searching the warehouse inside sort's
+      // comparator made rendering needlessly expensive.
+      const queuedDisplayTitle = fileName => {
+        const item = warehouseItems.get(fileName);
+        return gameTitleWithoutExtension(item?.[6] || fileName, fileName, item?.[4] === 'folder');
+      };
+      const existingNames = new Set([...activeList.querySelectorAll('.device-game[data-name]')].map(row => row.dataset.name));
+      for (const fileName of [...selectedNames].sort((left, right) => compareNaturalGameTitles(
+        queuedDisplayTitle(left), queuedDisplayTitle(right)))) {
+        if (existingNames.has(fileName)) continue;
+        const item = warehouseItems.get(fileName);
+        const row = document.createElement('div');
+        row.className = 'device-game transfer-queued';
+        row.dataset.transferPlaceholder = 'true';
+        row.dataset.name = fileName;
+        const indicator = document.createElement('span'); indicator.className = 'transfer-queue-indicator'; indicator.textContent = '↓';
+        const title = document.createElement('span'); title.className = 'device-game-title'; title.title = fileName;
+        const titleText = document.createElement('span'); titleText.className = 'device-game-title-text';
+        titleText.textContent = queuedDisplayTitle(fileName);
+        title.append(titleText);
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = gameExtensionBadge(fileName, item?.[2] || 'ROM');
+        row.append(indicator, title, badge);
+        activeList.append(row);
+        existingNames.add(fileName);
+        rowsChanged = true;
+      }
       let newestActiveTransferName = "";
       let newestActiveTransferTime = -1;
       for (const job of jobs) {
@@ -6334,20 +6447,20 @@
           continue;
         }
         const row = document.createElement('div');
-        row.className = 'device-game transfer-pending';
+        row.className = 'device-game transfer-queued transfer-pending';
         row.dataset.transferPlaceholder = 'true';
         row.dataset.name = job.fileName;
-        const indicator = document.createElement('span'); indicator.textContent = '↓';
-        const title = document.createElement('span'); title.textContent = displayTitleForFile(job.system, job.fileName);
-        title.title = job.fileName;
-        const detail = document.createElement('small');
-        detail.textContent = `Transferring to ${selectedDevice} — ${job.percent || 0}%`;
-        title.append(detail);
-        row.append(indicator, title);
+        const indicator = document.createElement('span'); indicator.className = 'transfer-queue-indicator'; indicator.textContent = '↓';
+        const title = document.createElement('span'); title.className = 'device-game-title'; title.title = job.fileName;
+        const titleText = document.createElement('span'); titleText.className = 'device-game-title-text'; titleText.textContent = displayTitleForFile(job.system, job.fileName);
+        title.append(titleText);
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = gameExtensionBadge(job.fileName, 'ROM');
+        row.append(indicator, title, badge);
         addProgress(row, job);
         activeList.append(row);
+        rowsChanged = true;
       }
-      sortActiveGameRows();
+      if (rowsChanged || jobs.length) sortActiveGameRows();
       if (activeList.querySelector('.device-game')) {
         activeList.querySelector('.library-connection-message.is-empty')?.remove();
         if (!activeList.querySelector('.library-connection-message')) activeList.classList.remove('empty-state');
@@ -6382,19 +6495,25 @@
         .filter(job => job.system === selectedSystem && !job.cancelRequested
           && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName)))
         .map(job => job.fileName));
-      warehouseList.querySelectorAll(".game").forEach(game => {
-        const gameCheckbox = game.querySelector(".game-check");
+      for (const [gameName, control] of warehouseGameControls) {
+        const { game, checkbox: gameCheckbox } = control;
+        if (!game.isConnected) continue;
         if (gameCheckbox) {
-          const installed = activeNames.has(game.dataset.name) && !runningNames.has(game.dataset.name);
-          gameCheckbox.checked = installed || runningNames.has(game.dataset.name) || transferIsPending(game.dataset.name);
+          const selectionKey = transferSelectionKey(selectedDevice, selectedSystem, gameName);
+          const installed = activeNames.has(gameName) && !runningNames.has(gameName);
+          const authoritative = installed || runningNames.has(gameName) || transferIsPending(gameName);
+          const checked = optimisticWarehouseSelections.has(selectionKey)
+            ? optimisticWarehouseSelections.get(selectionKey)
+            : authoritative;
+          if (gameCheckbox.checked !== checked) gameCheckbox.checked = checked;
           gameCheckbox.dataset.installed = String(installed);
           gameCheckbox.title = installed ? 'Installed on this machine' : 'Pending transfer to this machine';
         }
-        game.querySelectorAll(".track-row").forEach(row => {
+        if (selectedSystem === 'music') control.trackRows.forEach(row => {
           const checkbox = row.querySelector("input");
           checkbox.checked = activeNames.has(row.dataset.track);
         });
-      });
+      }
       renderPendingTransfers();
       updateWarehouseAllControl();
     }
@@ -6738,8 +6857,19 @@
     }
 
     function bindWarehouseAdds(systemLabel) {
+      const activateGame = game => {
+        const previous = warehouseList.querySelector('.game.active');
+        if (previous && previous !== game) previous.classList.remove('active');
+        game.classList.add('active');
+      };
+      warehouseGameControls.clear();
       warehouseList.querySelectorAll(".game").forEach((game) => {
         const checkbox = game.querySelector(".game-check");
+        warehouseGameControls.set(game.dataset.name, {
+          game,
+          checkbox,
+          trackRows: [...game.querySelectorAll('.track-row')]
+        });
         if (selectedSystem === "music" && game.dataset.kind === "folder") {
           game.title = "Open music folder";
           game.addEventListener("click", () => showMusicFolderModal(game.dataset.name));
@@ -6762,8 +6892,7 @@
               }
             });
             game.classList.toggle("expanded", shouldOpen);
-            warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
-            game.classList.add("active");
+            activateGame(game);
           });
         }
 
@@ -6776,8 +6905,7 @@
             const row = trackCheckbox.closest(".track-row");
             const fileName = row.dataset.track;
             setLayoutSelection(selectedSystem, fileName, trackCheckbox.checked);
-            warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
-            game.classList.add("active");
+            activateGame(game);
 
             try {
               if (trackCheckbox.checked) {
@@ -6807,15 +6935,13 @@
 
           checkbox.checked = !checkbox.checked;
           syncFolderTrackChecks(game, checkbox.checked);
-          warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
-          game.classList.add("active");
+          activateGame(game);
           scheduleWarehouseSelectionSync(game);
         });
 
         checkbox.addEventListener("change", () => {
           syncFolderTrackChecks(game, checkbox.checked);
-          warehouseList.querySelectorAll(".game").forEach(item => item.classList.remove("active"));
-          game.classList.add("active");
+          activateGame(game);
           scheduleWarehouseSelectionSync(game);
         });
       });
@@ -6841,20 +6967,33 @@
       const targetDevice = selectedDevice;
       const targetSystem = selectedSystem;
       const name = game.dataset.name;
+      const selectionKey = transferSelectionKey(targetDevice, targetSystem, name);
+      const desiredChecked = Boolean(checkbox.checked);
       const revision = String(Number(game.dataset.selectionRevision || 0) + 1);
       game.dataset.selectionRevision = revision;
 
+      // Commit the visual state before any persistence, preflight, inventory,
+      // or network work. This value has priority in markWarehouseChecks so a
+      // status poll cannot erase the click during the next paint.
+      optimisticWarehouseSelections.set(selectionKey, desiredChecked);
+      checkbox.checked = desiredChecked;
+
       // Preserve a new check against status polling immediately, while moving
       // persistence and network work past the browser's next visual paint.
-      if (checkbox.checked) {
-        pendingTransferKeys.add(transferSelectionKey(targetDevice, targetSystem, name));
+      if (desiredChecked) {
+        pendingTransferKeys.add(selectionKey);
         showConsoleTransferImmediately(targetDevice, targetSystem);
       }
       requestAnimationFrame(() => setTimeout(() => {
         if (game.dataset.selectionRevision !== revision || !game.isConnected) return;
-        syncFolderTrackChecks(game, checkbox.checked);
-        rememberGameSelection(game, checkbox.checked);
-        syncWarehouseSelection(game, { device: targetDevice, system: targetSystem });
+        checkbox.checked = desiredChecked;
+        syncFolderTrackChecks(game, desiredChecked);
+        rememberGameSelection(game, desiredChecked);
+        Promise.resolve(syncWarehouseSelection(game, { device: targetDevice, system: targetSystem })).finally(() => {
+          if (game.dataset.selectionRevision !== revision) return;
+          optimisticWarehouseSelections.delete(selectionKey);
+          if (targetDevice === selectedDevice && targetSystem === selectedSystem) markWarehouseChecks();
+        });
       }, 0));
     }
 
@@ -6951,7 +7090,10 @@
           && [...activeList.querySelectorAll(".device-game")].some(item => item.dataset.name === name);
         if (!visibleInTargetPane) {
           const started = await addToSelectedDevice(name, game.dataset.type, { device: targetDevice, system: targetSystem });
-          if (!started) return false;
+          if (!started) {
+            clearOptimisticConsoleTransfer(targetDevice, targetSystem);
+            return false;
+          }
           if (targetSystem === "music" && game.dataset.kind === "folder") {
             folderTrackNames(game).forEach(track => activeNames.add(track));
             syncFolderTrackChecks(game, true);
@@ -7007,12 +7149,15 @@
     async function addToSelectedDevice(fileName, type, scope = {}) {
       const targetDevice = scope.device || selectedDevice;
       const targetSystem = scope.system || selectedSystem;
-      const targetOnline = targetDevice === selectedDevice ? selectedDeviceOnline : Boolean(lastDeviceStatuses?.[targetDevice]?.online);
-      if (!targetOnline) {
-        syncStatus.textContent = `${targetDevice} is offline`;
-        return false;
-      }
-
+      // Device discovery is deliberately not used as a transfer gate here.
+      // Its cached online flag can briefly lag behind a healthy machine and
+      // used to leave an optimistic console spinner with no backend job,
+      // unchecked warehouse row, and no right-pane progress row. The upload
+      // request performs the authoritative connection/installation check.
+      // Every transfer path funnels through this function, including music
+      // tracks selected inside the MP3/FLAC folder modal. Start the console's
+      // machine-scoped spinner before any fetch so no file type can bypass it.
+      showConsoleTransferImmediately(targetDevice, targetSystem);
       syncStatus.textContent = `Sending ${fileName}...`;
       let progressTimer = null;
       if (targetSystem === "ps3") {
@@ -7038,11 +7183,15 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device: targetDevice, system: targetSystem, fileName })
         });
+      } catch (error) {
+        clearOptimisticConsoleTransfer(targetDevice, targetSystem);
+        throw error;
       } finally {
         if (progressTimer) clearInterval(progressTimer);
       }
       const result = await response.json();
       if (!response.ok || !result.ok) {
+        clearOptimisticConsoleTransfer(targetDevice, targetSystem);
         throw new Error(result.error || "Could not add ROM.");
       }
 
@@ -7220,6 +7369,8 @@
     // The first green machine (or a machine the user clicks) will populate this
     // pane through selectDeviceCard().
     applyVisibleSystems(new Set());
+    warehouseTitle.innerHTML = '<span class="warehouse-heading"><span>Games</span></span><span class="count">This Computer</span>';
+    activeTitle.innerHTML = '<span class="active-heading"><span class="active-machine-name">Machine Games</span></span><span class="title-metrics"><span class="storage-count">Free: --</span></span>';
 
     rows.forEach((row) => {
       row.addEventListener("click", () => {
@@ -7253,6 +7404,25 @@
       // the backend for many seconds and belongs behind Find Machines.
       await refreshDeviceStatuses();
     }
+    function syncFindMachinesWaitingState() {
+      const hasVisibleMachine = [...machineList.querySelectorAll('.device-card')]
+        .some(card => !card.hidden);
+      findMachines.classList.toggle('awaiting-machine', !hasVisibleMachine);
+      if (!findMachines.classList.contains('finding')) {
+        findMachines.setAttribute('aria-label', hasVisibleMachine ? 'Refresh machines' : 'Refresh machines — waiting for a machine');
+        findMachines.title = hasVisibleMachine ? 'Refresh machines' : 'Waiting for a machine — refresh discovery';
+      }
+    }
+    // Machine tags can be created, hidden, or revealed by discovery, USB
+    // detection, and reconnects. Observe the actual tag strip so the yellow
+    // attention state cannot drift from what the user can see.
+    new MutationObserver(syncFindMachinesWaitingState).observe(machineList, {
+      childList: true,
+      subtree: false,
+      attributes: true,
+      attributeFilter: ['hidden']
+    });
+    syncFindMachinesWaitingState();
     findMachines.addEventListener('click', async () => {
       if (findMachines.disabled) return;
       findMachines.disabled = true;
@@ -7271,8 +7441,7 @@
       } finally {
         findMachines.disabled = false;
         findMachines.classList.remove('finding');
-        findMachines.setAttribute('aria-label','Find machines');
-        findMachines.title = 'Find configured machines';
+        syncFindMachinesWaitingState();
       }
     });
     startStartupMachineDiscovery();
@@ -7420,13 +7589,22 @@
       });
       deviceCards = document.querySelectorAll(".device-card");
       deviceCards.forEach(bindDeviceCard);
-      const connectedNames = new Set(Object.entries(statuses || {}).filter(([, status]) => status.online || status.reachable).map(([name]) => name));
       deviceCards.forEach(card => {
+        if (!Object.prototype.hasOwnProperty.call(statuses || {}, card.dataset.device) && card.dataset.platform !== 'batocera-usb') {
+          applyDeviceStatus(card, {
+            platform: card.dataset.platform,
+            host: card.dataset.host,
+            online: false,
+            reachable: false,
+            searching: false
+          });
+        }
         // Keep the saved card in the DOM for rediscovery, but never show a
-        // disconnected red tag (including when that machine was selected).
-        // Selection itself remains unchanged; an offline machine must not
-        // silently switch RP1 to another machine.
-        card.hidden = !connectedNames.has(card.dataset.device);
+        // disconnected red tag. A recently confirmed machine remains visible
+        // as yellow through its retry grace period.
+        card.hidden = !['true'].some(value =>
+          card.dataset.online === value || card.dataset.reachable === value ||
+          card.dataset.searching === value || card.dataset.communicating === value);
       });
       // Confirmed machines first, initial communication next, saved/offline
       // placeholders last. Keep the existing order within each group.
@@ -7436,6 +7614,7 @@
         return rank(a) - rank(b);
       }).forEach(card => machineList.insertBefore(card, addMachine));
       deviceCards = machineList.querySelectorAll(".device-card");
+      syncFindMachinesWaitingState();
       // Startup follows actual readiness, not the saved placeholder. Select the
       // first card that becomes fully online (green), then leave selection under
       // the user's control for the rest of the session.
@@ -7450,8 +7629,8 @@
 
     function selectDeviceCard(card, { userInitiated = false } = {}) {
       if (userInitiated) startupGreenMachineSelected = true;
-      // A machine selection is the sole gate for showing consoles and games.
-      // Keeping this on the body from initial HTML also prevents a startup flash.
+      // The three pane frames remain visible at startup; selecting a machine
+      // reveals and populates their console and game contents.
       document.body.classList.remove("machine-unselected");
       deviceCards.forEach(item => item.classList.remove("selected"));
       card.classList.add("selected");
@@ -7485,10 +7664,16 @@
     }
 
     function applyDeviceStatus(card, status) {
-      const online = Boolean(status?.online);
+      const rawOnline = Boolean(status?.online);
+      const rawReachable = rawOnline || Boolean(status?.reachable);
+      const now = Date.now();
+      if (rawOnline || rawReachable) card.dataset.lastConfirmedAt = String(now);
+      const lastConfirmedAt = Number(card.dataset.lastConfirmedAt || 0);
+      const withinDisconnectGrace = card.dataset.platform !== 'batocera-usb' && lastConfirmedAt > 0 && now - lastConfirmedAt < machineDisconnectGraceMs;
+      const online = rawOnline;
       // Reachability begins the visible discovery phase; identity and service
       // confirmation below decide when blinking yellow becomes solid yellow.
-      const reachable = online || Boolean(status?.reachable);
+      const reachable = rawReachable || withinDisconnectGrace;
       const searching = Boolean(status?.searching);
       const checks = status?.checks || {};
       const identityConfirmed = Boolean(status?.identity || status?.platform || status?.usb);
@@ -7527,7 +7712,7 @@
       card.classList.toggle("searching", searching && !online && !reachable);
       card.classList.toggle("communicating", communicating);
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
-      card.hidden = !(online || reachable);
+      card.hidden = !(online || reachable || searching || communicating);
 
       const meta = card.querySelector(".device-meta");
       if (meta) {
@@ -10041,6 +10226,7 @@
   <script src="/ui/volume-ui.js"></script>
   <script src="/ui/installed-features-ui.js"></script>
   <script src="/ui/ready-player-two-ui.js?v=1.0.22"></script>
+  <script src="/ui/dual-boot-undo-ui.js?v=1.0.0"></script>
   <script src="/ui/welcome-ui.js"></script>
   <script src="/ui/tour-ui.js"></script>
 </body>

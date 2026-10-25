@@ -741,8 +741,9 @@ function Install-DualBootBatocera {
     $fatFile = Join-Path $workRoot '0.vfat.fat'
     $phase = 'preparing'
     $createdPartitions = [System.Collections.Generic.List[int]]::new()
+    $installationId = if($previous.installationId){[string]$previous.installationId}else{[guid]::NewGuid().ToString()}
     function Save-State([string]$CurrentPhase,[string]$Detail) {
-        $state = @{phase=$CurrentPhase;detail=$Detail;diskNumber=$diskNumber;windowsPartitionNumber=$windowsNumber;originalWindowsBytes=[int64]$report.windowsPartitionSizeBytes;requestedWindowsBytes=$windowsBytes;createdPartitions=@($createdPartitions);updatedAt=(Get-Date).ToUniversalTime().ToString('o')}
+        $state = @{schema=2;managedBy='Ready Player Two';installationId=$installationId;targetComputerName=$env:COMPUTERNAME;phase=$CurrentPhase;detail=$Detail;diskNumber=$diskNumber;windowsPartitionNumber=$windowsNumber;originalWindowsBytes=[int64]$report.windowsPartitionSizeBytes;requestedWindowsBytes=$windowsBytes;originalPartitions=@($report.partitions);createdPartitions=@($createdPartitions);efiManagedPath='EFI\refind';windowsBootPath='\EFI\Microsoft\Boot\bootmgfw.efi';updatedAt=(Get-Date).ToUniversalTime().ToString('o')}
         [IO.File]::WriteAllText($journalPath,($state | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
     }
     if ($previous -and -not $resumePrepared) {
@@ -891,6 +892,12 @@ function Install-RP2Refind {
         & bcdedit.exe /export $bcdBackup | Out-Null
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $bcdBackup -PathType Leaf)) { throw 'Windows boot configuration could not be backed up. rEFInd was not installed.' }
         Set-RP2InstallState 'installing-refind' 'Installing verified rEFInd files; original Windows boot configuration backed up.'
+        $installStatePath=Join-Path $stageRoot 'install-state.json'
+        $installState=Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState | Add-Member -NotePropertyName bcdBackupPath -NotePropertyValue $bcdBackup -Force
+        $installState | Add-Member -NotePropertyName refindPath -NotePropertyValue 'EFI\refind' -Force
+        $installState | Add-Member -NotePropertyName undoSupported -NotePropertyValue $true -Force
+        [IO.File]::WriteAllText($installStatePath,($installState | ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
         New-Item -ItemType Directory -Path $targetDir -ErrorAction Stop | Out-Null
         Copy-Item -LiteralPath $sourceEfi -Destination (Join-Path $targetDir 'refind_x64.efi') -ErrorAction Stop
         $icons = Join-Path $sourceDir 'icons'

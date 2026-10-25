@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ready Player Two",
-  "version": "1.0.56",
+  "version": "1.0.57",
   "identifier": "com.readyplayerone.ready-player-two",
   "build": { "frontendDist": "../frontend" },
   "app": {
     "withGlobalTauri": true,
-    "windows": [{ "title": "Ready Player Two 1.0.56", "width": 1000, "height": 680, "minWidth": 640, "minHeight": 420, "maximized": true, "center": true, "visible": true, "focus": true }],
+    "windows": [{ "title": "Ready Player Two 1.0.57", "width": 1000, "height": 680, "minWidth": 640, "minHeight": 420, "maximized": true, "center": true, "visible": true, "focus": true }],
     "security": { "csp": "default-src 'self'; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:" }
   },
   "bundle": { "active": false, "icon": ["icons/icon.ico"] }
