@@ -2768,14 +2768,14 @@
       overflow: visible;
       position: relative;
       z-index: 2;
-      height: 13px;
+      height: 11px;
       align-self: start;
       transform: translateY(1px);
     }
     :is(.device-game.transfer-pending) .cover.playability-shield.downloading::after {
       content: "↓";
       color: #facc15;
-      font-size: 13px;
+      font-size: 11px;
       line-height: .8;
       text-shadow: 0 0 7px rgba(250, 204, 21, .68);
     }
@@ -2785,11 +2785,11 @@
       display: grid;
       place-items: center;
       width: 20px;
-      height: 13px;
+      height: 11px;
       align-self: start;
       transform: translateY(1px);
       color: #facc15;
-      font: 1000 13px/.8 Arial, sans-serif;
+      font: 1000 11px/.75 Arial, sans-serif;
       text-shadow: 0 0 7px rgba(250, 204, 21, .68);
     }
     .device-game.transfer-pending > .active-item-check,
@@ -2885,6 +2885,7 @@
     }
     @keyframes reconnect-dot { 0%,80%,100% { opacity:.25; transform:translateY(0); } 40% { opacity:1; transform:translateY(-3px); } }
     @media (prefers-reduced-motion: reduce) { .reconnecting-dots span { animation:none; } }
+    @keyframes snapshotSweep { from { transform:translateX(-15%); } to { transform:translateX(210%); } }
   </style>
   <link rel="stylesheet" href="ui/appearance.css?v=1.0.23">
   <link rel="stylesheet" href="ui/tour.css">
@@ -2929,6 +2930,7 @@
           <button class="advanced-item" id="openPygameCE" type="button">Pygame CE</button>
           <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
           <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
+          <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
           <button class="advanced-item" id="openUsbController" type="button">USB Controller</button>
           <button class="advanced-item" id="openUsbImage" type="button">USB Image</button>
           <input class="hidden-file-input" id="ps1BiosFile" type="file" accept=".bin,application/octet-stream">
@@ -2992,6 +2994,8 @@
           <div class="row" data-system="atarist"><span class="icon">ST</span><span>Atari ST/STE/TT/Falcon</span><span class="count">0</span></div>
           <div class="row" data-system="pcengine"><span class="icon">PC</span><span>PC Engine</span><span class="count">0</span></div>
           <div class="row" data-system="dos"><span class="icon">PC</span><span>DOS</span><span class="count">0</span></div>
+          <div class="row" data-system="favorites"><span class="icon">★</span><span>Favorites</span><span class="count">—</span></div>
+          <div class="row" data-system="all"><span class="icon">ALL</span><span>All Games</span><span class="count">—</span></div>
         </div>
       </aside>
 
@@ -3262,6 +3266,40 @@
         <div class="confirm-actions">
           <button id="cancelUsbImage" type="button">Close</button>
           <button class="setup" id="startUsbImage" type="button" disabled>Create Image</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="snapshotsModal" role="dialog" aria-modal="true" aria-labelledby="snapshotsTitle">
+      <section class="confirm-modal" style="width:min(560px,92vw)">
+        <div class="modal-head">
+          <span id="snapshotsTitle">Console Snapshots</span>
+          <button class="modal-close" id="closeSnapshotsTop" aria-label="Close Snapshots">X</button>
+        </div>
+        <div class="confirm-body">
+          <div class="confirm-device" id="snapshotsDevice">Batocera</div>
+          <label class="wifi-field">Snapshot
+            <select id="snapshotsMode">
+              <option value="console">Console</option>
+              <option value="batocera">Batocera</option>
+            </select>
+          </label>
+          <div class="confirm-note" id="snapshotsModeNote">Console captures open the selected console game lists.</div>
+          <label class="wifi-field" id="snapshotCenterRow" hidden>Console shown in the center
+            <select id="snapshotCenterSystem"></select>
+          </label>
+          <div id="snapshotConsoleOptions">
+            <label style="display:flex;align-items:center;gap:10px;font-weight:900"><input id="snapshotsAll" type="checkbox" style="width:18px;height:18px"> Select All</label>
+            <div id="snapshotsSystems" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px;max-height:300px;overflow:auto;padding:8px 2px"></div>
+          </div>
+          <div style="height:10px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden" aria-label="Snapshot progress">
+            <div id="snapshotsProgress" style="height:100%;width:0;background:linear-gradient(90deg,#f0c83e,#73dbff);transition:width .25s ease"></div>
+          </div>
+          <div class="confirm-note" id="snapshotsMessage">Choose one or more consoles.</div>
+        </div>
+        <div class="confirm-actions">
+          <button id="cancelSnapshots" type="button">Close</button>
+          <button class="setup" id="captureSnapshots" type="button">Download Snapshots</button>
         </div>
       </section>
     </div>
@@ -3732,6 +3770,21 @@
     const closeBackupRestoreTop = document.querySelector("#closeBackupRestoreTop");
     const cancelBackupRestore = document.querySelector("#cancelBackupRestore");
     const startBackupRestore = document.querySelector("#startBackupRestore");
+    const openSnapshots = document.querySelector("#openSnapshots");
+    const snapshotsModal = document.querySelector("#snapshotsModal");
+    const snapshotsDevice = document.querySelector("#snapshotsDevice");
+    const snapshotsSystems = document.querySelector("#snapshotsSystems");
+    const snapshotsMode = document.querySelector("#snapshotsMode");
+    const snapshotsModeNote = document.querySelector("#snapshotsModeNote");
+    const snapshotConsoleOptions = document.querySelector("#snapshotConsoleOptions");
+    const snapshotCenterRow = document.querySelector("#snapshotCenterRow");
+    const snapshotCenterSystem = document.querySelector("#snapshotCenterSystem");
+    const snapshotsAll = document.querySelector("#snapshotsAll");
+    const snapshotsProgress = document.querySelector("#snapshotsProgress");
+    const snapshotsMessage = document.querySelector("#snapshotsMessage");
+    const captureSnapshots = document.querySelector("#captureSnapshots");
+    const cancelSnapshots = document.querySelector("#cancelSnapshots");
+    const closeSnapshotsTop = document.querySelector("#closeSnapshotsTop");
     const openUsbImage = document.querySelector("#openUsbImage");
     const usbImageModal = document.querySelector("#usbImageModal");
     const usbImageDevice = document.querySelector("#usbImageDevice");
@@ -4011,6 +4064,7 @@
     const warehouseGameControls = new Map();
     const optimisticUploadingSystems = new Set();
     const dismissedTransferKeys = new Set();
+    const optimisticActiveRemovals = new Set();
     let activeLoadGeneration = 0;
     let transferInstalledCache = { device: "", at: 0, systems: {} };
     // Versioned after clearing the obsolete shared/per-machine pending lists.
@@ -4124,7 +4178,8 @@
     const defaultVisibleSystems = ["mame", "nes", "snes", "sega", "gba", "ps1", "ps2", "ps3", "n64", "karaoke", "music"];
     // Streaming/audio services are selectable features, not emulated game
     // consoles. Keep them in the list without inflating the console total.
-    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music"]);
+    const virtualCollectionSystems = new Set(["all", "favorites"]);
+    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music", ...virtualCollectionSystems]);
     const systemVisibilityKey = "batoceraWarehouse.visibleSystems";
     const systemRequirementWarning = document.querySelector('#systemRequirementWarning');
     let selectTopSystemOnNextVisibleList = true;
@@ -4156,6 +4211,9 @@
     function c64DiscoveryKey(device) {
       return `${visibilityStorageKey(device)}.c64Discovery.v2`;
     }
+    function collectionDiscoveryKey(device) {
+      return `${visibilityStorageKey(device)}.automaticCollections.v1`;
+    }
     async function initializeMachineSystems({ refresh = false } = {}) {
       const device = selectedDevice;
       if (!selectedDeviceOnline || systemInventoryLoading.has(device)) return;
@@ -4166,7 +4224,9 @@
       const needsSteamDiscovery = selectedMachinePlatform(device) === 'batocera'
         && localStorage.getItem(steamDiscoveryKey(device)) === null;
       const needsC64Discovery = localStorage.getItem(c64DiscoveryKey(device)) === null;
-      if (hasSavedSystems && !needsSteamDiscovery && !needsC64Discovery) {
+      const needsCollectionDiscovery = selectedMachinePlatform(device) === 'batocera'
+        && localStorage.getItem(collectionDiscoveryKey(device)) === null;
+      if (hasSavedSystems && !needsSteamDiscovery && !needsC64Discovery && !needsCollectionDiscovery) {
         if (selectedDevice === device) applyVisibleSystems(readVisibleSystems(device));
         return;
       }
@@ -4179,13 +4239,20 @@
         if (localStorage.getItem(visibilityStorageKey(device)) !== null) {
           // Add newly supported systems once for existing machines. A later
           // deliberate uncheck remains authoritative on every startup.
-          if (needsSteamDiscovery || needsC64Discovery) {
+          if (needsSteamDiscovery || needsC64Discovery || needsCollectionDiscovery) {
             const visible = readVisibleSystems(device);
             if (needsSteamDiscovery && localStorage.getItem(steamDiscoveryKey(device)) === null && result.systems.includes('steam')) visible.add('steam');
             if (needsC64Discovery && localStorage.getItem(c64DiscoveryKey(device)) === null && result.systems.includes('c64')) visible.add('c64');
+            if (needsCollectionDiscovery) {
+              for (const collection of virtualCollectionSystems) {
+                if (result.systems.includes(collection)) visible.add(collection);
+                else visible.delete(collection);
+              }
+            }
             localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...visible]));
             localStorage.setItem(steamDiscoveryKey(device), 'done');
             if (c64DetectionReady) localStorage.setItem(c64DiscoveryKey(device), 'done');
+            if (needsCollectionDiscovery) localStorage.setItem(collectionDiscoveryKey(device), 'done');
             if (selectedDevice === device) applyVisibleSystems(visible);
           }
           return;
@@ -4196,6 +4263,7 @@
         localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...reconciled]));
         localStorage.setItem(steamDiscoveryKey(device), 'done');
         if (c64DetectionReady) localStorage.setItem(c64DiscoveryKey(device), 'done');
+        if (selectedMachinePlatform(device) === 'batocera') localStorage.setItem(collectionDiscoveryKey(device), 'done');
         if (selectedDevice === device) applyVisibleSystems(reconciled);
       } catch (error) {
         console.error(error);
@@ -4254,6 +4322,7 @@
     }
 
     function systemUnsupportedOnDevice(system, device = selectedDevice) {
+      if (virtualCollectionSystems.has(system) && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'steam' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === '3dsen' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'pikaraoke' && selectedMachinePlatform(device) !== 'batocera') return true;
@@ -4327,7 +4396,7 @@
         ps1: 'Install verified cached PS1 BIOS', ps2: 'Install verified cached PS2 BIOS',
         ps3: 'Copy verified cached PS3 firmware (emulator installation may still be required)',
         ps4: 'Install user-supplied PS4 firmware modules for shadPS4',
-        xbox: 'Install verified cached Xbox BIOS files', xbox360: 'Verify Batocera Xenia without installing or initializing Wine',
+        xbox: 'Install verified cached Xbox BIOS files', xbox360: "Prepare Batocera's internal Xenia runtime",
         windows: 'Verify Batocera Wine and prepare Windows game, installer, and dependency folders',
         wiiu: 'Install cached Cemu keys', karaoke: 'Install Karaoke launcher and refresh machine game list',
         pikaraoke: 'Check existing PiKaraoke, browser, and dependencies; install only missing components',
@@ -4385,7 +4454,8 @@
             throw new Error(`${device}: ${inventory.error || 'Could not read installed systems for removal'}`);
           }
           const validSystems = new Set([...rows].map(row => row.dataset.system));
-          inventory.systems.filter(system => validSystems.has(system) && !selected.has(system)).forEach(system => deviceRemoved.add(system));
+          inventory.systems.filter(system => validSystems.has(system) && !selected.has(system) && !virtualCollectionSystems.has(system)).forEach(system => deviceRemoved.add(system));
+          for (const system of virtualCollectionSystems) deviceRemoved.delete(system);
           for (const system of deviceRemoved) {
             removals.push({device, system});
           }
@@ -4440,15 +4510,59 @@
           minus.style.cssText = 'flex:0 0 18px;text-align:center;color:#ff7777;text-shadow:0 0 7px #ff444480;font-weight:900';
           const label = [...systemPickerGrid.querySelectorAll('input')].find(input => input.value === system)?.parentElement.textContent.trim() || system;
           const details = document.createElement('div');
-          details.textContent = `${label}: Permanently remove the system and all of its games from ${machineDisplayName(device)}. Local PC originals are kept.`;
+          details.textContent = virtualCollectionSystems.has(system)
+            ? `${label}: Hide this automatic collection on ${machineDisplayName(device)}. No games, artwork, or favorite flags will be deleted.`
+            : `${label}: Permanently remove the system and all of its games from ${machineDisplayName(device)}. Local PC originals are kept.`;
           row.append(minus, details); xboxBiosDialogMessage.append(row);
         }
       }
       const approved = await approval;
       if (!approved) return;
+      let xbox360ProfileChoice = null;
+      // GamerTag creation belongs only to an explicit Xbox 360 add action.
+      // Removing another console must not reopen it merely because a backend
+      // status check considers the already-visible Xbox 360 setup incomplete.
+      const xbox360IsBeingAdded = selected.has('xbox360') && !previous.has('xbox360');
+      if (xbox360IsBeingAdded) {
+        const profileApproval = showXboxBiosDialog({
+          title: 'GamerTag', device: visibilityDevice, cancellable: true,
+          confirmLabel: 'Build GamerTags', cancelLabel: 'Cancel',
+          message: 'Add the local GamerTag names Xenia should create. These are offline profiles and do not connect to Xbox Live.'
+        });
+        const gamerTagList = document.createElement('div');
+        gamerTagList.style.cssText = 'display:grid;gap:7px;margin:12px 0 2px';
+        const addGamerTagRow = (value = '') => {
+          if (gamerTagList.children.length >= 4) return;
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:7px';
+          const input = document.createElement('input');
+          input.type = 'text'; input.maxLength = 15; input.value = value;
+          input.placeholder = gamerTagList.children.length ? 'Additional GamerTag' : 'Player 1';
+          input.setAttribute('aria-label', `GamerTag ${gamerTagList.children.length + 1}`);
+          input.style.cssText = 'min-width:0;flex:1;height:40px;padding:0 11px;border:2px solid #52627b;border-radius:8px;background:#111722;color:#f4f7ff;font:900 1rem inherit';
+          const plus = document.createElement('button');
+          plus.type = 'button'; plus.textContent = '+'; plus.title = 'Add another GamerTag';
+          plus.style.cssText = 'width:40px;height:40px;min-width:40px;padding:0;border-radius:8px;font-size:1.35rem;font-weight:1000';
+          plus.addEventListener('click', () => { addGamerTagRow(); plus.hidden = true; gamerTagList.lastElementChild?.querySelector('input')?.focus(); });
+          row.append(input, plus); gamerTagList.append(row);
+          if (gamerTagList.children.length >= 4) plus.hidden = true;
+        };
+        addGamerTagRow('Player 1');
+        xboxBiosDialogMessage.append(gamerTagList);
+        const hint = document.createElement('div');
+        hint.textContent = 'Use + for additional local profiles. RP1 creates and verifies the encrypted Xenia profiles, then signs the first GamerTag in as Player 1.';
+        hint.style.cssText = 'margin:5px 0 0;color:#cbd4e6;font-size:.9em;line-height:1.25';
+        xboxBiosDialogMessage.append(hint);
+        if (!await profileApproval) return;
+        const gamerTags = [...gamerTagList.querySelectorAll('input')].map(input => input.value.trim()).filter(Boolean);
+        if (!gamerTags.length) throw new Error('Enter at least one GamerTag.');
+        if (new Set(gamerTags.map(name => name.toLocaleLowerCase())).size !== gamerTags.length) throw new Error('Each GamerTag must be unique.');
+        xbox360ProfileChoice = {gamerTags};
+      }
       localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...selected]));
       localStorage.setItem(steamDiscoveryKey(visibilityDevice), 'done');
       localStorage.setItem(c64DiscoveryKey(visibilityDevice), 'done');
+      localStorage.setItem(collectionDiscoveryKey(visibilityDevice), 'done');
       if (selectedDevice === visibilityDevice) applyVisibleSystems(selected);
       const results = [];
       const collectionLayoutsPrepared = new Set();
@@ -4485,6 +4599,17 @@
       };
       try {
         const resultPrefix = device => machines.length > 1 ? `${machineDisplayName(device)} / ` : '';
+        for (const device of machines) {
+          const collectionChanged = [...virtualCollectionSystems].some(system => selected.has(system) !== previous.has(system));
+          if (!collectionChanged) continue;
+          syncStatus.textContent = `Updating automatic collections on ${machineDisplayName(device)}...`;
+          await request('/api/collections/configure', {
+            device,
+            all: selected.has('all'),
+            favorites: selected.has('favorites')
+          });
+          results.push(`${resultPrefix(device)}Automatic collections: ${selected.has('all') ? 'All Games on' : 'All Games off'}; ${selected.has('favorites') ? 'Favorites on' : 'Favorites off'}. No games were deleted.`);
+        }
         for (const removal of removals) {
           try {
             const removedSystem = await request('/api/systems/remove', {device:removal.device, system:removal.system, deferReset:true});
@@ -4553,10 +4678,8 @@
               const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/pikaraoke/setup', {device});
             } else if (system === 'xbox360') {
-              await request('/api/xbox360-xenia/storage', {device});
-              const status = await request(`/api/xbox360-xenia/status?device=${encodeURIComponent(device)}`, null, 'GET');
-              if (!status.xenia) throw new Error('Xenia is not provided by this Batocera build. RP1 did not install Wine or create an Xbox 360 Wine prefix.');
-              if (!status.storageReady) throw new Error(`Xenia storage is not Linux-compatible (${status.fileSystem || 'unknown filesystem'}). RP1 did not install Wine.`);
+              const setupResult = await request('/api/xbox360-xenia/setup', {device});
+              if (!setupResult.status?.runtimePrepared) throw new Error("Batocera's internal Xenia runtime did not finish preparing.");
             } else if (system === 'windows') {
               await request('/api/windows-wine/setup', {device});
             } else if (system === '3dsen') {
@@ -4565,6 +4688,18 @@
             results.push(`${resultPrefix(device)}${label}: ${system === 'ps3' ? 'firmware file copied and verified' : system === 'ps4' ? 'firmware modules copied and verified' : 'setup completed'}`);
           } catch (error) { results.push(`${resultPrefix(device)}${label}: FAILED — ${error.message}`); }
           if (contributesToProgress) advanceSetupProgress();
+        }
+        if (xbox360ProfileChoice) {
+          for (const device of machines) {
+            syncStatus.textContent = `Creating and verifying Xbox 360 GamerTags on ${machineDisplayName(device)}...`;
+            const profile = await request('/api/xenia-profile/prepare', {device, gamerTags:xbox360ProfileChoice.gamerTags});
+            const expected = xbox360ProfileChoice.gamerTags.map(name => name.toLocaleLowerCase());
+            const installed = new Set((profile.profiles || []).map(item => item.gamertag.toLocaleLowerCase()));
+            if (!profile.configured || expected.some(name => !installed.has(name))) {
+              throw new Error(`${machineDisplayName(device)} did not verify every requested GamerTag inside Xenia.`);
+            }
+            results.push(`${resultPrefix(device)}Xbox 360 GamerTags: ${xbox360ProfileChoice.gamerTags.join(', ')} created in Xenia; ${xbox360ProfileChoice.gamerTags[0]} assigned to Player 1.`);
+          }
         }
         if (systemSelectionChanged) {
           for (const device of machines) {
@@ -4914,11 +5049,6 @@
           if (device === requestDevice) activelyUploadingSystems.add(system);
         }
         rows.forEach(row => row.classList.toggle('console-transfer-active', activelyUploadingSystems.has(row.dataset.system)));
-        for (const system of new Set(selectedJobs
-          .filter(job => (job.running || job.completed) && !job.partialDeleted)
-          .map(job => job.system))) {
-          optimisticUploadingSystems.delete(consoleTransferKey(requestDevice, system));
-        }
         // New backends provide the persistent, machine-specific flag. Older
         // running backends omit it; omission must never be interpreted as
         // false or the one-second poll will erase a transfer completion that
@@ -4998,6 +5128,20 @@
           if (key.startsWith(currentPrefix) && activeNames.has(key.slice(currentPrefix.length))) {
             pendingTransferKeys.delete(key);
           }
+        }
+        // Clear an optimistic console spinner only after its newly clicked
+        // transfer has been observed and no live job remains. Historical
+        // completed jobs for the same console must never clear a new queue
+        // indicator (for example, an old PS3 completion while Minecraft is
+        // waiting to start).
+        for (const key of [...optimisticUploadingSystems]) {
+          const [device, system] = key.split("\u0000");
+          if (device !== requestDevice) continue;
+          const prefix = `${device}\u0000${system}\u0000`;
+          const stillPending = [...pendingTransferKeys].some(item => item.startsWith(prefix));
+          const stillRunning = selectedJobs.some(job => job.system === system && job.running
+            && !job.completed && !job.partialDeleted && !job.cancelRequested);
+          if (!stillPending && !stillRunning) optimisticUploadingSystems.delete(key);
         }
         markWarehouseChecks();
         const selectedSystems = [...new Set([requestSystem, ...Object.keys(transferLayoutSelections)
@@ -5504,9 +5648,13 @@
       const title = String(value || "");
       if (isFolder) return title;
       const extension = String(rawName || "").match(/\.[^./\\]+$/)?.[0] || "";
-      return extension && title.toLowerCase().endsWith(extension.toLowerCase())
-        ? title.slice(0, -extension.length)
-        : title;
+      if (!extension) return title;
+      // The badge already owns the file type. Remove that exact extension
+      // from the visible title even when a display-name cleanup appended disc
+      // or region text after it. Never apply a generic dot-suffix rule because
+      // legitimate names such as "Dr. Mario" must remain intact.
+      const escaped = extension.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return title.replace(new RegExp(`${escaped}(?=\\s*(?:\\(|\\[|$))`, "ig"), "").replace(/\s{2,}/g, " ").trim();
     }
 
     function gameExtensionBadge(fileName, fallback = "") {
@@ -5566,6 +5714,48 @@
         </div>`;
     }
 
+    async function showXboxGameAspectDialog(fileName) {
+      if (selectedSystem !== 'xbox') return;
+      const device = selectedDevice;
+      try {
+        const statusResponse = await fetch(`${apiBase}/api/xbox/game-aspect?device=${encodeURIComponent(device)}&fileName=${encodeURIComponent(fileName)}`, {cache:'no-store'});
+        const status = await statusResponse.json();
+        if (!statusResponse.ok || !status.ok) throw new Error(status.error || 'Could not read this game’s screen size.');
+        const approval = showXboxBiosDialog({
+          title:'Xbox Screen Size', device, cancellable:true,
+          confirmLabel:'Apply', cancelLabel:'Cancel',
+          message:displayTitleForFile('xbox', fileName)
+        });
+        const field = document.createElement('label');
+        field.style.cssText = 'display:grid;grid-template-columns:1fr 180px;align-items:center;gap:14px;margin-top:12px;font-weight:900';
+        const label = document.createElement('span');
+        label.textContent = 'Game aspect ratio';
+        const select = document.createElement('select');
+        select.style.cssText = 'width:180px;padding:8px 10px;border-radius:6px;font:inherit';
+        select.innerHTML = '<option value="auto">Automatic</option><option value="native">Native</option><option value="4x3">4:3</option><option value="16x9">16:9</option>';
+        select.value = status.aspect || 'auto';
+        field.append(label, select);
+        xboxBiosDialogMessage.append(field);
+        const note = document.createElement('div');
+        note.className = 'confirm-note';
+        note.textContent = 'Batocera applies this only to this game the next time Xemu starts.';
+        xboxBiosDialogMessage.append(note);
+        if (!await approval) return;
+        const response = await fetch(`${apiBase}/api/xbox/game-aspect`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({device, fileName, aspect:select.value})
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not save this game’s screen size.');
+        const labels = {auto:'Automatic', native:'Native', '4x3':'4:3', '16x9':'16:9'};
+        const resolved = result.aspect === 'auto' && result.resolvedAspect && result.resolvedAspect !== 'native'
+          ? ` (${labels[result.resolvedAspect] || result.resolvedAspect} for this game)` : '';
+        syncStatus.textContent = `${displayTitleForFile('xbox', fileName)} will use ${labels[result.aspect] || result.aspect}${resolved} next launch`;
+      } catch (error) {
+        await showXboxBiosDialog({title:'Xbox Screen Size', device, message:error.message, confirmLabel:'OK'});
+      }
+    }
+
     function formatFileSize(bytes) {
       const value = Number(bytes || 0);
       if (!value) return "";
@@ -5591,7 +5781,12 @@
       const awaitingReset = pendingResetGames().has(item[0]) ? " pending-soft-reset" : "";
       const location = `${item[1]}`;
       const discCount = discSet ? `<span class="multi-disc-count">(${discSet.files.length} discs)</span>` : "";
-      return `<div class="device-game${awaitingReset}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}"><input class="active-item-check" type="checkbox" checked aria-label="Installed ${displayName}"><div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span class="device-game-title"><span class="device-game-title-text">${displayName}</span>${discCount}<small>${location}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
+      const removalKey = transferSelectionKey(selectedDevice, selectedSystem, item[0]);
+      const removalPending = optimisticActiveRemovals.has(removalKey);
+      const installedControl = virtualCollectionSystems.has(selectedSystem)
+        ? ''
+        : `<input class="active-item-check" type="checkbox"${removalPending ? "" : " checked"} aria-label="Installed ${displayName}">`;
+      return `<div class="device-game${awaitingReset}${removalPending ? " removal-pending" : ""}" data-system="${selectedSystem}" data-name="${item[0]}" data-kind="${item[4] || "file"}">${installedControl}<div class="cover ${iconClass(item, selectedSystem)}" title="${iconTitle(item, selectedSystem)}"></div><span class="device-game-title"><span class="device-game-title-text">${displayName}</span>${discCount}<small>${location}</small></span><span class="badge">${badge}</span>${trackList}</div>`;
     }
 
     function compareNaturalGameTitles(leftTitle, rightTitle) {
@@ -5902,7 +6097,7 @@
           : items.length;
         const badge = row.querySelector(".count");
         if (badge) {
-          badge.textContent = key === "pikaraoke" ? "I" : count.toLocaleString();
+          badge.textContent = virtualCollectionSystems.has(key) ? "—" : key === "pikaraoke" ? "I" : count.toLocaleString();
         }
       });
     }
@@ -6036,13 +6231,18 @@
           .sort(compareActiveGameNames);
         folderHeader = `<button class="layout-button" id="musicFolderBack" type="button">← Music Folders</button>`;
       }
-      warehouseTitle.innerHTML = `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span>`;
+      const virtualCollection = virtualCollectionSystems.has(key);
+      warehouseTitle.innerHTML = virtualCollection
+        ? `<span class="warehouse-heading"><span>${data.label}</span></span><span class="count">Automatic Collection</span>`
+        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span>`;
       activeTitle.innerHTML = `<span class="active-heading"><span class="active-machine-name">On ${machineDisplayName(selectedDevice)}</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="storage-count" id="storageCount">Free: ${currentStorageFree}</span><span class="count">${data.label}</span></span>`;
       warehouseList.innerHTML = folderHeader + warehouseItems.map(gameRow).join("");
       if (!warehouseItems.length) {
         const message = document.createElement('div');
         message.style.cssText = 'padding:18px;color:var(--muted)';
-        message.textContent = filter ? 'No games match the filter. Clear the search to see this system’s games.' : 'No local games found for this system.';
+        message.textContent = virtualCollection
+          ? 'This is a Batocera automatic collection. Its games are shown on the machine side.'
+          : filter ? 'No games match the filter. Clear the search to see this system’s games.' : 'No local games found for this system.';
         warehouseList.append(message);
       }
       document.querySelector("#musicFolderBack")?.addEventListener("click", () => {
@@ -6050,8 +6250,10 @@
         musicFolderView = "";
         renderConsole("music");
       });
-      bindWarehouseAdds(data.label);
-      bindWarehouseAllControl();
+      if (!virtualCollection) {
+        bindWarehouseAdds(data.label);
+        bindWarehouseAllControl();
+      }
       loadActiveList(key);
       loadDeviceStorage();
     }
@@ -6189,6 +6391,32 @@
       throw new Error(`Active ${String(system).toUpperCase()} transfers did not stop in time. Remove All was not started.`);
     }
 
+    function clearRemovedConsoleSelectionState(device, system) {
+      const scope = pendingResetScope(device, system);
+      const selectionPrefix = `${scope}\u0000`;
+      clearOptimisticConsoleTransfer(device, system);
+      transferDisplayJobs.delete(scope);
+      pendingResetGamesByScope.set(scope, new Set());
+      saveRemoteLibrarySnapshot(scope, []);
+      for (const key of [...optimisticWarehouseSelections.keys()]) {
+        if (key.startsWith(selectionPrefix)) optimisticWarehouseSelections.delete(key);
+      }
+      for (const key of [...pendingTransferKeys]) {
+        if (key.startsWith(selectionPrefix)) pendingTransferKeys.delete(key);
+      }
+      for (const key of [...trackedTransferKeys]) {
+        if (key.startsWith(selectionPrefix)) trackedTransferKeys.delete(key);
+      }
+      if (device !== selectedDevice || system !== selectedSystem) return;
+      activeNames = new Set();
+      warehouseList.querySelectorAll(".game").forEach(game => {
+        const checkbox = game.querySelector(".game-check");
+        if (checkbox) checkbox.checked = false;
+        syncFolderTrackChecks(game, false);
+      });
+      updateWarehouseAllControl();
+    }
+
     async function runConsoleRemoveAll(device, system) {
       await stopConsoleTransfersForRemoval(device, system);
 
@@ -6225,6 +6453,7 @@
       if (!names.length) {
         const localTotal = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []).length;
         footerProgressByScope.set(footerProgressScope(device, system), { completed: 0, total: localTotal, active: false });
+        clearRemovedConsoleSelectionState(device, system);
         finishFooterRemoval(true);
         await loadActiveList(system);
         return;
@@ -6262,6 +6491,7 @@
       if (!failures.length) {
         const localTotal = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []).length;
         footerProgressByScope.set(footerProgressScope(device, system), { completed: 0, total: localTotal, active: false });
+        clearRemovedConsoleSelectionState(device, system);
       }
       finishFooterRemoval(failures.length === 0);
       transferInstalledCache = { device: "", at: 0, systems: {} };
@@ -6990,6 +7220,13 @@
           checkbox,
           trackRows: [...game.querySelectorAll('.track-row')]
         });
+        if (selectedSystem === 'xbox') {
+          game.title = 'Right-click to set this Xbox game’s screen size';
+          game.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            showXboxGameAspectDialog(game.dataset.name);
+          });
+        }
         if (selectedSystem === "music" && game.dataset.kind === "folder") {
           game.title = "Open music folder";
           game.addEventListener("click", () => showMusicFolderModal(game.dataset.name));
@@ -7359,11 +7596,12 @@
     async function removeFromSelectedDevice(fileName, scope = {}) {
       const targetDevice = scope.device || selectedDevice;
       const targetSystem = scope.system || selectedSystem;
-      const targetOnline = targetDevice === selectedDevice ? selectedDeviceOnline : Boolean(lastDeviceStatuses?.[targetDevice]?.online);
-      if (!targetOnline) {
-        syncStatus.textContent = `${targetDevice} is offline`;
-        return;
-      }
+      // Discovery is a display hint, not an authorization gate. Its cached
+      // online flag can lag behind a healthy Batocera machine for several
+      // seconds. A silent return here made the right-pane checkbox appear to
+      // ignore the user and then become checked again on the next inventory
+      // refresh. Let the removal endpoint perform the authoritative live
+      // connection check; a real failure will reject and restore the box.
 
       const ownsFooterRemoval = !footerRemovalProgress;
       if (ownsFooterRemoval) beginFooterRemoval(1, targetDevice, targetSystem);
@@ -7427,6 +7665,16 @@
       if (targetDevice === selectedDevice) setLayoutSelection(targetSystem, fileName, false);
       activeNames.delete(fileName);
       updateRemoteLibrarySnapshot(targetDevice, targetSystem, fileName);
+      // Clear every visible copy immediately.  Inventory polling is allowed to
+      // add an installed check, but it must not preserve a stale checked state
+      // after the removal endpoint has authoritatively completed.
+      if (targetDevice === selectedDevice && targetSystem === selectedSystem) {
+        activeList.querySelectorAll('.device-game[data-name]').forEach(item => {
+          if (item.dataset.name !== fileName) return;
+          const visibleCheck = item.querySelector('.active-item-check');
+          if (visibleCheck) visibleCheck.checked = false;
+        });
+      }
       syncStatus.textContent = result.queued
         ? `Deletion queued for ${fileName}. Boot this USB in Batocera to remove the installed game and free its space.`
         : `Removed ${fileName}`;
@@ -7459,6 +7707,15 @@
     }
 
     function bindActiveRemoves() {
+      if (selectedSystem === 'xbox') activeList.querySelectorAll('.device-game[data-name]').forEach(row => {
+        if (row.dataset.aspectBound === 'true') return;
+        row.dataset.aspectBound = 'true';
+        row.title = 'Right-click to set this Xbox game’s screen size';
+        row.addEventListener('contextmenu', event => {
+          event.preventDefault();
+          showXboxGameAspectDialog(row.dataset.name);
+        });
+      });
       activeList.querySelectorAll(".device-game .active-item-check").forEach((checkbox) => {
         if (checkbox.dataset.bound === "true") return;
         checkbox.dataset.bound = "true";
@@ -7466,6 +7723,13 @@
           if (!checkbox.checked) {
             const row = checkbox.closest(".device-game");
             const fileName = row.dataset.name;
+            const clickedRemovalKey = transferSelectionKey(selectedDevice, selectedSystem, fileName);
+            // A refresh or second click during deletion must never turn the
+            // box back on. Keep it visibly unchecked without disabling it.
+            if (optimisticActiveRemovals.has(clickedRemovalKey)) {
+              checkbox.checked = false;
+              return;
+            }
 
             try {
               if (row.classList.contains("transfer-queued") || row.classList.contains("transfer-pending")
@@ -7481,32 +7745,33 @@
                 row.remove();
                 const warehouseControl = warehouseGameControls.get(fileName)?.checkbox;
                 if (warehouseControl) warehouseControl.checked = false;
-                let response = await fetch(`${apiBase}/api/transfers/stop`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ device, system, fileName })
-                });
-                let result = await response.json();
-                if (response.status === 404) {
-                  response = await fetch(`${apiBase}/api/transfers/dismiss`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ device, system, fileName })
-                  });
-                  result = await response.json();
-                }
-                if (!response.ok || !result.ok) throw new Error(result.error || `Could not abort ${fileName}.`);
+                // The removal endpoint atomically cancels this exact transfer,
+                // deletes its partial/final ROM and picture, and deliberately
+                // leaves every other transfer for this console running.
+                await removeFromSelectedDevice(fileName,{device,system});
                 optimisticWarehouseSelections.delete(transferKey);
-                syncStatus.textContent = `Stopped ${fileName}`;
+                syncStatus.textContent = `Stopped and removed ${fileName}`;
                 refreshTransferActivity();
                 updateWarehouseAllControl();
                 return;
               }
-              await removeFromSelectedDevice(fileName);
+              const removalKey = clickedRemovalKey;
+              optimisticActiveRemovals.add(removalKey);
+              checkbox.checked = false;
+              row.classList.add("removal-pending");
+              try {
+                await removeFromSelectedDevice(fileName);
+                optimisticActiveRemovals.delete(removalKey);
+              } catch (error) {
+                optimisticActiveRemovals.delete(removalKey);
+                throw error;
+              }
             } catch (error) {
               console.error(error);
               syncStatus.textContent = error.message;
               checkbox.checked = true;
+              checkbox.closest(".device-game")?.classList.remove("removal-pending");
+              if (!checkbox.isConnected) loadActiveList(selectedSystem);
               markWarehouseChecks();
             }
           }
@@ -8183,6 +8448,115 @@
     closeBackupRestoreTop.addEventListener("click", closeBackupRestoreModal);
     backupRestoreModal.addEventListener("click", event => { if (event.target === backupRestoreModal) closeBackupRestoreModal(); });
 
+    function snapshotSystemBoxes() { return [...snapshotsSystems.querySelectorAll('input[type="checkbox"]')]; }
+    function updateSnapshotMode() {
+      const batoceraMode = snapshotsMode.value === "batocera";
+      snapshotConsoleOptions.hidden = batoceraMode;
+      snapshotCenterRow.hidden = !batoceraMode;
+      snapshotsModeNote.textContent = batoceraMode
+        ? "Batocera captures the main system screen with one selected console centered."
+        : "Console captures open the selected console game lists.";
+      const available = snapshotCenterSystem.options.length > 0;
+      const selectedCount = snapshotSystemBoxes().filter(box => box.checked).length;
+      snapshotsMessage.textContent = !available
+        ? "No consoles are available on the selected machine."
+        : batoceraMode
+          ? "Choose the one console to show in the center."
+          : selectedCount
+            ? `${selectedCount} console${selectedCount === 1 ? "" : "s"} selected.`
+            : "Choose one or more consoles.";
+      captureSnapshots.disabled = !available;
+    }
+    function populateSnapshotSystems() {
+      const excluded = new Set(["karaoke", "pikaraoke", "music", "all", "favorites"]);
+      const available = [...rows]
+        .filter(row => !row.hidden && !excluded.has(row.dataset.system))
+        .map(row => ({
+          system: row.dataset.system,
+          label: row.querySelector(":scope > span:nth-child(2)")?.textContent?.trim() || row.dataset.system
+        }));
+      snapshotsSystems.replaceChildren(...available.map(item => {
+        const label = document.createElement("label");
+        label.style.cssText = "display:flex;align-items:center;gap:9px;min-width:0";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = item.system;
+        input.style.cssText = "width:18px;height:18px;flex:0 0 auto";
+        const text = document.createElement("span");
+        text.textContent = item.label;
+        text.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        label.append(input, text);
+        return label;
+      }));
+      snapshotCenterSystem.replaceChildren(...available.map(item => {
+        const option = document.createElement("option");
+        option.value = item.system;
+        option.textContent = item.label;
+        return option;
+      }));
+      const preferredCenter = available.find(item => item.system === selectedSystem) || available[0];
+      if (preferredCenter) snapshotCenterSystem.value = preferredCenter.system;
+      snapshotsMode.value = "console";
+      snapshotsAll.checked = false;
+      updateSnapshotMode();
+    }
+    function closeSnapshotsModal() {
+      if (captureSnapshots.disabled && snapshotsMessage.dataset.running === "true") return;
+      snapshotsModal.classList.remove("open");
+    }
+    openSnapshots.addEventListener("click", () => {
+      closeAdvancedMenu();
+      snapshotsDevice.textContent = machineDisplayName(selectedDevice);
+      snapshotsProgress.style.width = "0%";
+      snapshotsMessage.dataset.running = "false";
+      populateSnapshotSystems();
+      snapshotsModal.classList.add("open");
+    });
+    snapshotsAll.addEventListener("change", () => {
+      snapshotSystemBoxes().forEach(box => { box.checked = snapshotsAll.checked; });
+      updateSnapshotMode();
+    });
+    snapshotsMode.addEventListener("change", updateSnapshotMode);
+    snapshotCenterSystem.addEventListener("change", updateSnapshotMode);
+    snapshotsSystems.addEventListener("change", () => {
+      const boxes = snapshotSystemBoxes();
+      snapshotsAll.checked = boxes.length > 0 && boxes.every(box => box.checked);
+      snapshotsAll.indeterminate = !snapshotsAll.checked && boxes.some(box => box.checked);
+      updateSnapshotMode();
+    });
+    captureSnapshots.addEventListener("click", async () => {
+      const captureBatocera = snapshotsMode.value === "batocera";
+      const systems = captureBatocera ? [] : snapshotSystemBoxes().filter(box => box.checked).map(box => box.value);
+      if (!captureBatocera && !systems.length) { snapshotsMessage.textContent = "Select at least one console."; return; }
+      if (captureBatocera && !snapshotCenterSystem.value) { snapshotsMessage.textContent = "Choose the console to show in the center."; return; }
+      const captureCount = captureBatocera ? 1 : systems.length;
+      captureSnapshots.disabled = true;
+      snapshotsMessage.dataset.running = "true";
+      snapshotsProgress.style.width = "32%";
+      snapshotsProgress.style.animation = "snapshotSweep 1.35s ease-in-out infinite alternate";
+      snapshotsMessage.textContent = `Capturing ${captureCount} snapshot${captureCount === 1 ? "" : "s"}… The Batocera interface will briefly restart for each view.`;
+      try {
+        const response = await fetch(`${apiBase}/api/snapshots/capture`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:selectedDevice,systems,batocera:captureBatocera,centerSystem:snapshotCenterSystem.value})});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not capture snapshots.");
+        snapshotsProgress.style.animation = "none";
+        snapshotsProgress.style.transform = "none";
+        snapshotsProgress.style.width = "100%";
+        snapshotsMessage.textContent = `${result.files.length} snapshot${result.files.length === 1 ? "" : "s"} saved in ${result.folder}.${result.errors?.length ? ` ${result.errors.length} selection${result.errors.length === 1 ? "" : "s"} could not be captured.` : ""}`;
+      } catch (error) {
+        snapshotsProgress.style.animation = "none";
+        snapshotsProgress.style.transform = "none";
+        snapshotsProgress.style.width = "0%";
+        snapshotsMessage.textContent = `Stopped: ${error.message}`;
+      } finally {
+        snapshotsMessage.dataset.running = "false";
+        captureSnapshots.disabled = false;
+      }
+    });
+    cancelSnapshots.addEventListener("click", closeSnapshotsModal);
+    closeSnapshotsTop.addEventListener("click", closeSnapshotsModal);
+    snapshotsModal.addEventListener("click", event => { if (event.target === snapshotsModal) closeSnapshotsModal(); });
+
     let usbImagePoll = null;
     let usbImageMachine = "";
     let usbImagePreflight = null;
@@ -8473,27 +8847,22 @@
           if (!installed.verified) throw new Error(`${file.name} was not authenticated.`);
           authenticated.push(`${installed.fileName}: ${installed.md5}`);
         }
-        const statusResponse = await fetch(`${apiBase}/api/xbox360-xenia/status?device=${encodeURIComponent(selectedDevice)}`);
-        const status = await statusResponse.json();
-        if (!statusResponse.ok || !status.ok) throw new Error(status.error || "Could not check Xenia status.");
-        if (!status.installed) {
-          const response = await fetch(`${apiBase}/api/xbox360-xenia/setup`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ device: selectedDevice })
-          });
-          const result = await response.json();
-          if (!response.ok || !result.ok) throw new Error(result.error || "Xbox 360 + Xenia setup failed.");
-        }
+        const response = await fetch(`${apiBase}/api/xbox360-xenia/setup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device: selectedDevice })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Xbox 360 + Xenia setup failed.");
         syncStatus.textContent = `Xbox BIOS installed; Xenia ready on ${selectedDevice}`;
         await showXboxBiosDialog({
           title: "Successfully Installed",
           device: selectedDevice,
           confirmLabel: "OK",
           message: `Xbox BIOS authenticated and successfully installed.\n\n${authenticated.join("\n")}`
-            + (status.installed
-              ? "\n\nXbox 360 Xenia was already installed and was left unchanged."
-              : "\n\nXbox 360 Xenia was also initialized.")
+            + (result.alreadyPrepared
+              ? "\n\nBatocera's internal Xenia runtime was already ready."
+              : "\n\nBatocera's internal Xenia runtime was prepared silently. The separate Wine console was not installed.")
         });
       } catch (error) {
         syncStatus.textContent = error.message;
@@ -8588,15 +8957,15 @@
       const showCompactMachineMenu = focusTarget => {
         document.body.append(menu);
         menu.style.boxSizing = 'border-box';
-        menu.style.width = '112px';
+        menu.style.width = '210px';
         menu.querySelectorAll('button').forEach(item => {
           item.style.minWidth = '0';
           item.style.width = '100%';
-          item.style.paddingLeft = '6px';
-          item.style.paddingRight = '6px';
-          item.style.fontSize = '10px';
-          item.style.whiteSpace = 'normal';
-          item.style.lineHeight = '1.05';
+          item.style.paddingLeft = '10px';
+          item.style.paddingRight = '10px';
+          item.style.fontSize = '11px';
+          item.style.whiteSpace = 'nowrap';
+          item.style.lineHeight = '1.2';
         });
         menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
         menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
@@ -8654,7 +9023,7 @@
             try {
               const installResponse = await fetch(`${apiBase}/api/windows/dual-boot/install`, {
                 method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:plan.windowsGb,defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true})
+                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:plan.windowsGb,bootTimeoutSeconds:plan.bootTimeoutSeconds || 10,defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true})
               });
               const install = await installResponse.json();
               if (!installResponse.ok || !install.ok) throw new Error(install.error || 'RP2 did not accept the finish request.');
@@ -8685,9 +9054,11 @@
             confirmLabel: 'Install Dual Boot',
             cancellable: true
           });
+          const bootOptionsRow = document.createElement('div');
+          bootOptionsRow.style.cssText = 'display:flex;align-items:flex-end;gap:12px;margin-top:12px;flex-wrap:wrap';
           const sizeLabel = document.createElement('label');
           sizeLabel.textContent = 'Keep for Windows (GB)';
-          sizeLabel.style.cssText = 'display:block;margin-top:12px;font-weight:700';
+          sizeLabel.style.cssText = 'display:block;font-weight:700';
           const sizeInput = document.createElement('input');
           sizeInput.type = 'number';
           sizeInput.min = String(minWindowsGb);
@@ -8699,6 +9070,29 @@
           sizeInput.value = Number.isInteger(savedWindowsGb) && savedWindowsGb >= minWindowsGb && savedWindowsGb <= maxWindowsGb ? String(savedWindowsGb) : String(minWindowsGb);
           sizeInput.style.cssText = 'display:block;width:100px;max-width:100%;box-sizing:border-box;margin-top:6px;padding:8px';
           sizeLabel.append(sizeInput);
+          const timeoutLabel = document.createElement('label');
+          timeoutLabel.textContent = 'Wait (seconds)';
+          timeoutLabel.style.cssText = 'display:block;font-weight:700';
+          const timeoutInput = document.createElement('input');
+          timeoutInput.type = 'number';
+          timeoutInput.min = '5';
+          timeoutInput.max = '300';
+          timeoutInput.step = '1';
+          timeoutInput.inputMode = 'numeric';
+          const timeoutPreferenceKey = `${preferenceKey}:boot-timeout-seconds`;
+          const savedTimeout = Number(localStorage.getItem(timeoutPreferenceKey));
+          timeoutInput.value = Number.isInteger(savedTimeout) && savedTimeout >= 5 && savedTimeout <= 300 ? String(savedTimeout) : '10';
+          timeoutInput.style.cssText = 'display:block;width:88px;box-sizing:border-box;margin-top:6px;padding:8px';
+          timeoutLabel.append(timeoutInput);
+          const defaultBootLabel = document.createElement('label');
+          defaultBootLabel.textContent = 'Default';
+          defaultBootLabel.style.cssText = 'display:block;font-weight:700';
+          const defaultBootSelect = document.createElement('select');
+          defaultBootSelect.style.cssText = 'display:block;width:132px;box-sizing:border-box;margin-top:6px;padding:8px';
+          defaultBootSelect.innerHTML = '<option value="batocera">Batocera</option><option value="windows">Windows 11</option>';
+          defaultBootSelect.value = localStorage.getItem(`${preferenceKey}:batocera-default`) === 'false' ? 'windows' : 'batocera';
+          defaultBootLabel.append(defaultBootSelect);
+          bootOptionsRow.append(sizeLabel, timeoutLabel, defaultBootLabel);
           const imageRow = document.createElement('div');
           imageRow.style.cssText = 'display:flex;align-items:center;gap:10px;margin-top:12px;min-width:0;max-width:100%';
           const chooseImageButton = document.createElement('button');
@@ -8733,12 +9127,6 @@
               .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Image no longer available.'); showImage(result.image); })
               .catch(() => { imageStatus.textContent = 'Saved image unavailable — choose it again'; });
           }
-          const defaultBootLabel = document.createElement('label');
-          defaultBootLabel.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px';
-          const defaultBootCheckbox = document.createElement('input');
-          defaultBootCheckbox.type = 'checkbox';
-          defaultBootCheckbox.checked = localStorage.getItem(`${preferenceKey}:batocera-default`) === 'true';
-          defaultBootLabel.append(defaultBootCheckbox, document.createTextNode('Boot Batocera by default (otherwise Windows)'));
           const backupLabel = document.createElement('label');
           backupLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-top:14px;color:#ffcf72;font-weight:700';
           const backupCheckbox = document.createElement('input');
@@ -8751,22 +9139,25 @@
           recoveryCheckbox.type = 'checkbox';
           recoveryCheckbox.style.cssText = 'margin-top:3px;flex:none';
           recoveryLabel.append(recoveryCheckbox, document.createTextNode('I have a Windows recovery USB for this PC if its first boot fails.'));
-          xboxBiosDialogMessage.append(imageRow, sizeLabel, defaultBootLabel, backupLabel, recoveryLabel);
+          xboxBiosDialogMessage.append(imageRow, bootOptionsRow, backupLabel, recoveryLabel);
           const validSize = () => {
             const value = Number(sizeInput.value);
             const remainingBytes = Number(report.windowsPartitionSizeBytes) - value * (1024 ** 3);
             const imagePartitionBytes = selectedImage?.partitions?.reduce((sum, partition) => sum + Number(partition.sizeBytes || 0), 0) || 0;
             return Number.isInteger(value) && value >= minWindowsGb && value < maxWindowsGb && imagePartitionBytes > 0 && remainingBytes >= imagePartitionBytes;
           };
-          const updateSaveState = () => { confirmXboxBiosDialog.disabled = !validSize() || !selectedImage || !backupCheckbox.checked || !recoveryCheckbox.checked; };
+          const validTimeout = () => Number.isInteger(Number(timeoutInput.value)) && Number(timeoutInput.value) >= 5 && Number(timeoutInput.value) <= 300;
+          const updateSaveState = () => { confirmXboxBiosDialog.disabled = !validSize() || !validTimeout() || !selectedImage || !backupCheckbox.checked || !recoveryCheckbox.checked; };
           updateSaveState();
           sizeInput.addEventListener('input', updateSaveState);
+          timeoutInput.addEventListener('input', updateSaveState);
           backupCheckbox.addEventListener('change', updateSaveState);
           recoveryCheckbox.addEventListener('change', updateSaveState);
           sizeInput.focus();
           if (await dialogResult) {
             localStorage.setItem(preferenceKey, sizeInput.value.trim());
-            localStorage.setItem(`${preferenceKey}:batocera-default`, String(defaultBootCheckbox.checked));
+            localStorage.setItem(timeoutPreferenceKey, timeoutInput.value.trim());
+            localStorage.setItem(`${preferenceKey}:batocera-default`, String(defaultBootSelect.value === 'batocera'));
             localStorage.setItem(imagePreferenceKey, selectedImage.path);
             const progressDialog = showXboxBiosDialog({title:'Shared Dual Boot — working',device:card.dataset.device,message:'Starting image transfer…',confirmLabel:'Close'});
             xboxBiosDialog.classList.add('dual-boot-working');
@@ -8780,7 +9171,7 @@
             try {
               const response = await fetch(`${apiBase}/api/windows/dual-boot/stage`, {
                 method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,imagePath:selectedImage.path,windowsGb:Number(sizeInput.value),defaultOs:defaultBootCheckbox.checked?'batocera':'windows'})
+                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,imagePath:selectedImage.path,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value})
               });
               const result = await response.json();
               if (!response.ok || !result.ok) throw new Error(result.error || 'Could not stage the image.');
@@ -8797,7 +9188,7 @@
                     showProgress('Image and rEFInd verified. Asking RP2 to prepare the drive…');
                     const installResponse = await fetch(`${apiBase}/api/windows/dual-boot/install`, {
                       method:'POST',headers:{'Content-Type':'application/json'},
-                      body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:Number(sizeInput.value),defaultOs:defaultBootCheckbox.checked?'batocera':'windows',backupConfirmed:true,recoveryMediaConfirmed:true})
+                      body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value,backupConfirmed:true,recoveryMediaConfirmed:true})
                     });
                     const install = await installResponse.json();
                     if (!installResponse.ok || !install.ok) throw new Error(install.error || 'RP2 did not accept the install request.');

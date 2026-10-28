@@ -18,12 +18,19 @@ const { stageSharedDualBootImage } = require('./shared-dual-boot-stage');
 const { copyFileResumableLocal } = require('./usb-copy');
 const { queueDeletion, cancelDeletion, deletionState, stageController } = require('./usb-deletions');
 const cleanRomName = require('./rom-name');
+const readWiiTitle = require('./wii-title');
 const mameTitles = require('./mame-titles.json');
+const {createOfflineAccount, readOfflineAccount} = require('./xenia-account');
 
 function displayGameTitle(system, fileName) {
   if (system === "mame") {
     const shortName = path.basename(String(fileName || ""), path.extname(String(fileName || ""))).toLowerCase();
     if (mameTitles[shortName]) return mameTitles[shortName];
+  }
+  if (system === "wii") {
+    const localPath = path.join(root, "roms", "wii", path.basename(String(fileName || "")));
+    const embeddedTitle = readWiiTitle(localPath);
+    if (embeddedTitle) return embeddedTitle;
   }
   return cleanRomName(fileName);
 }
@@ -38,6 +45,7 @@ const ipac4GeneratedPath = path.join(root, "ipac4-generated.json");
 const deviceSettingsPath = path.join(root, "device-settings.json");
 const scraperSettingsPath = path.join(root, "scraper-settings.json");
 const machineBehaviorStatePath = path.join(root, "machine-behavior.json");
+const machineLogPath = path.join(root, "machine-log.json");
 const biosCachePath = path.join(root, "bios-cache");
 const ps4ModulesPath = path.join(root, "firmware", "ps4", "sys_modules");
 const ps4RemoteModulesPath = "/userdata/system/configs/shadps4/sys_modules";
@@ -60,6 +68,7 @@ const lakkaCredentialsPath=path.join(root,'lakka-credentials.json');
 const layoutsPath = path.join(root, "Layouts");
 const backupsPath = path.join(root, "Backups");
 const usbImagesPath = path.join(root, "USB Images");
+const snapshotsPath = path.join(os.homedir(), "Downloads", "RP1 Snapshots");
 const transferActivityPath = path.join(root, "transfer-activity.json");
 const softResetStatePath = path.join(root, "soft-reset-state.json");
 const systemArtCachePath = path.join(root, "system-art-cache");
@@ -69,6 +78,88 @@ const batoceraSystemArtFolders = new Set([
   "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "xegs", "jaguar", "jaguarcd", "atari800", "atarist", "pcengine",
   "wiiu", "ps3", "ps4", "xbox", "xbox360", "music"
 ]);
+const snapshotSystemAliases = {
+  sega: "megadrive",
+  ps1: "psx",
+  atarilynx: "lynx"
+};
+const snapshotSystemLabels = {
+  mame:"MAME", nes:"Nintendo NES", snes:"Nintendo SNES", sega:"Sega Mega Drive", gba:"Game Boy Advance",
+  ps1:"PlayStation 1", ps2:"PlayStation 2", ps3:"PlayStation 3", ps4:"PlayStation 4", n64:"Nintendo 64",
+  c64:"Commodore 64", gb:"Game Boy", gbc:"Game Boy Color", nds:"Nintendo DS", "3ds":"Nintendo 3DS",
+  gamecube:"Nintendo GameCube", wii:"Nintendo Wii", wiiu:"Nintendo Wii U", switch:"Nintendo Switch",
+  mastersystem:"Sega Master System", gamegear:"Sega Game Gear", segacd:"Sega CD", saturn:"Sega Saturn",
+  dreamcast:"Sega Dreamcast", psp:"PSP", psvita:"PS Vita", xbox:"Xbox", xbox360:"Xbox 360",
+  neogeo:"Neo Geo", ports:"Ports", pygame:"Pygame", windows:"Windows", atari2600:"Atari 2600",
+  atari5200:"Atari 5200", atari7800:"Atari 7800", atarilynx:"Atari Lynx", xegs:"Atari XEGS",
+  jaguar:"Atari Jaguar", jaguarcd:"Atari Jaguar CD", atari800:"Atari 400-800-XL-XE", atarist:"Atari ST",
+  pcengine:"PC Engine", dos:"DOS", "3dsen":"3D NEC", steam:"Steam"
+};
+
+function defaultMachineLogProject() {
+  return {
+    projectName: "Machine Log",
+    tables: [{
+      id: "machine-compatibility",
+      name: "Machine Compatibility",
+      fields: ["Machine / System Name", "Graphics", "Console", "ROM", "Compatibility", "Fixes"],
+      records: [
+        {"Machine / System Name":"BOSGAME E4 AIR",Console:"",Graphics:"",ROM:"",Compatibility:"",Fixes:""},
+        {"Machine / System Name":"VEGA 8 MINI PC",Console:"",Graphics:"",ROM:"",Compatibility:"",Fixes:""}
+      ],
+      collapsed: false
+    }]
+  };
+}
+
+function normalizeMachineLogProject(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const cleanText = (text, limit) => String(text ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").slice(0, limit);
+  const usedIds = new Set();
+  const tables = (Array.isArray(source.tables) ? source.tables : []).slice(0, 50).map((table, tableIndex) => {
+    const name = cleanText(table?.name || `Table ${tableIndex + 1}`, 80) || `Table ${tableIndex + 1}`;
+    const baseId = cleanText(table?.id, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "") || `table-${tableIndex + 1}`;
+    let id = baseId;
+    for (let suffix = 2; usedIds.has(id); suffix += 1) id = `${baseId}-${suffix}`;
+    usedIds.add(id);
+    let fields = [...new Set((Array.isArray(table?.fields) ? table.fields : []).map(field => cleanText(field, 80)).filter(Boolean))].slice(0, 40);
+    if (id === "machine-compatibility") {
+      fields = fields.filter(field => field.trim().toLowerCase() !== "notes");
+      const preferred = ["Machine / System Name", "Graphics", "Console", "ROM", "Compatibility", "Fixes"];
+      if (!fields.includes("Graphics")) fields.push("Graphics");
+      if (!fields.includes("Fixes")) fields.push("Fixes");
+      fields = [...preferred.filter(field => fields.includes(field)), ...fields.filter(field => !preferred.includes(field))];
+    }
+    let records = (Array.isArray(table?.records) ? table.records : []).slice(0, 500).map(record =>
+      Object.fromEntries(fields.map(field => [field, cleanText(record?.[field], 2000)]))
+    );
+    if (id === "machine-compatibility") {
+      const consoleField = fields.find(field => field.trim().toLowerCase() === "console");
+      const romField = fields.find(field => field.trim().toLowerCase() === "rom");
+      if (consoleField && romField) records = records.map(record => ({ ...record, [romField]:record[romField] && record[romField] !== "Console" ? record[romField] : (record[consoleField] ? "-" : "") }));
+      const fixesField = fields.find(field => field.trim().toLowerCase() === "fixes");
+      if (fixesField) records = records.map(record => ({ ...record, [fixesField]:record[fixesField]
+        .split("\n")
+        .map(fix => fix === "Write Color Buffers: Off → On" ? "Vulkan — Write Color Buffers: Off → On" : fix === "MSAA: Auto → Disabled" ? "Vulkan — MSAA: Auto → Disabled" : fix)
+        .join("\n") }));
+    }
+    return { id, name, fields, records, collapsed: Boolean(table?.collapsed) };
+  });
+  return { projectName: cleanText(source.projectName || "Machine Log", 80) || "Machine Log", tables };
+}
+
+function readMachineLogProject() {
+  try { return normalizeMachineLogProject(JSON.parse(fs.readFileSync(machineLogPath, "utf8"))); }
+  catch { return defaultMachineLogProject(); }
+}
+
+function writeMachineLogProject(project) {
+  const normalized = normalizeMachineLogProject(project);
+  const temporary = `${machineLogPath}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(normalized, null, 2));
+  fs.renameSync(temporary, machineLogPath);
+  return normalized;
+}
 const supplementalSystemArt = {
   wiiu: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Wii_U_Console_and_Gamepad.png?width=512",
   ps3: "https://commons.wikimedia.org/wiki/Special:Redirect/file/PS3-slim-console.png?width=512",
@@ -764,12 +855,12 @@ function chooseSharedDualBootImage() {
   const command = [
     "Add-Type -AssemblyName System.Windows.Forms",
     "$dialog = New-Object System.Windows.Forms.OpenFileDialog",
-    "$dialog.Title = 'Choose Batocera 43.1 Image'",
+    "$dialog.Title = 'Choose Batocera x86_64 Image'",
     "$dialog.Filter = 'Batocera images (*.img.gz;*.img)|*.img.gz;*.img'",
     "$dialog.CheckFileExists = $true",
     "$dialog.Multiselect = $false",
     `$dialog.InitialDirectory = ${powershellSingleQuoted(root)}`,
-    "$dialog.FileName = 'batocera-x86_64-43.1-20260529.img.gz'",
+    "$dialog.FileName = 'batocera-x86_64-44-20261019.img.gz'",
     "$owner = New-Object System.Windows.Forms.Form",
     "$owner.ShowInTaskbar = $false",
     "$owner.TopMost = $true",
@@ -2680,6 +2771,78 @@ function removeBatoceraSetting(content, name) {
   return String(content).replace(new RegExp(`^\\s*${escaped}\\s*=.*(?:\\r?\\n|$)`, "gmi"), "");
 }
 
+function xboxGameSettingKey(fileName, setting) {
+  const name = String(fileName || "").trim();
+  if (!name || /[\r\n]/.test(name)) throw new Error("Choose a valid Xbox game.");
+  return `xbox["${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"].${setting}`;
+}
+
+function recommendedXboxAspect(fileName) {
+  const title = String(fileName || "").toLowerCase().replace(/\.(?:xiso\.)?iso$/i, "");
+  // Only classify titles with a verified original-Xbox display mode. Unknown
+  // games retain Batocera's own automatic behavior rather than being stretched.
+  if (/\bhalo\s*2\b/.test(title)) return "16x9";
+  if (/\bhalo\s*(?:-|:)\s*combat evolved\b|\bhalo combat evolved\b/.test(title)) return "4x3";
+  if (/\bgrand theft auto\s*(?:-|:)\s*san andreas\b|\bgta\s*san andreas\b/.test(title)) return "16x9";
+  if (/\bhalf[ -]?life\s*2\b/.test(title)) return "4x3";
+  return "native";
+}
+
+async function getXboxGameAspect(device, fileName) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("Per-game Xbox screen size requires an online Batocera machine with SSH access.");
+  }
+  return sftpWithDevice(device, async sftp => {
+    const config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
+    const value = String(batoceraSetting(config, xboxGameSettingKey(fileName, "xemu_aspect")) || "auto").toLowerCase();
+    const aspect = value === "16x9" ? "16x9" : value === "4x3" ? "4x3" : value === "auto" ? "auto" : "native";
+    return { fileName, aspect, recommended: recommendedXboxAspect(fileName) };
+  });
+}
+
+async function setXboxGameAspect(device, fileName, aspect) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("Per-game Xbox screen size requires an online Batocera machine with SSH access.");
+  }
+  const selected = String(aspect || "auto").toLowerCase();
+  if (!new Set(["auto", "native", "4x3", "16x9"]).has(selected)) throw new Error("Choose Automatic, Native, 4:3, or 16:9.");
+  return sftpWithDevice(device, async (sftp, client) => {
+    const configPath = "/userdata/system/batocera.conf";
+    const aspectKey = xboxGameSettingKey(fileName, "xemu_aspect");
+    const scalingKey = xboxGameSettingKey(fileName, "xemu_scaling");
+    const bezelKey = xboxGameSettingKey(fileName, "bezel");
+    const wrongRatioKey = xboxGameSettingKey(fileName, "ratio");
+    const wrongScalingKey = xboxGameSettingKey(fileName, "scaling");
+    const current = await readSftpFile(sftp, configPath).catch(() => "");
+    const resolved = selected === "auto" ? recommendedXboxAspect(fileName) : selected;
+    let updated = removeBatoceraSetting(current, wrongRatioKey);
+    updated = removeBatoceraSetting(updated, wrongScalingKey);
+    if (resolved === "16x9") {
+      updated = setBatoceraSetting(updated, aspectKey, "16x9");
+      updated = setBatoceraSetting(updated, scalingKey, "scale");
+      updated = setBatoceraSetting(updated, bezelKey, "none");
+    } else if (resolved === "4x3") {
+      updated = setBatoceraSetting(updated, aspectKey, "4x3");
+      updated = setBatoceraSetting(updated, scalingKey, "scale");
+      updated = setBatoceraSetting(updated, bezelKey, "default");
+    } else {
+      updated = setBatoceraSetting(updated, aspectKey, resolved === "native" ? "native" : "auto");
+      updated = setBatoceraSetting(updated, scalingKey, "scale");
+      // Unknown/native titles are not stretched. Batocera may frame their
+      // original 4:3 output; an explicit 16:9 selection removes the bezel.
+      updated = setBatoceraSetting(updated, bezelKey, "default");
+    }
+    if (updated !== current) {
+      const temporary = `${configPath}.rp1-xbox-aspect`;
+      await writeSftpFile(sftp, temporary, updated);
+      await new Promise(resolve => sftp.unlink(configPath, () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename(temporary, configPath, error => error ? reject(error) : resolve()));
+      await execOnSshClient(client, "sync", 10000);
+    }
+    return { fileName, aspect: selected, resolvedAspect: resolved, changed: updated !== current };
+  });
+}
+
 function xboxVideoModeChoice(value) {
   const mode = String(value || "").trim();
   return /^1280x720(?:\.|$)/i.test(mode) ? "1280x720" : mode || "AUTO";
@@ -2692,6 +2855,39 @@ case "$1" in
     ;;
 esac
 # READY PLAYER ONE WIFI STABILITY END`;
+
+// Batocera can remain powered on while wlan0 silently enters power saving and
+// disappears from RP1.  Repair this once per live machine session as soon as
+// SSH is available.  The custom.sh block makes the correction survive reboot;
+// the immediate iw command fixes the current session without restarting ES.
+const wifiStabilityChecks = new Map();
+async function ensureBatoceraWifiStability(deviceName, device) {
+  if (!device?.host || !device?.user || device.access !== "ssh") return;
+  const key = `${deviceName}\u0000${device.host}`;
+  const recent = Number(wifiStabilityChecks.get(key) || 0);
+  if (recent > Date.now() - 5 * 60 * 1000) return;
+  wifiStabilityChecks.set(key, Date.now());
+  try {
+    await sftpWithDevice(device, async (sftp, client) => {
+      const wireless = String(await execOnSshClient(client, "iw dev wlan0 info 2>/dev/null || true", 5000)).trim();
+      if (!wireless) return;
+      const customPath = "/userdata/system/custom.sh";
+      const current = await readSftpFile(sftp, customPath).catch(() => "");
+      const stable = setWifiPowerSaverStartup(current, false);
+      if (stable !== current) {
+        const uploadPath = `${customPath}.rp1-wifi-upload`;
+        await writeSftpFile(sftp, uploadPath, stable);
+        await new Promise(resolve => sftp.unlink(customPath, () => resolve()));
+        await new Promise((resolve, reject) => sftp.rename(uploadPath, customPath, error => error ? reject(error) : resolve()));
+      }
+      await execOnSshClient(client, "chmod 755 /userdata/system/custom.sh; iw dev wlan0 set power_save off 2>/dev/null || true; sync", 7000);
+    });
+  } catch (error) {
+    // Permit a prompt retry after a transient SSH/SFTP interruption.
+    wifiStabilityChecks.delete(key);
+    console.error(`Could not apply Wi-Fi stability to ${deviceName}:`, error.message);
+  }
+}
 
 function setWifiPowerSaverStartup(content, enabled) {
   const withoutBlock = String(content || "").replace(/\n?# READY PLAYER ONE WIFI STABILITY BEGIN[\s\S]*?# READY PLAYER ONE WIFI STABILITY END\n?/g, "\n").trim();
@@ -3326,7 +3522,7 @@ async function findLocalConsoleCover(system, fileName) {
   const systemDir = (await fs.promises.readdir(coversRoot, { withFileTypes: true }))
     .find(entry => entry.isDirectory() && systemKeys.includes(localCoverKey(entry.name)));
   if (!systemDir) return "";
-  const gameKeys = localCoverTitleKeys(fileName);
+  const gameKeys = localCoverTitleKeys(system === "wii" ? displayGameTitle(system, fileName) : fileName);
   const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
   const coverDirectory = path.join(coversRoot, systemDir.name);
   const cacheKey = `${system}\u0000${coverDirectory}`;
@@ -3453,6 +3649,7 @@ PY`;
         !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : system === "wiiu" || system === "mame" ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
+        (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
         !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
@@ -4955,6 +5152,91 @@ const xboxBiosInstallers = {
   "complex_4627.bin": { md5: "39cee882148a87f93cb440b99dde3ceb", maxBytes: 2 * 1024 * 1024, fileName: "Complex_4627.bin" }
 };
 
+function xboxEepromUserChecksum(data) {
+  let high = 0;
+  let low = 0;
+  for (let offset = 0x64; offset < 0xc0; offset += 4) {
+    const value = data.readUInt32LE(offset);
+    const sum = high * 0x100000000 + low;
+    high = Math.floor((sum + value) / 0x100000000);
+    low = (low + value) >>> 0;
+  }
+  return (~((high + low) >>> 0)) >>> 0;
+}
+
+async function ensureXboxWidescreenEeprom(sftp, client) {
+  const eepromPath = "/userdata/saves/xbox/xemu_eeprom.bin";
+  let data;
+  try { data = await readSftpBuffer(sftp, eepromPath); }
+  catch (error) {
+    if (error?.code === 2) return { configured: false, pendingGeneration: true };
+    throw error;
+  }
+  if (data.length !== 256) throw new Error(`Xemu EEPROM is ${data.length} bytes; expected 256. Widescreen was not changed.`);
+  const storedChecksum = data.readUInt32LE(0x60);
+  const calculatedChecksum = xboxEepromUserChecksum(data);
+  if (storedChecksum !== calculatedChecksum) throw new Error("Xemu EEPROM checksum is invalid. Widescreen was not changed.");
+  const oldFlags = data.readUInt32LE(0x94);
+  const newFlags = (oldFlags | 0x00010000) >>> 0;
+  if (newFlags === oldFlags) return { configured: true, changed: false, checksumValid: true };
+
+  // Xemu keeps the EEPROM open while running and may overwrite an external
+  // edit when it exits. Close it before the atomic replacement, and preserve
+  // one recovery copy containing the machine's original keys and identity.
+  await execOnSshClient(client, "pkill -TERM xemu 2>/dev/null || true; i=0; while pgrep xemu >/dev/null && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; ! pgrep xemu >/dev/null", 15000);
+  await execOnSshClient(client, `test -e ${shellSingleQuoted(`${eepromPath}.rp1-before-widescreen`)} || cp ${shellSingleQuoted(eepromPath)} ${shellSingleQuoted(`${eepromPath}.rp1-before-widescreen`)}`, 10000);
+  const updated = Buffer.from(data);
+  updated.writeUInt32LE(newFlags, 0x94);
+  updated.writeUInt32LE(xboxEepromUserChecksum(updated), 0x60);
+  const temporary = `${eepromPath}.rp1-new`;
+  await writeSftpFile(sftp, temporary, updated);
+  await execOnSshClient(client, `mv -f ${shellSingleQuoted(temporary)} ${shellSingleQuoted(eepromPath)}; chmod 666 ${shellSingleQuoted(eepromPath)}; sync`, 10000);
+  const verified = await readSftpBuffer(sftp, eepromPath);
+  const checksumValid = verified.length === 256 && verified.readUInt32LE(0x60) === xboxEepromUserChecksum(verified);
+  if (!checksumValid || !(verified.readUInt32LE(0x94) & 0x00010000)) throw new Error("Xemu EEPROM widescreen verification failed; the recovery copy was kept.");
+  return { configured: true, changed: true, checksumValid: true };
+}
+
+async function ensureXboxAutomaticAspect(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") return { configured: false };
+  return sftpWithDevice(device, async (sftp, client) => {
+    const configPath = "/userdata/system/batocera.conf";
+    const current = await readSftpFile(sftp, configPath).catch(() => "");
+    // Batocera's Xemu generator consumes xemu_aspect and xemu_scaling.  Generic
+    // ratio/scaling keys do not reach xemu.toml and leave games pillarboxed.
+    let updated = removeBatoceraSetting(current, "xbox.ratio");
+    updated = removeBatoceraSetting(updated, "xbox.scaling");
+    updated = setBatoceraSetting(updated, "xbox.xemu_aspect", "auto");
+    updated = setBatoceraSetting(updated, "xbox.xemu_scaling", "scale");
+    // Preserve native 4:3 output with a bezel by default. Verified widescreen
+    // games receive a per-game `bezel=none` override when they are copied.
+    updated = setBatoceraSetting(updated, "xbox.bezel", "default");
+    // Reconcile games already present on the machine as well. This repairs a
+    // prior RP1 transfer that completed before per-game presentation rules
+    // were available, instead of requiring the ROM to be copied again.
+    const installedGames = await new Promise(resolve => {
+      sftp.readdir("/userdata/roms/xbox", (error, entries = []) => resolve(error ? [] : entries.map(entry => entry.filename)));
+    });
+    for (const fileName of installedGames) {
+      const aspect = recommendedXboxAspect(fileName);
+      if (aspect === "native") continue;
+      updated = setBatoceraSetting(updated, xboxGameSettingKey(fileName, "xemu_aspect"), aspect);
+      updated = setBatoceraSetting(updated, xboxGameSettingKey(fileName, "xemu_scaling"), "scale");
+      updated = setBatoceraSetting(updated, xboxGameSettingKey(fileName, "bezel"), aspect === "16x9" ? "none" : "default");
+    }
+    const configChanged = updated !== current;
+    if (configChanged) {
+      const temporary = `${configPath}.rp1-xbox-defaults`;
+      await writeSftpFile(sftp, temporary, updated);
+      await new Promise(resolve => sftp.unlink(configPath, () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename(temporary, configPath, error => error ? reject(error) : resolve()));
+      await execOnSshClient(client, "sync", 10000);
+    }
+    const eeprom = await ensureXboxWidescreenEeprom(sftp, client);
+    return { configured: true, changed: configChanged || Boolean(eeprom.changed), aspect: "auto", eeprom };
+  });
+}
+
 async function installXboxBios(req, device, requestedName) {
   const key = String(requestedName || "").toLowerCase();
   const installer = xboxBiosInstallers[key];
@@ -4986,7 +5268,8 @@ async function installXboxBios(req, device, requestedName) {
   await sftpWithDevice(device, sftp => new Promise((resolve, reject) => {
     sftp.writeFile(remotePath, data, error => error ? reject(error) : resolve());
   }));
-  return { fileName, md5, remotePath, verified: true, bytes: data.length };
+  const aspect = await ensureXboxAutomaticAspect(device);
+  return { fileName, md5, remotePath, verified: true, bytes: data.length, aspect };
 }
 
 function biosHashIsAccepted(installer, md5) {
@@ -5338,6 +5621,16 @@ function hideMameSupportFiles(system, names) {
 
 function uploadTransferFiles(system, fileName) {
   const files = ps1TransferFiles(system, fileName);
+  if (system === "wii" && path.extname(fileName).toLowerCase() === ".wbfs") {
+    const rootDir = path.join(root, localFolders.wii);
+    const stem = path.basename(fileName, path.extname(fileName));
+    for (let part = 1; part <= 9; part += 1) {
+      const name = `${stem}.wbf${part}`;
+      const localPath = path.join(rootDir, name);
+      if (!fs.existsSync(localPath) || !fs.statSync(localPath).isFile()) continue;
+      files.push({ name, localPath });
+    }
+  }
   if (system !== "mame") return files;
   const rootDir = path.join(root, localFolders.mame);
   const shortName = path.basename(fileName, path.extname(fileName)).toLowerCase();
@@ -5506,7 +5799,11 @@ function listLocalLibrary() {
     const warehouse = system === "music"
       ? musicFolderRows(names, "This computer / music")
       : logicalEntries
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+        .sort((a, b) => {
+          const left = ["mame", "wii"].includes(system) ? displayGameTitle(system, a.name) : a.name;
+          const right = ["mame", "wii"].includes(system) ? displayGameTitle(system, b.name) : b.name;
+          return left.localeCompare(right, undefined, { numeric: true });
+        })
         .map(entry => {
           const name = entry.name;
           const ext = path.extname(name).slice(1).toUpperCase() || label;
@@ -5520,7 +5817,7 @@ function listLocalLibrary() {
             ? "folder"
             : "file";
           return [name, note, entry.type || ext, "OK", kind, null,
-            entry.discSet?.title || (system === "mame" ? displayGameTitle(system, name) : null),
+            entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, name) : null),
             null, null, entry.discSet || null];
         });
 
@@ -5683,6 +5980,17 @@ function isLibraryMetadataName(name) {
 }
 
 async function listRemoteRoms(device, system) {
+  if ((system === "all" || system === "favorites") && device.access === "ssh" && (!device.platform || device.platform === "batocera")) {
+    const output = await execSsh(device, `curl --max-time 15 -fsS http://127.0.0.1:1234/systems/${system}/games`, 20000);
+    const games = JSON.parse(output);
+    if (!Array.isArray(games)) throw new Error(`Cannot read Batocera's ${system === "all" ? "All Games" : "Favorites"} collection.`);
+    return games.map(game => {
+      const gamePath = String(game?.path || "");
+      const fileName = path.posix.basename(gamePath) || String(game?.name || "Game");
+      const extension = path.extname(fileName).replace(/^\./, "").toUpperCase() || "GAME";
+      return [fileName, gamePath ? path.posix.dirname(gamePath) : "Batocera collection", extension, null, null, null, String(game?.name || fileName)];
+    }).sort((left, right) => String(left[6]).localeCompare(String(right[6]), undefined, { numeric: true, sensitivity: "base" }));
+  }
   if (device.access === "usb") {
     return listRemoteRomsUsb(device, system);
   }
@@ -5769,7 +6077,7 @@ async function listRemoteRoms(device, system) {
       if (system === "ps1") remoteNames = collapsePs1Sidecars(remoteNames);
       const rows = collapseRemoteMultiDiscEntries(system, remoteNames)
         .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
-          entry.discSet?.title || (system === "mame" ? displayGameTitle(system, entry.name) : null),
+          entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, entry.name) : null),
           null, null, entry.discSet || null]);
 
       if (system !== 'windows') {
@@ -5893,7 +6201,7 @@ function listRemoteRomsSmb(device, system) {
   if (system === "ps1") names = collapsePs1Sidecars(names);
   return collapseRemoteMultiDiscEntries(system, names.sort((a, b) => a.localeCompare(b)))
     .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
-      entry.discSet?.title || (system === "mame" ? displayGameTitle(system, entry.name) : null),
+      entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, entry.name) : null),
       null, null, entry.discSet || null]);
 }
 
@@ -5980,12 +6288,14 @@ async function getDeviceStorage(device) {
 async function getXbox360XeniaStatus(device) {
   if (device.access !== "ssh") return { installed: false, xenia: false, wine: false, bottle: false, storageReady: false };
   const command = [
-    "wine=0; xenia=0; bottle=0; storage=0",
+    "wine=0; xenia=0; bottle=0; prepared=0; disclaimer=0; storage=0",
     "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && wine=1; done",
-    "find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f -iname 'xenia*.exe' 2>/dev/null | grep -q . && xenia=1 || true",
+    "if [ -x /usr/bin/xenia-edge/xenia_edge ] || [ -x /usr/bin/xenia-edge ] || find /usr/xenia /usr/xenia-canary /usr/xenia-edge -maxdepth 3 -type f \\( -iname 'xenia*.exe' -o -name 'xenia_edge' \\) 2>/dev/null | grep -q .; then xenia=1; fi",
     "[ -s /userdata/system/wine-bottles/xbox360/system.reg ] && bottle=1",
+    "[ -s /userdata/system/wine-bottles/xbox360/.rp1-xenia-runtime-ready ] && prepared=1",
+    "[ -s /userdata/system/wine-bottles/xbox360/.rp1-xenia-disclaimer-acknowledged ] && disclaimer=1",
     "fstype=$(findmnt -n -o FSTYPE /userdata 2>/dev/null || true); case \"$fstype\" in ext2|ext3|ext4|btrfs|xfs|f2fs) storage=1;; *) grep -qs ' /userdata/system/wine-bottles/xbox360 ext4 ' /proc/mounts && storage=1 || true;; esac",
-    "echo WINE=$wine,XENIA=$xenia,BOTTLE=$bottle,STORAGE=$storage,FSTYPE=$fstype"
+    "echo WINE=$wine,XENIA=$xenia,BOTTLE=$bottle,PREPARED=$prepared,DISCLAIMER=$disclaimer,STORAGE=$storage,FSTYPE=$fstype"
   ].join("; ");
   // This is a readiness probe, not a transfer. A busy Batocera machine may
   // need longer than 20 seconds to traverse its Wine and Xenia directories.
@@ -5993,11 +6303,11 @@ async function getXbox360XeniaStatus(device) {
   const wine = /WINE=1/.test(output);
   const xenia = /XENIA=1/.test(output);
   const bottle = /BOTTLE=1/.test(output);
+  const runtimePrepared = /PREPARED=1/.test(output);
+  const disclaimerAcknowledged = /DISCLAIMER=1/.test(output);
   const storageReady = /STORAGE=1/.test(output);
   const fileSystem = output.match(/FSTYPE=([^,\r\n]*)/)?.[1] || "";
-  // Xbox 360 availability means Batocera provides Xenia. RP1 must not create
-  // or initialize a Wine prefix merely because the console was selected.
-  return { installed: xenia && storageReady, xenia, wine, bottle, storageReady, fileSystem, managedByBatocera: true };
+  return { installed: xenia && storageReady && runtimePrepared && disclaimerAcknowledged, xenia, wine, bottle, runtimePrepared, disclaimerAcknowledged, storageReady, fileSystem, managedByBatocera: true };
 }
 
 async function prepareXbox360RuntimeStorage(device) {
@@ -6028,6 +6338,62 @@ async function prepareXbox360RuntimeStorage(device) {
   }
 }
 
+async function prepareXbox360XeniaRuntime(device) {
+  if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    throw new Error("Xbox 360 runtime preparation requires an online Batocera machine with SSH access.");
+  }
+  await prepareXbox360RuntimeStorage(device);
+  const before = await getXbox360XeniaStatus(device);
+  if (!before.xenia) throw new Error("Xenia is missing from this Batocera build.");
+  if (!before.wine) throw new Error("Batocera's bundled Xenia Wine/Proton runtime is missing. The separate Wine console was not installed.");
+  if (before.runtimePrepared && before.disclaimerAcknowledged) return { prepared: true, alreadyPrepared: true, status: before };
+
+  const command = [
+    "set -eu",
+    "prefix=/userdata/system/wine-bottles/xbox360",
+    "ready=$prefix/.rp1-xenia-runtime-ready",
+    "disclaimer=$prefix/.rp1-xenia-disclaimer-acknowledged",
+    "lock=/userdata/system/ready-player-one/xenia-runtime.lock",
+    "mkdir -p /userdata/system/ready-player-one \"$prefix\"",
+    "if [ -s \"$ready\" ] && [ -s \"$disclaimer\" ]; then echo ALREADY_PREPARED; exit 0; fi",
+    "waited=0",
+    "while ! mkdir \"$lock\" 2>/dev/null; do [ -s \"$ready\" ] && [ -s \"$disclaimer\" ] && { echo PREPARED_BY_OTHER; exit 0; }; waited=$((waited+1)); [ \"$waited\" -ge 600 ] && { echo XENIA_RUNTIME_LOCK_TIMEOUT >&2; exit 24; }; sleep 1; done",
+    "trap 'rmdir \"$lock\" 2>/dev/null || true' EXIT INT TERM",
+    "[ -s \"$ready\" ] && [ -s \"$disclaimer\" ] && { echo PREPARED_BY_OTHER; exit 0; }",
+    "wine=''",
+    "for candidate in /usr/wine/wine-proton/bin/wine64 /usr/wine/wine-proton/bin/wine /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine64 /usr/wine/wine-tkg/lib/wine/x86_64-unix/wine /usr/wine/wine-tkg/bin/wine64 /usr/wine/proton/bin/wine64 /usr/wine/proton/bin/wine; do [ -x \"$candidate\" ] && { wine=$candidate; break; }; done",
+    "[ -n \"$wine\" ] || { echo BUNDLED_WINE_MISSING >&2; exit 25; }",
+    "export WINE=\"$wine\" WINEPREFIX=\"$prefix\" WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=' WINETRICKS_OPT_UNATTENDED=1 DISPLAY=${DISPLAY:-:0.0}",
+    "wineboot=$(dirname \"$wine\")/wineboot",
+    "if [ -x \"$wineboot\" ]; then \"$wineboot\" --init >/tmp/rp1-xenia-wineboot.log 2>&1; else \"$wine\" cmd /c echo init >/tmp/rp1-xenia-wineboot.log 2>&1; fi",
+    "winetricks=/usr/wine/winetricks",
+    "[ -x \"$winetricks\" ] || winetricks=$(command -v winetricks 2>/dev/null || true)",
+    "[ -n \"$winetricks\" ] || { echo WINETRICKS_MISSING >&2; exit 26; }",
+    "\"$winetricks\" -q vcrun2022 >/tmp/rp1-xenia-winetricks.log 2>&1",
+    "\"$wine\" reg add 'HKCU\\Software\\Xenia' /v XEFLAGS /t REG_QWORD /d 3 /f >/tmp/rp1-xenia-disclaimer.log 2>&1 || { echo XENIA_DISCLAIMER_FLAG_FAILED >&2; exit 28; }",
+    "printf '%s\\n' 'Xenia one-time disclaimer acknowledged by Ready Player One.' > \"$disclaimer\"",
+    "wineserver=$(dirname \"$wine\")/wineserver",
+    "[ -x \"$wineserver\" ] && \"$wineserver\" -w >/dev/null 2>&1 || true",
+    "[ -s \"$prefix/system.reg\" ] || { echo PREFIX_INITIALIZATION_FAILED >&2; exit 27; }",
+    "printf '%s\\n' 'Batocera internal Xenia runtime prepared by Ready Player One.' > \"$ready\"",
+    "echo PREPARED"
+  ].join("\n");
+  try {
+    const output = (await execSsh(device, command, 900000)).trim();
+    const status = await getXbox360XeniaStatus(device);
+    if (!status.runtimePrepared || !status.disclaimerAcknowledged) throw new Error("Batocera completed Xenia preparation without producing all readiness markers.");
+    return { prepared: true, alreadyPrepared: /ALREADY_PREPARED|PREPARED_BY_OTHER/.test(output), output, status };
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (message.includes("XENIA_RUNTIME_LOCK_TIMEOUT")) throw new Error("Batocera's Xenia runtime is already being prepared and did not finish within 10 minutes.");
+    if (message.includes("BUNDLED_WINE_MISSING")) throw new Error("Batocera's bundled Xenia Wine/Proton runtime is missing. The separate Wine console was not installed.");
+    if (message.includes("WINETRICKS_MISSING")) throw new Error("Batocera's internal Xenia dependency installer is missing.");
+    if (message.includes("PREFIX_INITIALIZATION_FAILED")) throw new Error("Batocera could not initialize its internal Xenia runtime.");
+    if (message.includes("XENIA_DISCLAIMER_FLAG_FAILED")) throw new Error("RP1 prepared Xenia but could not save its one-time disclaimer acknowledgement.");
+    throw error;
+  }
+}
+
 async function openXbox360XeniaProfile(device) {
   if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
     throw new Error("Xenia profile setup requires an online Batocera machine with SSH access.");
@@ -6054,6 +6420,123 @@ async function openXbox360XeniaProfile(device) {
     if (message.includes("MISSING_XENIA_CONFIG")) throw new Error("Batocera's Xenia configuration tool is missing.");
     throw error;
   }
+}
+
+async function getXbox360ProfileStatus(device) {
+  if (device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    return { supported: false, configured: false, xuid: "" };
+  }
+  // Use Python for discovery instead of embedding a quote-heavy sed expression
+  // in one SSH command. GamerTags may contain spaces and apostrophes, and the
+  // former shell command could fail before it returned even the profile paths.
+  const inspect = `import glob,os,re
+configs=[
+ '/userdata/system/wine-bottles/xbox360/xenia-canary/xenia-canary.config.toml',
+ '/userdata/system/wine-bottles/xbox360/xenia-edge/xenia-edge.config.toml',
+ '/userdata/system/wine-bottles/xbox360/xenia/xenia.config.toml',
+ '/userdata/system/configs/xenia/xenia-edge.config.toml',
+ '/userdata/system/configs/xenia/xenia-canary.config.toml',
+ '/userdata/system/configs/xenia/xenia.config.toml'
+]
+config=next((candidate for candidate in configs if os.path.isfile(candidate)),'')
+text=''
+if config:
+ try: text=open(config,encoding='utf-8',errors='ignore').read()
+ except OSError: text=''
+match=re.search(r'(?mi)^\\s*(?:logged_profile_slot_0_xuid|user_0_xuid)\\s*=\\s*["\\\']?([0-9a-f]{16})',text)
+xuid=match.group(1).upper() if match else ''
+fullscreen=1 if re.search(r'(?mi)^\\s*fullscreen\\s*=\\s*true\\s*$',text) else 0
+roots=[
+ '/userdata/saves/xbox360',
+ '/userdata/saves/xenia-bottle/xenia/content',
+ '/userdata/system/configs/xenia',
+ '/userdata/system/configs/Xenia',
+ '/userdata/system/xenia',
+ '/userdata/system/configs/xenia-edge'
+]
+accounts=sorted(set(path for root in roots for path in glob.glob(root+'/**/FFFE07D1/00010000/*/Account',recursive=True) if os.path.isfile(path)))
+discovered=''; content_root=''
+if accounts:
+ located=re.match(r'^(.*)/(E[0-9A-Fa-f]{15})/FFFE07D1/00010000/[^/]+/Account$',accounts[0])
+ if located: content_root,discovered=located.group(1),located.group(2).upper()
+if not content_root:
+ content_root=next((candidate for candidate in roots[:2] if os.path.isdir(candidate)),'/userdata/saves/xbox360')
+print('CONFIG='+config)
+print('XUID='+xuid)
+print('DISCOVERED='+discovered)
+print('PROFILE_COUNT=%s' % len(accounts))
+print('FULLSCREEN=%s' % fullscreen)
+print('CONTENT_ROOT='+content_root)
+for account in accounts: print('ACCOUNT='+account)
+`;
+  const output = (await execUploadedArtworkScript(device, inspect)).trim();
+  const configPath = output.match(/^CONFIG=(.*)$/m)?.[1]?.trim() || "";
+  const xuid = output.match(/^XUID=([0-9A-Fa-f]{16})$/m)?.[1]?.toUpperCase() || "";
+  const discoveredXuid = output.match(/^DISCOVERED=([0-9A-Fa-f]{16})$/m)?.[1]?.toUpperCase() || "";
+  const profileCount = Number(output.match(/^PROFILE_COUNT=(\d+)$/m)?.[1] || 0);
+  const contentRoot = output.match(/^CONTENT_ROOT=(.*)$/m)?.[1]?.trim() || "/userdata/saves/xbox360";
+  const accountPaths = [...output.matchAll(/^ACCOUNT=(.*)$/gm)].map(match => match[1].trim()).filter(Boolean);
+  const profiles = await sftpWithDevice(device, async sftp => {
+    const found = [];
+    for (const accountPath of accountPaths) {
+      try {
+        const parsed = readOfflineAccount(await readSftpBuffer(sftp, accountPath));
+        const pathXuid = accountPath.match(/\/(E[0-9A-Fa-f]{15})\/FFFE07D1\/00010000\//)?.[1]?.toUpperCase() || "";
+        if (pathXuid && parsed.gamertag) found.push({gamertag: parsed.gamertag, xuid: pathXuid, accountPath});
+      } catch {}
+    }
+    return found;
+  });
+  return { supported: Boolean(configPath), configured: Boolean(xuid), xuid, discoveredXuid, profileCount: profiles.length, profiles, fullscreen: /FULLSCREEN=1/.test(output), configPath, contentRoot };
+}
+
+async function prepareXbox360Profile(device, gamerTags = []) {
+  gamerTags = [...new Set((Array.isArray(gamerTags) ? gamerTags : []).map(value => String(value || '').trim()).filter(Boolean))];
+  if (!gamerTags.length) gamerTags = ["Player 1"];
+  if (gamerTags.length > 4) throw new Error("Xbox 360 supports at most four local GamerTags in this setup.");
+  if (gamerTags.some(name => name.length > 15 || /[\x00-\x1f<>\\\"|]/.test(name))) throw new Error("GamerTags must be 1–15 characters and cannot contain control characters, <, >, backslash, quotation marks, or |.");
+  let status = await getXbox360ProfileStatus(device);
+  if (!status.supported) {
+    const xenia = await getXbox360XeniaStatus(device);
+    if (!xenia.xenia) throw new Error("Xenia is missing from this Batocera build. RP1 did not install Wine.");
+    throw new Error("Xenia's configuration was not created after Xbox 360 setup. RP1 did not create a misleading GamerTag placeholder.");
+  }
+  const profilesByName = new Map(status.profiles.map(profile => [profile.gamertag.toLocaleLowerCase(), profile]));
+  const created = [];
+  await sftpWithDevice(device, async sftp => {
+    for (const gamertag of gamerTags) {
+      if (profilesByName.has(gamertag.toLocaleLowerCase())) continue;
+      let generated;
+      do generated = createOfflineAccount(gamertag);
+      while (status.profiles.some(profile => profile.xuid === generated.xuid) || created.some(profile => profile.xuid === generated.xuid));
+      const accountDirectory = `${status.contentRoot}/${generated.xuid}/FFFE07D1/00010000/${generated.xuid}`;
+      const accountPath = `${accountDirectory}/Account`;
+      const temporary = `${accountPath}.rp1-upload`;
+      await mkdirpSftp(sftp, accountDirectory);
+      await writeSftpFile(sftp, temporary, generated.account);
+      const verified = readOfflineAccount(await readSftpBuffer(sftp, temporary));
+      if (verified.gamertag !== gamertag) throw new Error(`RP1 could not verify Xenia GamerTag ${gamertag} before installation.`);
+      await new Promise(resolve => sftp.unlink(accountPath, () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename(temporary, accountPath, error => error ? reject(error) : resolve()));
+      created.push({gamertag, xuid: generated.xuid, accountPath});
+      profilesByName.set(gamertag.toLocaleLowerCase(), created.at(-1));
+    }
+  });
+  const firstProfile = profilesByName.get(gamerTags[0].toLocaleLowerCase());
+  if (!firstProfile) {
+    throw new Error(`RP1 could not create or find Xenia GamerTag ${gamerTags[0]}.`);
+  }
+  const xuid = firstProfile.xuid;
+  const script = Buffer.from(`import re,sys\npath,xuid=sys.argv[1:3]\ntext=open(path,encoding='utf-8').read()\ndef set_value(text,section,key,value):\n    pattern=r'(?ms)(^\\['+re.escape(section)+r'\\]\\s*$)(.*?)(?=^\\[|\\Z)'\n    match=re.search(pattern,text)\n    line=f'{key} = {value}'\n    if match:\n        body=match.group(2)\n        key_pattern=r'(?m)^[ \\t]*'+re.escape(key)+r'[ \\t]*=.*$'\n        body=re.sub(key_pattern,line,body,count=1) if re.search(key_pattern,body) else body.rstrip()+'\\n'+line+'\\n'\n        return text[:match.start(2)]+body+text[match.end(2):]\n    return text.rstrip()+f'\\n\\n[{section}]\\n{line}\\n'\ntext=set_value(text,'Display','fullscreen','true')\ntext=set_value(text,'Profiles','logged_profile_slot_0_xuid',f'\"{xuid}\"')\nopen(path,'w',encoding='utf-8',newline='\\n').write(text)\n`, "utf8").toString("base64");
+  await execSsh(device, `printf '%s' ${shellSingleQuoted(script)} | base64 -d | python3 - ${shellSingleQuoted(status.configPath)} ${shellSingleQuoted(xuid)}`, 30000);
+  status = await getXbox360ProfileStatus(device);
+  if (!status.configured) throw new Error("Xenia profile auto-login could not be saved.");
+  if (!status.fullscreen) throw new Error("Xenia fullscreen mode could not be saved.");
+  const installedNames = new Set(status.profiles.map(profile => profile.gamertag.toLocaleLowerCase()));
+  const missing = gamerTags.filter(gamertag => !installedNames.has(gamertag.toLocaleLowerCase()));
+  if (missing.length) throw new Error(`Xenia did not verify these GamerTags after upload: ${missing.join(', ')}.`);
+  if (status.xuid !== xuid) throw new Error(`Xenia did not save ${gamerTags[0]} as Player 1.`);
+  return { ...status, gamerTags, created, actionRequired: false };
 }
 
 async function getWindowsWineStatus(device) {
@@ -7548,7 +8031,7 @@ const backupCategories = {
 };
 const rp1ConfigurationFiles = [
   "controller-settings.json", "ipac4-default.json", "ipac4-generated.json",
-  "keypad-layouts.json", "scraper-settings.json", "uefi-settings.json"
+  "keypad-layouts.json", "scraper-settings.json", "uefi-settings.json", "machine-log.json"
 ];
 let backupRestoreJob = {running:false,mode:"",device:"",backupId:"",categories:[],completed:[],current:"",errors:[],finishedAt:""};
 let usbImageJob = {running:false,device:"",sourceType:"",sourceLabel:"",disk:"",diskSize:0,bytesWritten:0,destination:"",startedAt:"",finishedAt:"",cancelled:false,error:""};
@@ -7830,6 +8313,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/machine-log") {
+      const consoles = Object.keys(systemFolders)
+        .map(id => ({ id, name:systemLabels[id] || id.toUpperCase() }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric:true, sensitivity:"base" }));
+      sendJson(res, 200, { ok:true, project:readMachineLogProject(), consoles });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/machine-log") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      sendJson(res, 200, { ok:true, project:writeMachineLogProject(body.project) });
+      return;
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/api/system-art/")) {
       const folder = decodeURIComponent(url.pathname.slice("/api/system-art/".length));
       if (!batoceraSystemArtFolders.has(folder)) {
@@ -7881,6 +8378,65 @@ const server = http.createServer(async (req, res) => {
         "Cache-Control": "no-store"
       });
       res.end();
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/snapshots/capture") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device || "");
+      if (!device || device.access !== "ssh" || device.platform && device.platform !== "batocera") {
+        sendJson(res, 409, { ok:false, error:"Select a live Batocera machine with SSH access." });
+        return;
+      }
+      const requested = [...new Set((Array.isArray(body.systems) ? body.systems : []).map(value => String(value || "").toLowerCase()))]
+        .filter(system => snapshotSystemLabels[system]);
+      const captureBatocera = Boolean(body.batocera);
+      const requestedCenter = String(body.centerSystem || "").toLowerCase();
+      const centerSystem = snapshotSystemLabels[requestedCenter] ? requestedCenter : requested[0];
+      if (!requested.length && !captureBatocera) { sendJson(res,400,{ok:false,error:"Select at least one console or the Batocera main window."}); return; }
+      if (captureBatocera && !centerSystem) { sendJson(res,400,{ok:false,error:"Choose the console to show in the center of the Batocera window."}); return; }
+      if (requested.length > 50) { sendJson(res,400,{ok:false,error:"Select no more than 50 consoles at once."}); return; }
+      // These are deliberately exclusive modes. Older RP1 windows may still
+      // submit checked console systems alongside Batocera; never turn that
+      // stale mixed payload into several unintended captures.
+      const captureTargets = captureBatocera
+        ? [{system:centerSystem,gameList:false}]
+        : requested.map(system => ({system,gameList:true}));
+      const settingsPath = "/userdata/system/configs/emulationstation/es_settings.cfg";
+      let originalSettings = "";
+      const files = [];
+      const errors = [];
+      fs.mkdirSync(snapshotsPath,{recursive:true});
+      try {
+        originalSettings = (await sftpWithDevice(device, sftp => readSftpBuffer(sftp, settingsPath))).toString("utf8");
+        for (const target of captureTargets) {
+          const {system,gameList} = target;
+          const batoceraSystem = snapshotSystemAliases[system] || system;
+          try {
+            let settings = setEsString(originalSettings,"StartupSystem",batoceraSystem);
+            settings = setEsBool(settings,"StartupOnGameList",gameList);
+            await sftpWithDevice(device, sftp => writeSftpFile(sftp,settingsPath,settings));
+            await execSsh(device,"batocera-es-swissknife --restart >/dev/null 2>&1; i=0; while [ $i -lt 50 ]; do p=$(batocera-es-swissknife --espid 2>/dev/null || true); [ \"$p\" != \"0\" ] && [ -n \"$p\" ] && sleep 8 && exit 0; sleep 0.2; i=$((i+1)); done; exit 1",28000);
+            const remotePath = `/userdata/screenshots/rp1-${batoceraSystem}-snapshot.png`;
+            await execSsh(device,`mkdir -p /userdata/screenshots; rm -f ${shellSingleQuoted(remotePath)}; batocera-screenshot ${shellSingleQuoted(remotePath)} >/dev/null 2>&1 & i=0; while [ $i -lt 40 ]; do [ -s ${shellSingleQuoted(remotePath)} ] && exit 0; sleep 0.25; i=$((i+1)); done; exit 1`,15000);
+            const screenshot = await sftpWithDevice(device,sftp => readSftpBuffer(sftp,remotePath));
+            const label = snapshotSystemLabels[system] || system;
+            const safeLabel = String(label).replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"");
+            const fileName = gameList ? `${safeLabel}.png` : `Batocera-${safeLabel}-Centered.png`;
+            fs.writeFileSync(path.join(snapshotsPath,fileName),screenshot);
+            files.push(fileName);
+          } catch (error) { errors.push(`${snapshotSystemLabels[system] || system}: ${error.message}`); }
+        }
+      } finally {
+        if (originalSettings) {
+          try {
+            await sftpWithDevice(device,sftp => writeSftpFile(sftp,settingsPath,originalSettings));
+            await execSsh(device,"batocera-es-swissknife --restart >/dev/null 2>&1 || true",15000);
+          } catch (error) { errors.push(`Restore Batocera view: ${error.message}`); }
+        }
+      }
+      if (!files.length) { sendJson(res,500,{ok:false,error:errors.join("; ") || "No snapshots were captured."}); return; }
+      sendJson(res,200,{ok:true,files,errors,folder:snapshotsPath});
       return;
     }
 
@@ -8019,7 +8575,7 @@ const server = http.createServer(async (req, res) => {
         const jobId = crypto.randomUUID();
         const job = {id:jobId,host:machine.host,phase:'copying',copiedBytes:0,totalBytes:0,startedAt:new Date().toISOString()};
         sharedDualBootStageJobs.set(jobId,job);
-        stageSharedDualBootImage({imagePath:body.imagePath,host:machine.host,targetComputerName:targetReport.computer,windowsGb:Number(body.windowsGb),defaultOs:body.defaultOs,onProgress:progress => Object.assign(job,progress)})
+        stageSharedDualBootImage({imagePath:body.imagePath,host:machine.host,targetComputerName:targetReport.computer,windowsGb:Number(body.windowsGb),bootTimeoutSeconds:Number(body.bootTimeoutSeconds),defaultOs:body.defaultOs,onProgress:progress => Object.assign(job,progress)})
           .then(plan => { job.phase='staged'; job.plan=plan; job.finishedAt=new Date().toISOString(); })
           .catch(error => { job.phase='failed'; job.error=error.message; job.finishedAt=new Date().toISOString(); });
         sendJson(res,202,{ok:true,jobId});
@@ -8062,15 +8618,16 @@ const server = http.createServer(async (req, res) => {
         const workerMatch = /^1\.0\.(\d+)$/.exec(workerVersion);
         const workerCompatible = worker?.schema === 1 && workerMatch && Number(workerMatch[1]) >= 56 && worker.computer === report.computer;
         if (!workerCompatible) throw new Error('This Windows PC needs RP2 1.0.56 or newer. Run Configure All once in the updated RP2 before using Install Dual Boot.');
-        if (plan.targetComputerName !== report.computer || Number(body.diskNumber) !== Number(report.diskNumber) || Number(body.windowsGb) !== Number(plan.windowsGb) || body.defaultOs !== plan.defaultOs) throw new Error('The selected Windows disk or dual-boot options changed since confirmation.');
+        if (plan.targetComputerName !== report.computer || Number(body.diskNumber) !== Number(report.diskNumber) || Number(body.windowsGb) !== Number(plan.windowsGb) || Number(body.bootTimeoutSeconds) !== Number(plan.bootTimeoutSeconds || 10) || body.defaultOs !== plan.defaultOs) throw new Error('The selected Windows disk or dual-boot options changed since confirmation.');
         const existingInstallState = await readOptional('install-state.json');
+        const terminalInstallPhases = ['failed','undone'];
         const repairableExistingInstall = ['awaiting-first-boot','complete'].includes(existingInstallState?.phase);
-        if (existingInstallState && existingInstallState.phase !== 'failed' && !repairableExistingInstall) throw new Error('An install is already in progress on this Windows PC. RP1 will not start a second disk operation.');
+        if (existingInstallState && !terminalInstallPhases.includes(existingInstallState.phase) && !repairableExistingInstall) throw new Error('An install is already in progress on this Windows PC. RP1 will not start a second disk operation.');
         const requestPath = path.win32.join(stageRoot,'install-request.json');
         try { await fs.promises.stat(requestPath); throw new Error('An install request is already pending on this Windows PC.'); }
         catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
         const requestId = crypto.randomUUID();
-        const request = {schema:1,action:'dual-boot-remote-install',requestId,targetComputerName:report.computer,planSha256:crypto.createHash('sha256').update(planBuffer).digest('hex'),diskNumber:report.diskNumber,windowsGb:plan.windowsGb,defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true,createdAt:new Date().toISOString()};
+        const request = {schema:1,action:'dual-boot-remote-install',requestId,targetComputerName:report.computer,planSha256:crypto.createHash('sha256').update(planBuffer).digest('hex'),diskNumber:report.diskNumber,windowsGb:plan.windowsGb,bootTimeoutSeconds:Number(plan.bootTimeoutSeconds || 10),defaultOs:plan.defaultOs,backupConfirmed:true,recoveryMediaConfirmed:true,createdAt:new Date().toISOString()};
         const requestTemp = path.win32.join(stageRoot,`install-request.${requestId}.partial`);
         try {
           await fs.promises.writeFile(requestTemp,JSON.stringify(request,null,2),{flag:'wx'});
@@ -8137,7 +8694,7 @@ const server = http.createServer(async (req, res) => {
           if (planRaw.length < 16384) {
             const parsed = JSON.parse(planRaw);
             if (parsed?.schema === 1 && parsed.status === 'staged-only' && parsed.targetComputerName === report.computer) {
-              stagedPlan = {diskNumber:Number(parsed.diskNumber ?? report.diskNumber),windowsGb:Number(parsed.windowsGb),defaultOs:parsed.defaultOs};
+              stagedPlan = {diskNumber:Number(parsed.diskNumber ?? report.diskNumber),windowsGb:Number(parsed.windowsGb),bootTimeoutSeconds:Number(parsed.bootTimeoutSeconds || 10),defaultOs:parsed.defaultOs};
             }
           }
         } catch {}
@@ -8345,6 +8902,13 @@ const server = http.createServer(async (req, res) => {
           const online = batoceraSsh && device.discoveredAccess === "ssh";
           if (online && macHost && macHost !== device.discoveredHost) {
             saveDiscoveredHost(name, macHost, "ssh", savedMac);
+          }
+          if (online) {
+            setImmediate(() => ensureBatoceraWifiStability(name, {
+              ...device,
+              host,
+              access: "ssh"
+            }));
           }
           return [name, {
             ...cached,
@@ -8627,12 +9191,54 @@ const server = http.createServer(async (req, res) => {
           if (String(steam).trim() === 'steam') names.add('steam');
         }
         for (const [key, folder] of Object.entries(systemFolders)) if (names.has(folder)) systems.push(key);
+        if (!device.platform || device.platform === 'batocera') {
+          const settingsReader = Buffer.from(`import os, xml.etree.ElementTree as ET
+p='/userdata/system/configs/emulationstation/es_settings.cfg'
+if os.path.exists(p):
+ root=ET.parse(p).getroot()
+ node=next((x for x in root.findall('string') if x.get('name')=='CollectionSystemsAuto'),None)
+ print(node.get('value') if node is not None else '')
+`, 'utf8').toString('base64');
+          const settings = await execSsh(device, `printf '%s' '${settingsReader}' | base64 -d | python3`, 15000);
+          const enabledCollections = new Set(String(settings).trim().split(',').map(value => value.trim()).filter(Boolean));
+          if (enabledCollections.has('all')) systems.push('all');
+          if (enabledCollections.has('favorites')) systems.push('favorites');
+        }
       } else {
         for (const key of Object.keys(systemFolders)) {
           if ((await listRemoteRoms(device, key)).length) systems.push(key);
         }
       }
-      sendJson(res, 200, {ok:true, systems, supportedSystems:Object.keys(systemFolders)});
+      sendJson(res, 200, {ok:true, systems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/collections/configure") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device || device.access !== 'ssh' || (device.platform && device.platform !== 'batocera')) {
+        sendJson(res, 409, {ok:false,error:"Automatic collections require a live Batocera machine with SSH access."});
+        return;
+      }
+      const script = Buffer.from(`import os, xml.etree.ElementTree as ET
+p='/userdata/system/configs/emulationstation/es_settings.cfg'
+if os.path.exists(p):
+ tree=ET.parse(p); root=tree.getroot()
+else:
+ root=ET.Element('config'); tree=ET.ElementTree(root)
+n=next((x for x in root.findall('string') if x.get('name')=='CollectionSystemsAuto'),None)
+if n is None: n=ET.SubElement(root,'string',{'name':'CollectionSystemsAuto'})
+values=[x.strip() for x in (n.get('value') or '').split(',') if x.strip()]
+values=[x for x in values if x not in ('all','favorites')]
+if ${body.all === true ? 'True' : 'False'}: values.append('all')
+if ${body.favorites === true ? 'True' : 'False'}: values.append('favorites')
+n.set('value',','.join(values))
+temporary=p+'.rp1-collections'
+tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporary,p)
+`, 'utf8').toString('base64');
+      await execSsh(device, `printf '%s' '${script}' | base64 -d | python3`, 20000);
+      await runSoftReset(device);
+      sendJson(res, 200, {ok:true,all:body.all === true,favorites:body.favorites === true,resetApplied:true});
       return;
     }
 
@@ -8693,7 +9299,8 @@ const server = http.createServer(async (req, res) => {
           if (!data.equals(saved)) throw new Error(`${fileName} failed installed verification.`);
         }
       });
-      sendJson(res, 200, {ok: true, verified: true});
+      const aspect = await ensureXboxAutomaticAspect(device);
+      sendJson(res, 200, {ok: true, verified: true, aspect});
       return;
     }
 
@@ -8726,9 +9333,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
-      const result = await getXbox360XeniaStatus(device);
-      if (!result.xenia) { sendJson(res, 400, {ok:false,error:"Xenia is missing from this Batocera build. RP1 did not install Wine or create a Wine prefix."}); return; }
-      sendJson(res, 200, { ok: true, ...result, note:"Xenia is supplied by Batocera. RP1 made no Wine changes." });
+      const result = await prepareXbox360XeniaRuntime(device);
+      sendJson(res, 200, { ok: true, ...result, note:"Batocera's internal Xenia Wine/Proton runtime is ready. The separate Wine console was not installed." });
       return;
     }
 
@@ -8748,6 +9354,21 @@ const server = http.createServer(async (req, res) => {
       if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
       const result = await openXbox360XeniaProfile(device);
       sendJson(res, 200, {ok:true, ...result});
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/xenia-profile/status") {
+      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, ...await getXbox360ProfileStatus(device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/xenia-profile/prepare") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, ...await prepareXbox360Profile(device, body.gamerTags)});
       return;
     }
 
@@ -8776,6 +9397,21 @@ const server = http.createServer(async (req, res) => {
       const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
       if (!device) { sendJson(res, 404, { ok: false, error: "Machine is not configured." }); return; }
       sendJson(res, 200, { ok: true, device: deviceName, displayName: device.displayName || deviceName, online: Boolean(device.host), ...await getMachineBehavior(device) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/xbox/game-aspect") {
+      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, ...await getXboxGameAspect(device, url.searchParams.get("fileName"))});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/xbox/game-aspect") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device || "Batocera");
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, ...await setXboxGameAspect(device, body.fileName, body.aspect)});
       return;
     }
 
@@ -9134,8 +9770,8 @@ ${check}
       const body = JSON.parse((await readBody(req)) || "{}");
       const companion = String(body.companion || "").toLowerCase();
       const companionFiles = {
-        two: { fileName: "Ready Player Two 1.0.57.exe", source: "ready-player-two.exe" },
-        "dual-boot-undo": { fileName: "Dual Boot Undo 1.0.0.exe", source: "dual-boot-undo.exe" }
+        two: { fileName: "Ready Player Two 1.0.65.exe", source: "ready-player-two.exe" },
+        "dual-boot-undo": { fileName: "Dual Boot Undo 1.0.3.exe", source: "dual-boot-undo.exe" }
       };
       const selected = companionFiles[companion];
       const fileName = selected?.fileName || "";
@@ -9255,6 +9891,11 @@ ${check}
         return;
       }
       await ensureCurrentBatoceraInstallation(body.device, device);
+      // Re-run Xbox presentation initialization when a game is saved.  A clean
+      // Xemu install may not create its EEPROM until after console setup; this
+      // second idempotent checkpoint applies widescreen as soon as the EEPROM
+      // exists without replacing the machine's keys or identity.
+      if (body.system === "xbox") await ensureXboxAutomaticAspect(device);
 
       const transferKey = JSON.stringify([body.device, body.system, body.fileName]);
       const existingJob = transferJobs.get(transferKey);
@@ -9326,13 +9967,25 @@ ${check}
           artwork = { status: "failed", matched: false, artwork: false, error: error.message || String(error) };
           console.error(`Post-transfer artwork for ${body.system}/${body.fileName}:`, artwork.error);
         }
-        Object.assign(job, { running: false, completed: true, autoQueued: false, phase: "complete", percent: 100, artworkPercent: 100, current: "Complete", artwork, finishedAt: new Date().toISOString() });
-        const copiedAtLeastOneFile = Number(job.totalFiles || 0) > 0
-          && Number(job.completedFiles || 0) > Number(job.skippedFiles || 0);
-        job.resetNeeded = copiedAtLeastOneFile && body.system !== "music";
+        let presentation = null;
+        if (body.system === "xbox") {
+          job.current = "Applying screen format";
+          scheduleTransferPersistence(true);
+          presentation = await setXboxGameAspect(device, body.fileName, "auto");
+        }
+        Object.assign(job, { running: false, completed: true, autoQueued: false, phase: "complete", percent: 100, artworkPercent: 100, current: "Complete", artwork, presentation, finishedAt: new Date().toISOString() });
+        // A size-verified destination is a successful install even when SFTP
+        // correctly skips retransmitting identical bytes.  This commonly
+        // happens when Batocera's library was refreshed/removed while the ROM
+        // remained on disk.  Treat it as complete so the right pane is
+        // promoted and Soft Reset refreshes EmulationStation instead of making
+        // the user's new check appear to do nothing.
+        const installedAtLeastOneFile = Number(job.totalFiles || 0) > 0
+          && Number(job.completedFiles || 0) >= Number(job.totalFiles || 0);
+        job.resetNeeded = installedAtLeastOneFile && body.system !== "music";
         if (job.resetNeeded) markSoftResetNeeded(body.device, body.system, body.fileName, job.finishedAt);
         scheduleTransferPersistence(true);
-        sendJson(res, 200, { ok: true, item, artwork, job });
+        sendJson(res, 200, { ok: true, item, artwork, presentation, job });
       } catch (error) {
         Object.assign(job, {
           running: false,
@@ -9454,9 +10107,27 @@ ${check}
 
     if (req.method === "POST" && url.pathname === "/api/roms/remove") {
       const body = JSON.parse((await readBody(req)) || "{}");
-      if ([...transferJobs.values()].some(job => job.device === body.device && job.system === body.system && job.running)) {
-        sendJson(res, 409, {ok:false, error:"Pause active transfers for this system before deleting its ROMs."});
-        return;
+      // Removal is game-scoped, not console-scoped. Other transfers for the
+      // same console must continue. If this exact ROM is uploading, cancel
+      // only that stream and wait for its writer to release the partial file
+      // before deleting it.
+      const targetTransferKey = JSON.stringify([body.device, body.system, body.fileName]);
+      const targetTransfer = transferJobs.get(targetTransferKey);
+      if (targetTransfer) {
+        targetTransfer.cancelRequested = true;
+        targetTransfer.autoQueued = false;
+        targetTransfer.current = targetTransfer.running ? "Stopping for removal" : "Removed from queue";
+        activeUploadCancels.get(targetTransferKey)?.();
+        scheduleTransferPersistence(true);
+        const deadline = Date.now() + 20000;
+        while (targetTransfer.running && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve,100));
+        if (targetTransfer.running) {
+          sendJson(res,409,{ok:false,error:`${body.fileName} is still closing its transfer. Try unchecking it again in a moment.`});
+          return;
+        }
+        targetTransfer.cancelled = true;
+        targetTransfer.partialDeleted = true;
+        targetTransfer.nextAttemptAt = 0;
       }
       const device = await getRuntimeDevice(body.device);
       if (!device) {
@@ -9469,6 +10140,15 @@ ${check}
       removalJobs.set(removalKey, removalJob);
       try {
         const removal = await removeRom(device, body.system, body.fileName);
+        // File uploads use a .bw-part staging name until the final rename.
+        // A user cancellation must remove that partial too; otherwise the
+        // transfer looks stopped but continues occupying machine storage.
+        if (!removal?.queued && device.access === "ssh") {
+          const localPath = safeLocalRomPath(body.system,body.fileName);
+          const remotePath = `${remoteDirFor(body.system,device)}/${body.fileName}`;
+          const partialPath = fs.existsSync(localPath) && fs.statSync(localPath).isDirectory() ? remotePath : `${remotePath}.bw-part`;
+          await sftpWithDevice(device,sftp => removeRemotePath(sftp,partialPath));
+        }
         Object.assign(removalJob, { percent: 45, stage: "Deleting picture" });
         const artwork = removal?.queued
           ? { entriesRemoved: 0, picturesRemoved: 0, queued: true }
@@ -9476,6 +10156,14 @@ ${check}
         Object.assign(removalJob, { percent: 15, stage: "Updating free space" });
         clearSoftResetNeededForGame(body.device, body.system, body.fileName);
         const storage = removal?.queued ? null : await getDeviceStorage(device);
+        // A successful uninstall is authoritative for this game.  Do not leave
+        // its old completed upload in persisted transfer history: after an app
+        // reload that stale job can otherwise make the right-pane checkbox look
+        // installed even though the machine inventory and filesystem are empty.
+        // The exact running transfer (if any) was already stopped above, so it
+        // is safe to forget this one game without disturbing the console queue.
+        transferJobs.delete(targetTransferKey);
+        scheduleTransferPersistence(true);
         Object.assign(removalJob, { running: false, percent: 0, stage: "Removed" });
         setTimeout(() => { if (removalJobs.get(removalKey) === removalJob) removalJobs.delete(removalKey); }, 5000);
         sendJson(res, 200, { ok: true, queued: Boolean(removal?.queued), artwork, storage, resetNeeded: isSoftResetNeeded(body.device) });
