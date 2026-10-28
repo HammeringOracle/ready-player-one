@@ -200,7 +200,7 @@ while ($true) {
     Start-ScheduledTask -TaskName $taskName
     $statusRoot = Join-Path $env:ProgramData 'Ready Player Two\status'
     if (Test-Path -LiteralPath $statusRoot -PathType Container) {
-        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.56';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.65';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     }
 }
 function Get-FirmwareType {
@@ -336,7 +336,7 @@ function Install-RP2DualBootWorker([string]$Account) {
         $acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
     }
     Set-Acl -LiteralPath $binRoot -AclObject $acl
-    foreach ($file in @('setup.ps1','dual-boot-worker.ps1','7z.exe','7z.dll','windows11.png','batocera.png')) {
+    foreach ($file in @('setup.ps1','dual-boot-worker.ps1','7z.exe','7z.dll','windows11.png','batocera.png','selection-big.png')) {
         $source = Join-Path $sourceDir $file
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "The bundled RP2 worker component $file is missing." }
         Copy-Item -LiteralPath $source -Destination (Join-Path $binRoot $file) -Force -ErrorAction Stop
@@ -453,7 +453,7 @@ function Restore-RP2ManagedInstallJournal {
             New-Item -ItemType Directory -Path $planBackupRoot -Force -ErrorAction Stop | Out-Null
             Copy-Item -LiteralPath $planPath -Destination (Join-Path $planBackupRoot 'plan.json') -ErrorAction Stop
         }
-        $plan = [ordered]@{schema=1;targetComputerName=$env:COMPUTERNAME;windowsGb=[int][math]::Round([int64]$report.windowsPartitionSizeBytes/1GB);defaultOs='batocera';status='adopted-existing';createdAt=(Get-Date).ToUniversalTime().ToString('o')}
+        $plan = [ordered]@{schema=1;targetComputerName=$env:COMPUTERNAME;windowsGb=[int][math]::Round([int64]$report.windowsPartitionSizeBytes/1GB);bootTimeoutSeconds=10;defaultOs='batocera';status='adopted-existing';createdAt=(Get-Date).ToUniversalTime().ToString('o')}
         [IO.File]::WriteAllText($planPath,($plan | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
     }
     $journalPath = Join-Path $stageRoot 'install-state.json'
@@ -462,7 +462,8 @@ function Restore-RP2ManagedInstallJournal {
         New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
         Copy-Item -LiteralPath $journalPath -Destination (Join-Path $backupRoot 'install-state.json') -ErrorAction Stop
     }
-    $journal = [ordered]@{phase='awaiting-first-boot';detail='RP2 recovered and verified the managed dual-boot installation record from the live disk and EFI configuration.';diskNumber=[int]$report.diskNumber;windowsPartitionNumber=[int]$report.windowsPartitionNumber;originalWindowsBytes=[int64]$report.windowsPartitionSizeBytes;requestedWindowsBytes=[int64]$report.windowsPartitionSizeBytes;createdPartitions=@([int]$bootPartition.PartitionNumber,[int]$sharePartition.PartitionNumber);updatedAt=(Get-Date).ToUniversalTime().ToString('o')}
+    $recoveredOriginalBytes=[int64]$report.windowsPartitionSizeBytes+[int64]$bootPartition.Size+[int64]$sharePartition.Size
+    $journal = [ordered]@{schema=2;managedBy='Ready Player Two';installationId=[guid]::NewGuid().ToString();targetComputerName=$env:COMPUTERNAME;phase='awaiting-first-boot';detail='RP2 recovered and verified the managed dual-boot installation record from the live disk and EFI configuration.';diskNumber=[int]$report.diskNumber;windowsPartitionNumber=[int]$report.windowsPartitionNumber;originalWindowsBytes=$recoveredOriginalBytes;requestedWindowsBytes=[int64]$report.windowsPartitionSizeBytes;originalPartitions=@($report.partitions);createdPartitions=@([int]$bootPartition.PartitionNumber,[int]$sharePartition.PartitionNumber);efiManagedPath='EFI\refind';windowsBootPath='\EFI\Microsoft\Boot\bootmgfw.efi';undoSupported=$true;updatedAt=(Get-Date).ToUniversalTime().ToString('o')}
     [IO.File]::WriteAllText($journalPath,($journal | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
     return $journal
 }
@@ -487,6 +488,12 @@ function Invoke-RP2ManagedBootMaintenance([System.Collections.Generic.List[strin
         if ($configurationWasMissing) { $Log.Add('The rEFInd configuration was missing and RP2 recreated the verified Windows 11 and Batocera boot menu.') }
     }
     if (-not $repair.ok) { throw [string]$repair.error }
+    $journalPath=Join-Path $env:ProgramData 'Ready Player Two\staging\install-state.json'
+    $journal=if(Test-Path -LiteralPath $journalPath -PathType Leaf){Get-Content -LiteralPath $journalPath -Raw | ConvertFrom-Json}else{$null}
+    if(-not $journal -or [int]$journal.schema -ne 2 -or [string]$journal.managedBy -cne 'Ready Player Two' -or $journal.undoSupported -ne $true -or [string]$journal.installationId -notmatch '^[0-9a-fA-F-]{36}$'){
+        $null=Restore-RP2ManagedInstallJournal
+        $Log.Add('Upgraded the verified RP2 installation journal with strict Dual Boot Undo ownership metadata.')
+    }
     $Log.Add($(if ($repair.changed) { 'Verified the existing RP2-managed Batocera installation and repaired its boot menu.' } else { 'Verified the existing RP2-managed Batocera installation and boot menu; no repair was needed.' }))
     if (Install-RP2BatoceraRuntimeBootstrap) { $Log.Add('Installed the Batocera shared-drive Xbox 360 runtime storage preflight.') }
 }
@@ -554,7 +561,7 @@ function Repair-RP2BootMenu {
     $stageRoot=Join-Path $env:ProgramData 'Ready Player Two\staging'
     $journal=Get-Content -LiteralPath (Join-Path $stageRoot 'install-state.json') -Raw -ErrorAction Stop | ConvertFrom-Json
     $plan=Get-Content -LiteralPath (Join-Path $stageRoot 'plan.json') -Raw -ErrorAction Stop | ConvertFrom-Json
-    if ($journal.phase -ne 'awaiting-first-boot' -or $plan.schema -ne 1 -or [string]$plan.targetComputerName -ine $env:COMPUTERNAME -or $plan.defaultOs -ne 'batocera') { throw 'This PC does not match a completed RP2 Batocera-default installation. No boot setting was changed.' }
+    if ($journal.phase -ne 'awaiting-first-boot' -or $plan.schema -ne 1 -or [string]$plan.targetComputerName -ine $env:COMPUTERNAME -or $plan.defaultOs -notin @('windows','batocera')) { throw 'This PC does not match a completed RP2-managed installation. No boot setting was changed.' }
     if (@($journal.createdPartitions).Count -ne 2) { throw 'The Batocera partition journal is incomplete. No boot setting was changed.' }
     $bootCandidates=@(foreach ($partition in @(Get-Partition -DiskNumber ([int]$journal.diskNumber) -ErrorAction Stop)) {
         $volume=$partition | Get-Volume -ErrorAction SilentlyContinue
@@ -573,7 +580,20 @@ function Repair-RP2BootMenu {
     $windowsIconSource=if ([string]::IsNullOrWhiteSpace([string]$WindowsBootIconPath)) { Join-Path $workerBinRoot 'windows11.png' } else { [string]$WindowsBootIconPath }
     $batoceraIconSource=if ([string]::IsNullOrWhiteSpace([string]$BatoceraBootIconPath)) { Join-Path $workerBinRoot 'batocera.png' } else { [string]$BatoceraBootIconPath }
     if ([string]::IsNullOrWhiteSpace($windowsIconSource) -or [string]::IsNullOrWhiteSpace($batoceraIconSource) -or -not (Test-Path -LiteralPath $windowsIconSource -PathType Leaf) -or -not (Test-Path -LiteralPath $batoceraIconSource -PathType Leaf)) { throw 'The protected RP2 worker is missing its boot-menu logos. Install the current RP2 and run Configure All once; no boot setting was changed.' }
+    $bootTimeoutSeconds=if($null -ne $plan.bootTimeoutSeconds){[int]$plan.bootTimeoutSeconds}else{10}
+    if($bootTimeoutSeconds -lt 5 -or $bootTimeoutSeconds -gt 300){throw 'The saved boot-menu timeout is outside the supported 5–300 second range.'}
+    $defaultName=if($plan.defaultOs -eq 'batocera'){'Batocera'}else{'Windows 11'}
     $target=@(
+        "timeout $bootTimeoutSeconds", 'textonly false', 'big_icon_size 384', 'selection_big themes\rp1\selection-big.png', 'scanfor manual', 'showtools', 'hideui banner,hints,badges', "default_selection `"$defaultName`"",
+        'menuentry "Windows 11" {', '    icon \EFI\refind\themes\rp1\windows11.png', '    loader \EFI\Microsoft\Boot\bootmgfw.efi', '}',
+        'menuentry "Batocera" {', '    icon \EFI\refind\themes\rp1\batocera.png', '    volume BATOCERA', '    loader \EFI\batocera\bootx64.efi', '}'
+    )
+    $graphicalCustomV2=@(
+        'timeout 30', 'textonly false', 'big_icon_size 768', 'scanfor manual', 'showtools', 'hideui banner,hints,badges', 'default_selection "Batocera"',
+        'menuentry "Windows 11" {', '    icon \EFI\refind\themes\rp1\windows11.png', '    loader \EFI\Microsoft\Boot\bootmgfw.efi', '}',
+        'menuentry "Batocera" {', '    icon \EFI\refind\themes\rp1\batocera.png', '    volume BATOCERA', '    loader \EFI\batocera\bootx64.efi', '}'
+    )
+    $graphicalCustomV3=@(
         'timeout 30', 'textonly false', 'big_icon_size 384', 'scanfor manual', 'showtools', 'hideui banner,hints,badges', 'default_selection "Batocera"',
         'menuentry "Windows 11" {', '    icon \EFI\refind\themes\rp1\windows11.png', '    loader \EFI\Microsoft\Boot\bootmgfw.efi', '}',
         'menuentry "Batocera" {', '    icon \EFI\refind\themes\rp1\batocera.png', '    volume BATOCERA', '    loader \EFI\batocera\bootx64.efi', '}'
@@ -620,9 +640,9 @@ function Repair-RP2BootMenu {
         $current=if($configExists){([IO.File]::ReadAllText($configPath) -replace "`r`n","`n").Trim()}else{''}
         $targetText=($target -join "`n").Trim()
         $installedThemeDir=Join-Path $efiRoot 'EFI\refind\themes\rp1'
-        $themeComplete=(Test-Path -LiteralPath (Join-Path $installedThemeDir 'windows11.png') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $installedThemeDir 'batocera.png') -PathType Leaf)
+        $themeComplete=(Test-Path -LiteralPath (Join-Path $installedThemeDir 'windows11.png') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $installedThemeDir 'batocera.png') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $installedThemeDir 'selection-big.png') -PathType Leaf)
         if ($current -eq $targetText -and $themeComplete -and $bootPathIsRefind) { return @{ok=$true;changed=$false;detail='The two-choice graphical menu with high-resolution Windows and Batocera logos is already configured. No files changed.'} }
-        if ($current -and $current -ne $targetText -and $current -ne (($legacy -join "`n").Trim()) -and $current -ne (($plainText -join "`n").Trim()) -and $current -ne (($graphicalV1 -join "`n").Trim()) -and $current -ne (($graphicalCustomV1 -join "`n").Trim())) { throw 'The rEFInd configuration differs from the RP2-installed version. No boot setting was changed.' }
+        if ($current -and $current -ne $targetText -and $current -ne (($legacy -join "`n").Trim()) -and $current -ne (($plainText -join "`n").Trim()) -and $current -ne (($graphicalV1 -join "`n").Trim()) -and $current -ne (($graphicalCustomV1 -join "`n").Trim()) -and $current -ne (($graphicalCustomV2 -join "`n").Trim()) -and $current -ne (($graphicalCustomV3 -join "`n").Trim())) { throw 'The rEFInd configuration differs from the RP2-installed version. No boot setting was changed.' }
         $backupRoot=Join-Path $env:ProgramData ('Ready Player Two\boot-backup\menu-repair-' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
         New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
         $backupPath=Join-Path $backupRoot 'refind.conf.before-repair'
@@ -638,7 +658,8 @@ function Repair-RP2BootMenu {
             New-Item -ItemType Directory -Path $themeDir -Force -ErrorAction Stop | Out-Null
             Copy-Item -LiteralPath $windowsIconSource -Destination (Join-Path $themeDir 'windows11.png') -Force -ErrorAction Stop
             Copy-Item -LiteralPath $batoceraIconSource -Destination (Join-Path $themeDir 'batocera.png') -Force -ErrorAction Stop
-            foreach ($icon in @('windows11.png','batocera.png')) { if (-not (Test-Path -LiteralPath (Join-Path $themeDir $icon) -PathType Leaf)) { throw "The $icon boot-menu logo did not verify." } }
+            Copy-Item -LiteralPath (Join-Path $workerBinRoot 'selection-big.png') -Destination (Join-Path $themeDir 'selection-big.png') -Force -ErrorAction Stop
+            foreach ($icon in @('windows11.png','batocera.png','selection-big.png')) { if (-not (Test-Path -LiteralPath (Join-Path $themeDir $icon) -PathType Leaf)) { throw "The $icon boot-menu asset did not verify." } }
             [IO.File]::WriteAllLines($configPath,$target,[Text.UTF8Encoding]::new($false))
             if (([IO.File]::ReadAllText($configPath) -replace "`r`n","`n").Trim() -ne $targetText) { throw 'The repaired boot menu did not verify.' }
             if (-not $bootPathIsRefind) {
@@ -652,7 +673,7 @@ function Repair-RP2BootMenu {
             if(-not $bootPathIsRefind){& bcdedit.exe /set '{bootmgr}' path '\EFI\Microsoft\Boot\bootmgfw.efi' | Out-Null}
             throw "Boot menu repair failed; original configuration restored. $($_.Exception.Message)"
         }
-        return @{ok=$true;changed=$true;detail='Two-choice graphical menu configured with a 30-second Batocera default. Reboot and verify both choices on the actual display.';backupPath=$backupPath}
+        return @{ok=$true;changed=$true;detail="Two-choice graphical menu configured with a $bootTimeoutSeconds-second $defaultName default. Reboot and verify both choices on the actual display.";backupPath=$backupPath}
     } finally {
         if ($mounted) { & mountvol.exe "$letter`:" /D | Out-Null }
         if ($bootTempLetter) { Remove-PartitionAccessPath -DiskNumber ([int]$journal.diskNumber) -PartitionNumber ([int]$bootPartition.PartitionNumber) -AccessPath "$bootTempLetter`:\" -ErrorAction Stop }
@@ -663,9 +684,10 @@ function Get-DualBootStagedPlan {
     $planPath = Join-Path $folder 'plan.json'
     if (-not (Test-Path -LiteralPath $planPath -PathType Leaf)) { throw 'No Batocera image has been staged by RP1.' }
     $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json
-    if ($plan.schema -ne 1 -or $plan.status -ne 'staged-only' -or $plan.imageName -cnotin @('batocera-x86_64-43.1-20260529.img','batocera-x86_64-43.1-20260529.img.gz')) { throw 'The staged plan has an unsupported format.' }
+    if ($plan.schema -ne 1 -or $plan.status -ne 'staged-only' -or [string]$plan.imageName -cnotmatch '^batocera-x86_64-[a-zA-Z0-9._-]+\.img(?:\.gz)?$') { throw 'The staged plan has an unsupported format.' }
     if ([string]$plan.targetComputerName -ine $env:COMPUTERNAME) { throw 'This image was staged for a different Windows computer.' }
-    if ([string]$plan.imageSha256 -cnotmatch '^[0-9a-f]{64}$' -or $plan.defaultOs -notin @('windows','batocera')) { throw 'The staged plan is invalid.' }
+    $bootTimeoutSeconds=if($null -ne $plan.bootTimeoutSeconds){[int]$plan.bootTimeoutSeconds}else{10}
+    if ([string]$plan.imageSha256 -cnotmatch '^[0-9a-f]{64}$' -or $plan.defaultOs -notin @('windows','batocera') -or $bootTimeoutSeconds -lt 5 -or $bootTimeoutSeconds -gt 300) { throw 'The staged plan is invalid.' }
     $imagePath = Join-Path $folder $plan.imageName
     $image = Get-Item -LiteralPath $imagePath -ErrorAction Stop
     if ($image.Length -ne [int64]$plan.imageBytes) { throw 'The staged image size does not match the RP1 plan.' }
@@ -737,7 +759,10 @@ function Install-DualBootBatocera {
     $windowsBytes = [int64]$plan.windowsGb * 1GB
     $workRoot = Join-Path $env:ProgramData ('Ready Player Two\work\' + [guid]::NewGuid().ToString('N'))
     $bootTree = Join-Path $workRoot 'boot-files'
-    $imageFile = Join-Path $workRoot 'batocera-x86_64-43.1-20260529.img'
+    $imageLeaf = [IO.Path]::GetFileName([string]$plan.imageName)
+    $extractedImageLeaf = if ($imageLeaf.EndsWith('.gz',[StringComparison]::OrdinalIgnoreCase)) { $imageLeaf.Substring(0,$imageLeaf.Length-3) } else { $imageLeaf }
+    if ([IO.Path]::GetExtension($extractedImageLeaf) -ine '.img' -or $extractedImageLeaf.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw 'The staged Batocera image name is invalid.' }
+    $imageFile = Join-Path $workRoot $extractedImageLeaf
     $fatFile = Join-Path $workRoot '0.vfat.fat'
     $phase = 'preparing'
     $createdPartitions = [System.Collections.Generic.List[int]]::new()
@@ -745,6 +770,15 @@ function Install-DualBootBatocera {
     function Save-State([string]$CurrentPhase,[string]$Detail) {
         $state = @{schema=2;managedBy='Ready Player Two';installationId=$installationId;targetComputerName=$env:COMPUTERNAME;phase=$CurrentPhase;detail=$Detail;diskNumber=$diskNumber;windowsPartitionNumber=$windowsNumber;originalWindowsBytes=[int64]$report.windowsPartitionSizeBytes;requestedWindowsBytes=$windowsBytes;originalPartitions=@($report.partitions);createdPartitions=@($createdPartitions);efiManagedPath='EFI\refind';windowsBootPath='\EFI\Microsoft\Boot\bootmgfw.efi';updatedAt=(Get-Date).ToUniversalTime().ToString('o')}
         [IO.File]::WriteAllText($journalPath,($state | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+    }
+    if ($previous -and $previous.phase -eq 'undone') {
+        # Dual Boot Undo is a completed terminal state. Preserve its audit
+        # journal, but start this clean installation with new ownership data.
+        $journalBackupRoot = Join-Path $env:ProgramData ('Ready Player Two\journal-backup\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory -Path $journalBackupRoot -Force -ErrorAction Stop | Out-Null
+        Copy-Item -LiteralPath $journalPath -Destination (Join-Path $journalBackupRoot 'install-state.json') -ErrorAction Stop
+        $previous = $null
+        $installationId = [guid]::NewGuid().ToString()
     }
     if ($previous -and -not $resumePrepared) {
         if ($previous.phase -ne 'preparing') {
@@ -912,11 +946,17 @@ function Install-RP2Refind {
         New-Item -ItemType Directory -Path $themeDir -Force -ErrorAction Stop | Out-Null
         Copy-Item -LiteralPath $windowsIconSource -Destination (Join-Path $themeDir 'windows11.png') -ErrorAction Stop
         Copy-Item -LiteralPath $batoceraIconSource -Destination (Join-Path $themeDir 'batocera.png') -ErrorAction Stop
+        $selectionSource=Join-Path (Split-Path -Parent $windowsIconSource) 'selection-big.png'
+        if (-not (Test-Path -LiteralPath $selectionSource -PathType Leaf)) { throw 'The embedded RP2 boot-menu selector is unavailable. rEFInd was not installed.' }
+        Copy-Item -LiteralPath $selectionSource -Destination (Join-Path $themeDir 'selection-big.png') -ErrorAction Stop
         $defaultName = if ($plan.defaultOs -eq 'batocera') { 'Batocera' } else { 'Windows 11' }
+        $bootTimeoutSeconds=if($null -ne $plan.bootTimeoutSeconds){[int]$plan.bootTimeoutSeconds}else{10}
+        if($bootTimeoutSeconds -lt 5 -or $bootTimeoutSeconds -gt 300){throw 'The saved boot-menu timeout is outside the supported 5–300 second range.'}
         $config = @(
-            'timeout 30',
+            "timeout $bootTimeoutSeconds",
             'textonly false',
             'big_icon_size 384',
+            'selection_big themes\rp1\selection-big.png',
             'scanfor manual',
             'showtools',
             'hideui banner,hints,badges',
@@ -939,7 +979,7 @@ function Install-RP2Refind {
         $bootManager = (& bcdedit.exe /enum '{bootmgr}' | Out-String)
         if ($LASTEXITCODE -ne 0 -or $bootManager -notmatch [regex]::Escape('\EFI\refind\refind_x64.efi')) { throw 'The new boot path did not verify.' }
         Set-RP2InstallState 'awaiting-first-boot' 'rEFInd and Batocera boot entries installed. Reboot and test both Windows and Batocera before considering dual boot verified.'
-        return @{ok=$true;phase='awaiting-first-boot';defaultOs=$plan.defaultOs;backupPath=$bcdBackup;bootMenuInstalled=$true}
+        return @{ok=$true;phase='awaiting-first-boot';defaultOs=$plan.defaultOs;bootTimeoutSeconds=$bootTimeoutSeconds;backupPath=$bcdBackup;bootMenuInstalled=$true}
     } catch {
         $failure = $_.Exception.Message
         if ($bootPathChanged) {
@@ -1060,7 +1100,7 @@ try {
             }
         }
         $review = Get-DualBootStagedPlan
-        if ([int]$request.diskNumber -ne [int]$review.report.diskNumber -or [int]$request.windowsGb -ne [int]$review.plan.windowsGb -or [string]$request.defaultOs -cne [string]$review.plan.defaultOs) { throw 'The live disk or requested options differ from the confirmed RP1 plan.' }
+        if ([int]$request.diskNumber -ne [int]$review.report.diskNumber -or [int]$request.windowsGb -ne [int]$review.plan.windowsGb -or [int]$request.bootTimeoutSeconds -ne [int]$(if($null -ne $review.plan.bootTimeoutSeconds){$review.plan.bootTimeoutSeconds}else{10}) -or [string]$request.defaultOs -cne [string]$review.plan.defaultOs) { throw 'The live disk or requested options differ from the confirmed RP1 plan.' }
         $partitions = Install-DualBootBatocera
         Finish (Install-RP2Refind)
         exit

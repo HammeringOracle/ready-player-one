@@ -1,4 +1,5 @@
 const http = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 const path = require("node:path");
 const net = require("node:net");
@@ -6,7 +7,7 @@ const dgram = require("node:dgram");
 const os = require("node:os");
 const dns = require("node:dns").promises;
 const crypto = require("node:crypto");
-const { execFile } = require("node:child_process");
+const { execFile, execFileSync, spawn } = require("node:child_process");
 const { Worker } = require("node:worker_threads");
 const { Client } = require("ssh2");
 // Identify the code this process loaded, not whatever is currently on disk.
@@ -3080,6 +3081,252 @@ async function setMachineDisplay(device, values) {
       requiresRelaunch: gameRunning
     };
   });
+}
+
+const remoteDisplayToolsPath = path.join(root, "tools", "remote-display");
+function findMoonlightExecutable() {
+  const fixed = [
+    path.join(remoteDisplayToolsPath, "moonlight", "Moonlight.exe"),
+    "C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe",
+    "C:\\Program Files (x86)\\Moonlight Game Streaming\\Moonlight.exe"
+  ];
+  for (const candidate of fixed) if (fs.existsSync(candidate)) return candidate;
+  if (!fs.existsSync(remoteDisplayToolsPath)) return "";
+  return listLocalFilesRecursive(remoteDisplayToolsPath, new Set(), remoteDisplayToolsPath)
+    .map(name => path.join(remoteDisplayToolsPath, name))
+    .find(file => /^moonlight\.exe$/i.test(path.basename(file))) || "";
+}
+function moonlightIsPaired() {
+  if (process.platform !== "win32") return false;
+  try {
+    const output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"], {windowsHide:true, encoding:"utf8", timeout:3000});
+    return /srvcert[\s\S]{0,300}BEGIN CERTIFICATE-----\s*\r?\n\s*[A-Za-z0-9+/]{20,}/.test(output);
+  } catch { return false; }
+}
+
+async function ensureLocalMoonlight() {
+  const existing = findMoonlightExecutable();
+  if (existing) return existing;
+  fs.mkdirSync(remoteDisplayToolsPath, { recursive: true });
+  const releaseResponse = await fetchWithLimit("https://api.github.com/repos/moonlight-stream/moonlight-qt/releases/latest", { headers: { "User-Agent": "Ready-Player-One" } }, 30000);
+  const release = await releaseResponse.json();
+  const asset = (release.assets || []).find(item => /^MoonlightPortable-x64-.*\.zip$/i.test(item.name));
+  if (!asset?.browser_download_url) throw new Error("The official portable Moonlight package was not found.");
+  const archiveResponse = await fetchWithLimit(asset.browser_download_url, { headers: { "User-Agent": "Ready-Player-One" } }, 120000);
+  const archivePath = path.join(remoteDisplayToolsPath, asset.name);
+  fs.writeFileSync(archivePath, Buffer.from(await archiveResponse.arrayBuffer()));
+  if (fs.statSync(archivePath).size < 10 * 1024 * 1024) throw new Error("The Moonlight download is incomplete.");
+  const extractRoot = path.join(remoteDisplayToolsPath, "moonlight");
+  fs.rmSync(extractRoot, { recursive: true, force: true });
+  fs.mkdirSync(extractRoot, { recursive: true });
+  // Pass paths as real argv entries. PowerShell -Command consumes $args in
+  // inconsistent ways under packaged launchers and previously handed
+  // Expand-Archive an empty LiteralPath.
+  await new Promise((resolve, reject) => execFile("tar.exe", ["-xf", archivePath, "-C", extractRoot], { windowsHide: true, timeout: 120000 },
+    (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
+  const executable = findMoonlightExecutable();
+  if (!executable) throw new Error("The Moonlight package did not contain Moonlight.exe.");
+  return executable;
+}
+
+async function ensureLocalSunshineAppImage() {
+  const cacheRoot = path.join(remoteDisplayToolsPath, "sunshine");
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  // Current Sunshine AppImages require libwayland-client on Batocera builds
+  // that do not ship it. This official build is the verified AppImage used by
+  // the Batocera user-service layout and keeps its runtime dependencies bundled.
+  const imagePath = path.join(cacheRoot, "sunshine-batocera-compatible.AppImage");
+  if (fs.existsSync(imagePath) && fs.statSync(imagePath).size > 20 * 1024 * 1024) return imagePath;
+  const assetUrl = "https://github.com/LizardByte/Sunshine/releases/download/v2025.122.141614/sunshine.AppImage";
+  const imageResponse = await fetchWithLimit(assetUrl, { headers: { "User-Agent": "Ready-Player-One" } }, 180000);
+  fs.writeFileSync(imagePath, Buffer.from(await imageResponse.arrayBuffer()));
+  if (fs.statSync(imagePath).size < 20 * 1024 * 1024) throw new Error("The Sunshine download is incomplete.");
+  return imagePath;
+}
+
+async function ensureLocalSunshineWaylandLibrary() {
+  const cacheRoot = path.join(remoteDisplayToolsPath, "sunshine", "wayland");
+  const libraryPath = path.join(cacheRoot, "libwayland-client.so.0");
+  if (fs.existsSync(libraryPath) && fs.statSync(libraryPath).size > 50000) return libraryPath;
+  fs.rmSync(cacheRoot, { recursive:true, force:true });
+  fs.mkdirSync(cacheRoot, { recursive:true });
+  const packageUrl = "https://archive.ubuntu.com/ubuntu/pool/main/w/wayland/libwayland-client0_1.20.0-1ubuntu0.1_amd64.deb";
+  const response = await fetchWithLimit(packageUrl, { headers:{ "User-Agent":"Ready-Player-One" } }, 60000);
+  const deb = Buffer.from(await response.arrayBuffer());
+  if (deb.subarray(0, 8).toString("ascii") !== "!<arch>\n") throw new Error("The Wayland compatibility package is invalid.");
+  let offset = 8;
+  let dataArchive = null;
+  let dataName = "";
+  while (offset + 60 <= deb.length) {
+    const header = deb.subarray(offset, offset + 60);
+    const name = header.subarray(0, 16).toString("ascii").trim().replace(/\/$/, "");
+    const size = Number.parseInt(header.subarray(48, 58).toString("ascii").trim(), 10);
+    if (!Number.isFinite(size) || size < 0 || offset + 60 + size > deb.length) break;
+    if (/^data\.tar\./.test(name)) { dataName = name; dataArchive = deb.subarray(offset + 60, offset + 60 + size); break; }
+    offset += 60 + size + (size % 2);
+  }
+  if (!dataArchive) throw new Error("The Wayland package did not contain its data archive.");
+  const archivePath = path.join(cacheRoot, dataName);
+  fs.writeFileSync(archivePath, dataArchive);
+  const extractRoot = path.join(cacheRoot, "extract");
+  fs.mkdirSync(extractRoot, { recursive:true });
+  // Extract only the real ELF file. Extracting the Debian package's Linux
+  // symlink on Windows fails with an invalid-path error.
+  await new Promise((resolve, reject) => execFile("tar.exe", ["-xf", archivePath, "-C", extractRoot, "./usr/lib/x86_64-linux-gnu/libwayland-client.so.0.20.0"], { windowsHide:true, timeout:60000 },
+    (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
+  const extracted = listLocalFilesRecursive(extractRoot, new Set(), extractRoot)
+    .map(name => path.join(extractRoot, name))
+    .find(file => /^libwayland-client\.so\.0(?:\.|$)/.test(path.basename(file)) && fs.statSync(file).size > 50000);
+  if (!extracted) throw new Error("The Wayland package did not contain libwayland-client.so.0.");
+  fs.copyFileSync(extracted, libraryPath);
+  return libraryPath;
+}
+
+async function remoteDisplayStatus(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    return { supported:false, reason:"Playable Display currently supports x86_64 Batocera machines with SSH access.", moonlightInstalled:Boolean(findMoonlightExecutable()), sunshineInstalled:false, sunshineRunning:false };
+  }
+  const output = await execSsh(device, "test -x /userdata/system/bin/rp1-sunshine.AppImage && echo INSTALLED=1 || echo INSTALLED=0; pgrep -x sunshine >/dev/null 2>&1 && echo RUNNING=1 || echo RUNNING=0; uname -m", 10000);
+  return {
+    supported: /x86_64/.test(output),
+    reason: /x86_64/.test(output) ? "" : "Sunshine requires an x86_64 Batocera machine.",
+    moonlightInstalled: Boolean(findMoonlightExecutable()),
+    moonlightPaired: moonlightIsPaired(),
+    sunshineInstalled: /INSTALLED=1/.test(output),
+    sunshineRunning: /RUNNING=1/.test(output),
+    host: device.host
+  };
+}
+
+async function installRemoteDisplay(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") throw new Error("Display installation requires an online Batocera machine with SSH access.");
+  const moonlight = await ensureLocalMoonlight();
+  const sunshine = await ensureLocalSunshineAppImage();
+  const waylandLibrary = await ensureLocalSunshineWaylandLibrary();
+  const service = `#!/bin/bash
+export HOME=/userdata/system
+export LD_LIBRARY_PATH=/userdata/system/sunshine-libs\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+app=/userdata/system/bin/rp1-sunshine.AppImage
+case "$1" in
+  start) mkdir -p /userdata/system/logs; DISPLAY=:0.0 "$app" --appimage-extract-and-run >>/userdata/system/logs/rp1-sunshine.log 2>&1 & ;;
+  stop) killall sunshine 2>/dev/null || true ;;
+  restart|reload) "$0" stop; sleep 1; "$0" start ;;
+  status) pgrep -x sunshine >/dev/null ;;
+  *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+`;
+  await sftpWithDevice(device, async (sftp, client) => {
+    await execOnSshClient(client, "mkdir -p /userdata/system/bin /userdata/system/services /userdata/system/logs /userdata/system/sunshine-libs", 10000);
+    await fastPutSftp(sftp, sunshine, "/userdata/system/bin/rp1-sunshine.AppImage");
+    await fastPutSftp(sftp, waylandLibrary, "/userdata/system/sunshine-libs/libwayland-client.so.0");
+    await writeSftpFile(sftp, "/userdata/system/services/sunshine", service);
+    await execOnSshClient(client, "chmod 755 /userdata/system/bin/rp1-sunshine.AppImage /userdata/system/services/sunshine; rm -f /userdata/system/services/rp1-sunshine; batocera-services enable sunshine; /userdata/system/services/sunshine start; sleep 7; pgrep -x sunshine >/dev/null", 45000);
+  });
+  const status = await remoteDisplayStatus(device);
+  if (!status.moonlightInstalled || !status.sunshineInstalled || !status.sunshineRunning) throw new Error("Streaming support did not verify after installation.");
+  return { ...status, moonlight };
+}
+
+function openRemoteDisplayWindow(device) {
+  const moonlight = findMoonlightExecutable();
+  if (!moonlight) throw new Error("Install Moonlight first.");
+  return { ready:true, executable:moonlight, host:device?.host || "" };
+}
+
+function moonlightPairingPin(executable, host) {
+  const script = `$ErrorActionPreference='Stop';$p=Start-Process -FilePath $env:RP1_MOONLIGHT -ArgumentList @('pair',$env:RP1_DISPLAY_HOST) -PassThru;Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;$pin='';for($i=0;$i -lt 40 -and -not $pin;$i++){Start-Sleep -Milliseconds 500;$root=[Windows.Automation.AutomationElement]::RootElement;$wins=$root.FindAll([Windows.Automation.TreeScope]::Children,[Windows.Automation.Condition]::TrueCondition);foreach($w in $wins){if($w.Current.ProcessId -ne $p.Id){continue};$items=$w.FindAll([Windows.Automation.TreeScope]::Subtree,[Windows.Automation.Condition]::TrueCondition);foreach($item in $items){$name=$item.Current.Name;if($name -match '(?<!\\d)(\\d{4})(?!\\d)'){$pin=$matches[1];break}}}};if(-not $pin){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'Moonlight did not provide a pairing PIN.'};[pscustomobject]@{pin=$pin;pid=$p.Id}|ConvertTo-Json -Compress`;
+  return new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {windowsHide:true, timeout:30000, env:{...process.env, RP1_MOONLIGHT:executable, RP1_DISPLAY_HOST:host}}, (error, stdout, stderr) => {
+    if (error) return reject(new Error(String(stderr || error.message).trim()));
+    try { resolve(JSON.parse(String(stdout).trim())); } catch { reject(new Error("Moonlight pairing did not return a valid PIN.")); }
+  }));
+}
+
+function submitSunshinePin(host, password, pin) {
+  const body = JSON.stringify({pin:String(pin), name:"Ready Player One"});
+  return new Promise((resolve, reject) => {
+    const request = https.request({hostname:host, port:47990, path:"/api/pin", method:"POST", rejectUnauthorized:false,
+      auth:`rp1:${password}`, headers:{"Content-Type":"application/json", "Content-Length":Buffer.byteLength(body)}}, response => {
+      let text=""; response.on("data", chunk => text += chunk); response.on("end", () => {
+        let parsed={}; try { parsed=JSON.parse(text || "{}"); } catch {}
+        if (response.statusCode >= 200 && response.statusCode < 300 && parsed.status !== false) resolve(parsed);
+        else reject(new Error(parsed.error || `Sunshine rejected pairing (HTTP ${response.statusCode}).`));
+      });
+    });
+    request.setTimeout(30000, () => request.destroy(new Error("Sunshine pairing timed out.")));
+    request.on("error", reject); request.end(body);
+  });
+}
+
+async function pairRemoteDisplay(deviceName, device) {
+  if (!device?.host || device.access !== "ssh") throw new Error("Select a live Batocera machine with SSH access.");
+  const moonlight = findMoonlightExecutable();
+  if (!moonlight) throw new Error("Moonlight is not installed.");
+  const settings = readDeviceSettings();
+  const password = settings[deviceName]?.remoteDisplayPassword || crypto.randomBytes(18).toString("base64url");
+  settings[deviceName] = {...(settings[deviceName] || {}), remoteDisplayPassword:password};
+  writeDeviceSettings(settings);
+  const quoted = shellSingleQuoted(password);
+  await execSsh(device, `/userdata/system/services/sunshine stop >/dev/null 2>&1 || true; sleep 2; true`, 10000);
+  await execSsh(device, `HOME=/userdata/system LD_LIBRARY_PATH=/userdata/system/sunshine-libs /userdata/system/bin/rp1-sunshine.AppImage --appimage-extract-and-run --creds rp1 ${quoted} >/userdata/system/logs/rp1-sunshine-creds.log 2>&1`, 30000);
+  await execSsh(device, `/userdata/system/services/sunshine start >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null`, 15000);
+  const pairing = await moonlightPairingPin(moonlight, device.host);
+  try {
+    await submitSunshinePin(device.host, password, pairing.pin);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } finally {
+    if (pairing.pid) try { process.kill(Number(pairing.pid)); } catch {}
+  }
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  return {paired:true, host:device.host};
+}
+
+function firstWiredWindowsAdapter() {
+  const script = `Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Up' -and $_.Name -notmatch 'Wi-?Fi|Wireless'} | Sort-Object @{Expression={if($_.InterfaceDescription -match 'USB|Type-C|Realtek'){0}else{1}}} | Select-Object -First 1 Name,InterfaceDescription,LinkSpeed | ConvertTo-Json -Compress`;
+  try {
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:10000}).trim();
+    return output ? JSON.parse(output) : null;
+  } catch { return null; }
+}
+function windowsAdapterHasDirectAddress(alias) {
+  try {
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", `(Get-NetIPAddress -InterfaceAlias $env:RP1_ADAPTER -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1').Count`], {windowsHide:true, encoding:"utf8", timeout:5000, env:{...process.env,RP1_ADAPTER:alias}}).trim();
+    return Number(output) > 0;
+  } catch { return false; }
+}
+async function waitForDirectPort(host, port, totalMs = 20000) {
+  const deadline = Date.now() + totalMs;
+  do {
+    if (await isTcpPortOpen(host, port, 1200)) return true;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } while (Date.now() < deadline);
+  return false;
+}
+
+async function prepareAdHocDisplay(deviceName, device) {
+  if (!device?.host || device.access !== "ssh") throw new Error("The selected Batocera machine must be online on the normal network while the direct link is prepared.");
+  const adapter = firstWiredWindowsAdapter();
+  if (!adapter?.Name) throw new Error("No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
+  if (!windowsAdapterHasDirectAddress(adapter.Name)) {
+    const adminScript = `$p=Start-Process netsh.exe -Verb RunAs -Wait -PassThru -ArgumentList @('interface','ipv4','set','address','name='+$env:RP1_ADAPTER,'static','10.77.0.1','255.255.255.0','none');exit $p.ExitCode`;
+    await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", adminScript], {windowsHide:true, timeout:120000, env:{...process.env,RP1_ADAPTER:adapter.Name}}, error => error ? reject(new Error("Windows could not configure the direct Ethernet adapter. Approve the administrator prompt and try again.")) : resolve()));
+  }
+  const command = `svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; sleep 3`;
+  try {
+    await execSsh(device, command, 20000);
+  } catch (error) {
+    // ConnMan can rebuild its routes as soon as the wired address is applied,
+    // which closes the original Wi-Fi SSH channel before it reports success.
+    // Treat that disconnect as successful only when the new direct SSH route
+    // is already live; real configuration failures still surface normally.
+    if (!await waitForDirectPort("10.77.0.2", 22)) throw error;
+  }
+  if (!await waitForDirectPort("10.77.0.2", 22)) {
+    const diagnostics = await execSsh(device, `printf 'LINKS='; for p in /sys/class/net/*; do n=\${p##*/}; printf '%s:%s ' "$n" "$(cat "$p/carrier" 2>/dev/null)"; done; printf '\\nADDR='; ip -br -4 addr; printf '\\nLISTEN='; ss -lnt 2>/dev/null | grep -E ':(22|47990) ' || true; printf '\\nFILTER='; iptables -S INPUT 2>/dev/null | head -12 || true`, 10000).catch(() => "");
+    throw new Error(`The cable is connected, but Batocera did not become reachable at 10.77.0.2.${diagnostics ? ` ${diagnostics.trim()}` : ""}`);
+  }
+  const directDevice = {...device, host:"10.77.0.2"};
+  if (!moonlightIsPaired()) await pairRemoteDisplay(deviceName, directDevice);
+  return {ready:true, host:"10.77.0.2", adapter, executable:findMoonlightExecutable()};
 }
 
 function wait(ms) {
@@ -6492,7 +6739,7 @@ for account in accounts: print('ACCOUNT='+account)
 
 async function prepareXbox360Profile(device, gamerTags = []) {
   gamerTags = [...new Set((Array.isArray(gamerTags) ? gamerTags : []).map(value => String(value || '').trim()).filter(Boolean))];
-  if (!gamerTags.length) gamerTags = ["Player 1"];
+  if (!gamerTags.length) throw new Error("Enter at least one GamerTag name in RP1.");
   if (gamerTags.length > 4) throw new Error("Xbox 360 supports at most four local GamerTags in this setup.");
   if (gamerTags.some(name => name.length > 15 || /[\x00-\x1f<>\\\"|]/.test(name))) throw new Error("GamerTags must be 1–15 characters and cannot contain control characters, <, >, backslash, quotation marks, or |.");
   let status = await getXbox360ProfileStatus(device);
@@ -6535,7 +6782,7 @@ async function prepareXbox360Profile(device, gamerTags = []) {
   const installedNames = new Set(status.profiles.map(profile => profile.gamertag.toLocaleLowerCase()));
   const missing = gamerTags.filter(gamertag => !installedNames.has(gamertag.toLocaleLowerCase()));
   if (missing.length) throw new Error(`Xenia did not verify these GamerTags after upload: ${missing.join(', ')}.`);
-  if (status.xuid !== xuid) throw new Error(`Xenia did not save ${gamerTags[0]} as Player 1.`);
+  if (status.xuid !== xuid) throw new Error(`Xenia did not sign ${gamerTags[0]} into Slot 0.`);
   return { ...status, gamerTags, created, actionRequired: false };
 }
 
@@ -9175,7 +9422,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/device/systems") {
-      const device = await getRuntimeDevice(url.searchParams.get("device"));
+      const deviceName = String(url.searchParams.get("device") || "");
+      const device = await getRuntimeDevice(deviceName);
       if (!device) { sendJson(res, 404, {ok:false, error:"Machine not found."}); return; }
       const systems = [];
       if (['lakka','recalbox'].includes(device.platform)) {
@@ -9209,7 +9457,21 @@ if os.path.exists(p):
           if ((await listRemoteRoms(device, key)).length) systems.push(key);
         }
       }
-      sendJson(res, 200, {ok:true, systems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
+      const savedVisibleSystems = readDeviceSettings()[deviceName]?.visibleSystems;
+      sendJson(res, 200, {ok:true, systems, visibleSystems:Array.isArray(savedVisibleSystems) ? savedVisibleSystems : null, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/ui/visible-systems") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = String(body.device || "");
+      if (!deviceName) { sendJson(res, 400, {ok:false,error:"Machine is required."}); return; }
+      const valid = new Set([...Object.keys(systemFolders), "all", "favorites"]);
+      const visibleSystems = [...new Set((Array.isArray(body.systems) ? body.systems : []).map(String).filter(system => valid.has(system)))];
+      const settings = readDeviceSettings();
+      settings[deviceName] = {...(settings[deviceName] || {}), visibleSystems};
+      writeDeviceSettings(settings);
+      sendJson(res, 200, {ok:true, device:deviceName, visibleSystems});
       return;
     }
 
@@ -9438,6 +9700,48 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
       const device = await getRuntimeDevice(deviceName);
       if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
       sendJson(res, 200, {ok:true, device:deviceName, ...await setMachineDisplay(device, body)});
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/remote-display/status") {
+      const deviceName = url.searchParams.get("device") || "Batocera";
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await remoteDisplayStatus(device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/remote-display/install") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = body.device || "Batocera";
+      const device = await getRuntimeDevice(deviceName);
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await installRemoteDisplay(device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/remote-display/pair") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = String(body.device || "");
+      const device = await getRuntimeDevice(deviceName);
+      sendJson(res, 200, {ok:true, device:deviceName, ...await pairRemoteDisplay(deviceName, device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/remote-display/ad-hoc") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = String(body.device || "");
+      const device = await getRuntimeDevice(deviceName);
+      sendJson(res, 200, {ok:true, device:deviceName, ...await prepareAdHocDisplay(deviceName, device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/remote-display/open") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = body.device || "Batocera";
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...openRemoteDisplayWindow(device)});
       return;
     }
 

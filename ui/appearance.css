@@ -85,12 +85,22 @@ dialog,.confirm-modal,.controller-modal { border-radius:10px!important; }
 .settings-dialog .appearance-tour-icon.remove-machine-icon { font-size:23px; }
 .settings-dialog .appearance-tour-icon.machine-behavior-icon { background:linear-gradient(145deg,#f3b44f,#dc6d3d);font-size:25px; }
 .settings-dialog .appearance-tour-icon.topology-icon { background:linear-gradient(145deg,#5d9cff,#8a65ed);font-size:17px; }
+.settings-dialog .appearance-tour-icon.machine-log-icon { background:linear-gradient(145deg,#4fd3be,#287fc8);font-size:18px; }
 .settings-dialog .appearance-tour strong { font-size:12px; }
 .settings-dialog .appearance-tour small { margin-top:0;font-size:9px;line-height:1.2; }
 .settings-dialog .appearance-tour-arrow { font-size:16px; }
 .settings-dialog .appearance-bottom { margin-top:4px;gap:6px; }
 .settings-dialog .appearance-bottom .appearance-done { min-height:27px;padding:3px 13px; }
 .settings-dialog,.machine-behavior-dialog { border-radius:10px; }
+.machine-log-dialog { width:min(1120px,calc(100vw - 24px));height:min(780px,calc(100dvh - 24px));padding:0;border:1px solid #5c7799;border-radius:10px;background:#08111e;box-shadow:0 28px 90px #000b;overflow:hidden; }
+.machine-log-dialog::backdrop { background:#06112088;backdrop-filter:blur(9px); }
+.machine-log-dialog iframe { display:block;width:100%;height:100%;border:0;background:#08111e; }
+.machine-log-close { position:absolute;z-index:3;top:9px;right:10px;width:28px;height:28px;margin:0;padding:0;border:1px solid #ef665d;border-radius:7px;background:#231417;color:transparent;font-size:0;cursor:pointer;box-shadow:0 4px 12px #0007; }
+.machine-log-close::before,.machine-log-close::after { content:"";position:absolute;top:50%;left:50%;width:14px;height:2px;border-radius:2px;background:#ef665d;transform-origin:center; }
+.machine-log-close::before { transform:translate(-50%,-50%) rotate(45deg); }
+.machine-log-close::after { transform:translate(-50%,-50%) rotate(-45deg); }
+.machine-log-close:hover { background:#3a171b; }
+.machine-log-close:hover::before,.machine-log-close:hover::after { background:#ff877e; }
 .machine-behavior-dialog { width:min(540px,calc(100vw - 24px)); }
 .machine-behavior-dialog .appearance-content { padding:10px 12px; }
 .machine-behavior-dialog .appearance-head { padding-bottom:7px;margin-bottom:7px; }

@@ -70,7 +70,7 @@ function Save-RP2OperationLog([string]$Action,[object]$Result) {
 }
 
 $xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Ready Player Two 1.0.56" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Ready Player Two 1.0.65" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
   <Window.Resources>
     <Style TargetType="TextBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="CaretBrush" Value="#101722"/><Setter Property="Padding" Value="8,4"/></Style>
     <Style TargetType="ComboBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="Padding" Value="7,3"/></Style>
@@ -81,7 +81,7 @@ $xaml = @'
   </Window.Resources>
   <Grid Margin="20">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.56" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
+    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.65" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
     <Border Grid.Row="1" Background="#1D2938" BorderBrush="#4F6B8E" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,10,0,10"><StackPanel><TextBlock Text="Make this Windows PC visible in Ready Player One." FontSize="15" FontWeight="Bold" Margin="0,0,0,3"/><TextBlock Text="Configures Windows discovery and supported frontends." TextWrapping="Wrap" Foreground="#BFD4EC"/></StackPanel></Border>
     <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="0.9*"/></Grid.ColumnDefinitions>
       <StackPanel Margin="0,0,14,0"><TextBlock Text="DETECTED PROGRAMS" FontWeight="Bold" Foreground="#70B8FF"/><ListBox Name="Programs" Margin="0,6,0,10" Height="105" Background="#182230" Foreground="White" BorderBrush="#526C8E" FontSize="16"/><TextBlock Text="HOME NETWORK" FontWeight="Bold" Foreground="#70B8FF"/><ComboBox Name="Networks" Margin="0,6,0,0" Height="32" Background="#EAF2FF" Foreground="#111722"/></StackPanel>
@@ -162,7 +162,7 @@ function Refresh-Status([switch]$Silent) {
 }
 $refresh.Add_Click({ Refresh-Status })
 $repairBoot.Add_Click({
-    $answer=[Windows.MessageBox]::Show('Back up the current boot-menu configuration and change only that file to a clean graphical, two-choice menu with Batocera as the 30-second default? This does not repartition or reinstall Batocera.','Repair Boot Menu','YesNo','Warning')
+    $answer=[Windows.MessageBox]::Show('Back up the current boot-menu configuration and repair the clean graphical two-choice menu using the saved default OS and wait time? This does not repartition or reinstall Batocera.','Repair Boot Menu','YesNo','Warning')
     if ($answer -ne [Windows.MessageBoxResult]::Yes) { return }
     $repairBoot.IsEnabled=$false; $status.Text='Checking boot files and backing up the menu configuration...';$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue; $window.Dispatcher.Invoke([action]{}, 'Background')
     try {

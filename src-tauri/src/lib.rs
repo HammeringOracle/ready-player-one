@@ -12,6 +12,114 @@ use std::{
     time::Duration,
 };
 
+use serde::Serialize;
+use tauri::Manager;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmbeddedDisplayResult {
+    opened: bool,
+    host: String,
+}
+
+#[cfg(windows)]
+mod embedded_display {
+    use super::*;
+    use std::time::Instant;
+
+    type Hwnd = isize;
+    type Bool = i32;
+    type Dword = u32;
+    type Lparam = isize;
+    type LongPtr = isize;
+    const GWLP_HWNDPARENT: i32 = -8;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Rect { left: i32, top: i32, right: i32, bottom: i32 }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn EnumWindows(callback: extern "system" fn(Hwnd, Lparam) -> Bool, value: Lparam) -> Bool;
+        fn GetWindowThreadProcessId(window: Hwnd, process_id: *mut Dword) -> Dword;
+        fn IsWindowVisible(window: Hwnd) -> Bool;
+        fn SetWindowLongPtrW(window: Hwnd, index: i32, value: LongPtr) -> LongPtr;
+        fn GetWindowRect(window: Hwnd, rect: *mut Rect) -> Bool;
+        fn SetForegroundWindow(window: Hwnd) -> Bool;
+        fn SetWindowTextW(window: Hwnd, text: *const u16) -> Bool;
+    }
+
+    struct Search { pid: u32, found: Hwnd, area: i64 }
+    extern "system" fn find_process_window(window: Hwnd, value: Lparam) -> Bool {
+        let search = unsafe { &mut *(value as *mut Search) };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(window, &mut pid); }
+        if pid == search.pid && unsafe { IsWindowVisible(window) } != 0 {
+            let mut rect = Rect::default();
+            if unsafe { GetWindowRect(window, &mut rect) } != 0 {
+                let area = i64::from((rect.right - rect.left).max(0)) * i64::from((rect.bottom - rect.top).max(0));
+                if area > search.area { search.found = window; search.area = area; }
+            }
+        }
+        1
+    }
+
+    fn find_window(pid: u32) -> Hwnd {
+        let mut search = Search { pid, found: 0, area: 0 };
+        unsafe { EnumWindows(find_process_window, &mut search as *mut Search as Lparam); }
+        search.found
+    }
+
+    pub fn open(app: tauri::AppHandle, executable: String, host: String) -> Result<EmbeddedDisplayResult, String> {
+        if executable.trim().is_empty() || !std::path::Path::new(&executable).is_file() {
+            return Err("Moonlight is not installed. Open Display and install support first.".into());
+        }
+        let parent = app.get_webview_window("main")
+            .ok_or_else(|| "The main RP1 window is unavailable.".to_string())?
+            .hwnd().map_err(|error| format!("Could not access the main RP1 window: {error}"))?.0 as Hwnd;
+        let mut command = Command::new(&executable);
+        command.args(["stream", "--display-mode", "windowed"]);
+        if !host.trim().is_empty() { command.arg(&host); }
+        command.arg("Desktop");
+        command.creation_flags(0x08000000);
+        let child = command.spawn().map_err(|error| format!("Could not start Moonlight: {error}"))?;
+        let pid = child.id();
+        thread::spawn(move || {
+            let started = Instant::now();
+            thread::sleep(Duration::from_millis(1200));
+            loop {
+                let window = find_window(pid);
+                if window != 0 {
+                    let title: Vec<u16> = "Ready Player One — Display\0".encode_utf16().collect();
+                    unsafe {
+                        SetWindowLongPtrW(window, GWLP_HWNDPARENT, parent);
+                        SetWindowTextW(window, title.as_ptr());
+                        SetForegroundWindow(window);
+                    }
+                    break;
+                }
+                if started.elapsed() > Duration::from_secs(15) { break; }
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+        Ok(EmbeddedDisplayResult { opened: true, host })
+    }
+}
+
+#[tauri::command]
+fn open_embedded_display(app: tauri::AppHandle, executable: String, host: String) -> Result<EmbeddedDisplayResult, String> {
+    #[cfg(windows)] { embedded_display::open(app, executable, host) }
+    #[cfg(not(windows))] { let _ = (app, executable, host); Err("Embedded Display is currently available on Windows.".into()) }
+}
+
+#[tauri::command]
+fn close_embedded_display(app: tauri::AppHandle) -> Result<(), String> {
+    let _ = Command::new("taskkill").args(["/IM", "Moonlight.exe", "/T", "/F"])
+        .creation_flags(0x08000000).output();
+    let _ = app;
+    Ok(())
+}
+
 fn find_project_root() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(current) = std::env::current_dir() {
@@ -130,6 +238,7 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![open_embedded_display, close_embedded_display])
         .run(tauri::generate_context!())
         .expect("error while running Ready Player One");
 

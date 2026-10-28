@@ -15,6 +15,7 @@ assert.deepEqual(labels, [
   'Pygame CE',
   'Remapper',
   'Scraper (Music)',
+  'Console Snapshots',
   'USB Controller',
   'USB Image'
 ]);

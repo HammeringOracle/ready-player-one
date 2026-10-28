@@ -762,7 +762,8 @@
       grid-template-rows: 30px minmax(0, 1fr);
       column-gap: 12px;
       row-gap: 12px;
-      padding: 12px 18px 6px;
+      /* Match the outer gutters to the gaps between all three panes. */
+      padding: 12px 12px 6px;
     }
 
     body.machine-unselected .main {
@@ -1046,7 +1047,7 @@
       height: auto;
       box-sizing: border-box;
       display: grid;
-      grid-template-columns: 32px minmax(0, 1fr) auto;
+      grid-template-columns: 32px minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 10px;
       padding: 2px 8px;
@@ -1111,6 +1112,50 @@
 
     .systems-list .row > .count::before { content: "("; }
     .systems-list .row > .count::after { content: ")"; }
+
+    .gamertag-console-button {
+      width: 24px;
+      height: 24px;
+      min-width: 24px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(101, 164, 255, .72);
+      border-radius: 50%;
+      background: rgba(69, 119, 203, .16);
+      box-shadow: none;
+    }
+    .gamertag-console-button:hover {
+      border-color: #8fc0ff;
+      background: rgba(69, 119, 203, .32);
+      box-shadow: 0 0 10px rgba(91, 157, 255, .32);
+    }
+    .gamertag-console-icon {
+      position: relative;
+      width: 13px;
+      height: 13px;
+      display: block;
+    }
+    .gamertag-console-icon::before {
+      content: "";
+      position: absolute;
+      width: 5px;
+      height: 5px;
+      left: 4px;
+      top: 0;
+      border-radius: 50%;
+      background: #cfe4ff;
+    }
+    .gamertag-console-icon::after {
+      content: "";
+      position: absolute;
+      width: 11px;
+      height: 6px;
+      left: 1px;
+      bottom: 0;
+      border-radius: 7px 7px 3px 3px;
+      background: #79adf2;
+    }
 
     .row[hidden] {
       display: none;
@@ -2978,7 +3023,7 @@
           <div class="row" data-system="psp"><span class="icon">PP</span><span>PSP</span><span class="count">0</span></div>
           <div class="row" data-system="psvita"><span class="icon">PV</span><span>PS Vita</span><span class="count">0</span></div>
           <div class="row" data-system="xbox"><span class="icon">XB</span><span>Xbox</span><span class="count">0</span></div>
-          <div class="row" data-system="xbox360"><span class="icon">X3</span><span>Xbox 360</span><span class="count">0</span></div>
+          <div class="row" data-system="xbox360"><span class="icon">X3</span><span>Xbox 360</span><button class="gamertag-console-button" type="button" title="Add or manage Xbox 360 GamerTags" aria-label="Add or manage Xbox 360 GamerTags"><span class="gamertag-console-icon" aria-hidden="true"></span></button><span class="count">0</span></div>
           <div class="row" data-system="neogeo"><span class="icon">NG</span><span>Neo Geo</span><span class="count">0</span></div>
           <div class="row" data-system="ports"><span class="icon">PT</span><span>Ports</span><span class="count">0</span></div>
           <div class="row" data-system="pygame"><span class="icon">PY</span><span>Pygame</span><span class="count">0</span></div>
@@ -3901,6 +3946,10 @@
     // confirmed card visible in yellow while several polls retry instead of
     // removing it after one delayed response.
     const machineDisconnectGraceMs = 60000;
+    // A single slow SSH/library poll must not demote a machine that was just
+    // fully verified. Genuine disconnects still transition after this short,
+    // bounded confirmation window.
+    const machineOnlineGraceMs = 20000;
     const softReset = document.querySelector("#softReset");
     const saveTransferLayout = document.querySelector("#saveTransferLayout");
     const openTransferLayout = document.querySelector("#openTransferLayout");
@@ -4205,6 +4254,7 @@
     }
 
     const systemInventoryLoading = new Set();
+    const systemVisibilityServerChecked = new Set();
     function steamDiscoveryKey(device) {
       return `${visibilityStorageKey(device)}.steamDiscovery.v2`;
     }
@@ -4226,7 +4276,7 @@
       const needsC64Discovery = localStorage.getItem(c64DiscoveryKey(device)) === null;
       const needsCollectionDiscovery = selectedMachinePlatform(device) === 'batocera'
         && localStorage.getItem(collectionDiscoveryKey(device)) === null;
-      if (hasSavedSystems && !needsSteamDiscovery && !needsC64Discovery && !needsCollectionDiscovery) {
+      if (hasSavedSystems && systemVisibilityServerChecked.has(device) && !needsSteamDiscovery && !needsC64Discovery && !needsCollectionDiscovery) {
         if (selectedDevice === device) applyVisibleSystems(readVisibleSystems(device));
         return;
       }
@@ -4235,6 +4285,17 @@
         const response = await fetchStatusWithTimeout(`${apiBase}/api/device/systems?device=${encodeURIComponent(device)}`, 25000);
         const result = await response.json();
         if (!response.ok || !result.ok || !Array.isArray(result.systems)) throw new Error(result.error || "Unable to read systems");
+        systemVisibilityServerChecked.add(device);
+        if (Array.isArray(result.visibleSystems)) {
+          const valid = new Set([...rows].map(row => row.dataset.system));
+          const persisted = new Set(result.visibleSystems.filter(system => valid.has(system)));
+          localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...persisted]));
+          localStorage.setItem(steamDiscoveryKey(device), 'done');
+          localStorage.setItem(c64DiscoveryKey(device), 'done');
+          localStorage.setItem(collectionDiscoveryKey(device), 'done');
+          if (selectedDevice === device) applyVisibleSystems(persisted);
+          return;
+        }
         const c64DetectionReady = result.supportedSystems?.includes('c64') || result.systems.includes('c64');
         if (localStorage.getItem(visibilityStorageKey(device)) !== null) {
           // Add newly supported systems once for existing machines. A later
@@ -4386,6 +4447,7 @@
       const machines = automaticSetupPlatform && targetStatus?.online && (targetStatus.access === 'ssh' || targetStatus.platform==='retrobat') ? [visibilityDevice] : [];
       const previous = readVisibleSystems(visibilityDevice);
       const removed = new Set([...previous].filter(system => !selected.has(system)));
+      const added = new Set([...selected].filter(system => !previous.has(system)));
       if (removed.size && !machines.length) {
         await showXboxBiosDialog({title:'Machine Unavailable', device:visibilityDevice, message:'Reconnect this machine before removing a console. RP1 will not merely hide it while its files remain on the machine.', confirmLabel:'OK'});
         return;
@@ -4432,6 +4494,7 @@
       });
       closeSystemPickerModal();
       const installedByMachine = {};
+      const xbox360ProfileStatusByMachine = {};
       let cachedSetup = {};
       saveSystemPicker.disabled = true;
       syncStatus.textContent = 'Checking installed system setup...';
@@ -4445,24 +4508,23 @@
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(`${device}: ${result.error || 'Could not verify installed setup'}`);
           installedByMachine[device] = result.systems;
-          // The machine is authoritative for removals. A stale browser-side
-          // pane list must never turn an unchecked installed system into a
-          // cosmetic hide-only change.
-          const inventoryResponse = await fetch(`${apiBase}/api/device/systems?device=${encodeURIComponent(device)}`);
-          const inventory = await inventoryResponse.json();
-          if (!inventoryResponse.ok || !inventory.ok || !Array.isArray(inventory.systems)) {
-            throw new Error(`${device}: ${inventory.error || 'Could not read installed systems for removal'}`);
+          if (selected.has('xbox360')) {
+            const profileResponse = await fetch(`${apiBase}/api/xenia-profile/status?device=${encodeURIComponent(device)}`);
+            const profileResult = await profileResponse.json();
+            if (!profileResponse.ok || !profileResult.ok) throw new Error(`${device}: ${profileResult.error || 'Could not verify Xbox 360 GamerTags'}`);
+            xbox360ProfileStatusByMachine[device] = profileResult;
           }
-          const validSystems = new Set([...rows].map(row => row.dataset.system));
-          inventory.systems.filter(system => validSystems.has(system) && !selected.has(system) && !virtualCollectionSystems.has(system)).forEach(system => deviceRemoved.add(system));
+          // Only act on checkboxes changed in this edit. Earlier code added
+          // every installed-but-unchecked Batocera system here, causing a
+          // one-console change to produce a confirmation containing many
+          // unrelated consoles.
           for (const system of virtualCollectionSystems) deviceRemoved.delete(system);
           for (const system of deviceRemoved) {
             removals.push({device, system});
           }
         }
       } catch (error) {
-        // A failed machine inventory must not turn an unchecked console into
-        // a local-only hide while it remains installed on Batocera.
+        // A failed setup check must not commit a partial console selection.
         localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...previous]));
         if (selectedDevice === visibilityDevice) applyVisibleSystems(previous);
         await showXboxBiosDialog({title:'Setup Check Failed', message:error.message, confirmLabel:'OK'});
@@ -4478,8 +4540,8 @@
         }
         for (const {system, label} of names) {
           const installed = installedByMachine[device]?.[system];
-          const needsInstall = machines.includes(device) && setup[system] && !installed;
-          const needsPane = !previous.has(system);
+          const needsInstall = added.has(system) && machines.includes(device) && setup[system] && !installed;
+          const needsPane = added.has(system);
           if (!needsInstall && !needsPane) continue;
           const row = document.createElement('div');
           row.style.cssText = 'display:flex;gap:10px;align-items:baseline;margin:7px 0';
@@ -4519,47 +4581,22 @@
       const approved = await approval;
       if (!approved) return;
       let xbox360ProfileChoice = null;
-      // GamerTag creation belongs only to an explicit Xbox 360 add action.
-      // Removing another console must not reopen it merely because a backend
-      // status check considers the already-visible Xbox 360 setup incomplete.
-      const xbox360IsBeingAdded = selected.has('xbox360') && !previous.has('xbox360');
-      if (xbox360IsBeingAdded) {
-        const profileApproval = showXboxBiosDialog({
-          title: 'GamerTag', device: visibilityDevice, cancellable: true,
-          confirmLabel: 'Build GamerTags', cancelLabel: 'Cancel',
-          message: 'Add the local GamerTag names Xenia should create. These are offline profiles and do not connect to Xbox Live.'
-        });
-        const gamerTagList = document.createElement('div');
-        gamerTagList.style.cssText = 'display:grid;gap:7px;margin:12px 0 2px';
-        const addGamerTagRow = (value = '') => {
-          if (gamerTagList.children.length >= 4) return;
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;gap:7px';
-          const input = document.createElement('input');
-          input.type = 'text'; input.maxLength = 15; input.value = value;
-          input.placeholder = gamerTagList.children.length ? 'Additional GamerTag' : 'Player 1';
-          input.setAttribute('aria-label', `GamerTag ${gamerTagList.children.length + 1}`);
-          input.style.cssText = 'min-width:0;flex:1;height:40px;padding:0 11px;border:2px solid #52627b;border-radius:8px;background:#111722;color:#f4f7ff;font:900 1rem inherit';
-          const plus = document.createElement('button');
-          plus.type = 'button'; plus.textContent = '+'; plus.title = 'Add another GamerTag';
-          plus.style.cssText = 'width:40px;height:40px;min-width:40px;padding:0;border-radius:8px;font-size:1.35rem;font-weight:1000';
-          plus.addEventListener('click', () => { addGamerTagRow(); plus.hidden = true; gamerTagList.lastElementChild?.querySelector('input')?.focus(); });
-          row.append(input, plus); gamerTagList.append(row);
-          if (gamerTagList.children.length >= 4) plus.hidden = true;
-        };
-        addGamerTagRow('Player 1');
-        xboxBiosDialogMessage.append(gamerTagList);
-        const hint = document.createElement('div');
-        hint.textContent = 'Use + for additional local profiles. RP1 creates and verifies the encrypted Xenia profiles, then signs the first GamerTag in as Player 1.';
-        hint.style.cssText = 'margin:5px 0 0;color:#cbd4e6;font-size:.9em;line-height:1.25';
-        xboxBiosDialogMessage.append(hint);
-        if (!await profileApproval) return;
-        const gamerTags = [...gamerTagList.querySelectorAll('input')].map(input => input.value.trim()).filter(Boolean);
-        if (!gamerTags.length) throw new Error('Enter at least one GamerTag.');
-        if (new Set(gamerTags.map(name => name.toLocaleLowerCase())).size !== gamerTags.length) throw new Error('Each GamerTag must be unique.');
+      // Open GamerTag setup only when Xbox 360 is newly selected in this round.
+      // Unrelated console changes must not replay an older setup message.
+      const xbox360NeedsGamerTags = added.has('xbox360');
+      if (xbox360NeedsGamerTags) {
+        const gamerTags = await promptXbox360GamerTags(visibilityDevice);
+        if (!gamerTags) return;
         xbox360ProfileChoice = {gamerTags};
       }
       localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...selected]));
+      const persistVisibility = await fetch(`${apiBase}/api/ui/visible-systems`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({device:visibilityDevice, systems:[...selected]})
+      });
+      const persistedVisibility = await persistVisibility.json().catch(() => ({}));
+      if (!persistVisibility.ok || !persistedVisibility.ok) throw new Error(persistedVisibility.error || 'RP1 could not save this machine’s console selection.');
+      systemVisibilityServerChecked.add(visibilityDevice);
       localStorage.setItem(steamDiscoveryKey(visibilityDevice), 'done');
       localStorage.setItem(c64DiscoveryKey(visibilityDevice), 'done');
       localStorage.setItem(collectionDiscoveryKey(visibilityDevice), 'done');
@@ -4569,7 +4606,7 @@
       saveSystemPicker.disabled = true;
       const setupWork = new Set();
       for (const device of machines) for (const {system} of names) {
-        if (!previous.has(system) || (setup[system] && !installedByMachine[device]?.[system])) setupWork.add(`${device}\u0000${system}`);
+        if (added.has(system)) setupWork.add(`${device}\u0000${system}`);
       }
       const setupProgressTotal = removals.length + setupWork.size;
       let setupProgressDone = 0;
@@ -4632,6 +4669,7 @@
           } finally { advanceSetupProgress(); }
         }
         for (const device of machines) for (const {system, label} of names) {
+          if (!added.has(system)) continue;
           const contributesToProgress = setupWork.has(`${device}\u0000${system}`);
           const picturePresentationSystems = ['nes', 'snes', 'gba', 'n64', 'wii', 'ps1', 'ps2', 'xbox', 'xbox360'];
           if (!previous.has(system) && !picturePresentationSystems.includes(system) &&
@@ -4698,7 +4736,7 @@
             if (!profile.configured || expected.some(name => !installed.has(name))) {
               throw new Error(`${machineDisplayName(device)} did not verify every requested GamerTag inside Xenia.`);
             }
-            results.push(`${resultPrefix(device)}Xbox 360 GamerTags: ${xbox360ProfileChoice.gamerTags.join(', ')} created in Xenia; ${xbox360ProfileChoice.gamerTags[0]} assigned to Player 1.`);
+            results.push(`${resultPrefix(device)}Xbox 360 GamerTags: ${xbox360ProfileChoice.gamerTags.join(', ')} created in Xenia; ${xbox360ProfileChoice.gamerTags[0]} signed into Slot 0.`);
           }
         }
         if (systemSelectionChanged) {
@@ -8106,10 +8144,14 @@
       const rawOnline = Boolean(status?.online);
       const rawReachable = rawOnline || Boolean(status?.reachable);
       const now = Date.now();
+      const wasOnline = card.dataset.online === "true";
+      if (rawOnline) card.dataset.lastOnlineAt = String(now);
       if (rawOnline || rawReachable) card.dataset.lastConfirmedAt = String(now);
       const lastConfirmedAt = Number(card.dataset.lastConfirmedAt || 0);
+      const lastOnlineAt = Number(card.dataset.lastOnlineAt || 0);
       const withinDisconnectGrace = card.dataset.platform !== 'batocera-usb' && lastConfirmedAt > 0 && now - lastConfirmedAt < machineDisconnectGraceMs;
-      const online = rawOnline;
+      const online = rawOnline || (wasOnline && card.dataset.platform !== 'batocera-usb'
+        && lastOnlineAt > 0 && now - lastOnlineAt < machineOnlineGraceMs);
       // Reachability begins the visible discovery phase; identity and service
       // confirmation below decide when blinking yellow becomes solid yellow.
       const reachable = rawReachable || withinDisconnectGrace;
@@ -8121,8 +8163,10 @@
       // platform and a usable service are known, yellow becomes solid while
       // authentication/library verification finishes.
       const communicating = !online && reachable && !(identityConfirmed && serviceDetected);
-      const host = searching ? "" : (status?.host || card.dataset.host || "");
-      const wasOnline = card.dataset.online === "true";
+      // A background search may omit the host for one poll. If the machine is
+      // still within its verified-online grace period, retain the last known
+      // address so a green card can never say "Waiting for IP".
+      const host = searching && !online ? "" : (status?.host || card.dataset.host || "");
       const deviceId = card.dataset.device || "Batocera";
       const previousInstanceId = deviceStorageIdentity(deviceId);
       // Partial status updates (including Soft Reset) do not carry a fresh
@@ -8340,6 +8384,68 @@
         };
       });
     }
+
+    async function promptXbox360GamerTags(device, existingGamerTags = []) {
+      const profileApproval = showXboxBiosDialog({
+        title: 'Xbox 360 GamerTags', device, cancellable: true,
+        confirmLabel: 'Save GamerTags', cancelLabel: 'Cancel',
+        message: 'Create up to four offline GamerTags. They are available to every Xbox 360 game on this machine.'
+      });
+      const gamerTagList = document.createElement('div');
+      gamerTagList.style.cssText = 'display:grid;gap:7px;margin:12px 0 2px';
+      const addGamerTagRow = (value = '') => {
+        if (gamerTagList.children.length >= 4) return;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:7px';
+        const input = document.createElement('input');
+        input.type = 'text'; input.maxLength = 15; input.value = value;
+        input.placeholder = gamerTagList.children.length ? 'Additional GamerTag name' : 'GamerTag name';
+        input.setAttribute('aria-label', `GamerTag ${gamerTagList.children.length + 1}`);
+        input.style.cssText = 'min-width:0;flex:1;height:40px;padding:0 11px;border:2px solid #52627b;border-radius:8px;background:#111722;color:#f4f7ff;font:900 1rem inherit';
+        const plus = document.createElement('button');
+        plus.type = 'button'; plus.textContent = '+'; plus.title = 'Add another GamerTag';
+        plus.style.cssText = 'width:40px;height:40px;min-width:40px;padding:0;border-radius:8px;font-size:1.35rem;font-weight:1000';
+        plus.addEventListener('click', () => { addGamerTagRow(); plus.hidden = true; gamerTagList.lastElementChild?.querySelector('input')?.focus(); });
+        row.append(input, plus); gamerTagList.append(row);
+        if (gamerTagList.children.length >= 4) plus.hidden = true;
+      };
+      const savedNames = [...new Set(existingGamerTags.map(name => String(name || '').trim()).filter(Boolean))].slice(0, 4);
+      (savedNames.length ? savedNames : ['']).forEach(addGamerTagRow);
+      xboxBiosDialogMessage.append(gamerTagList);
+      const hint = document.createElement('div');
+      hint.textContent = 'Use + to add another person. Each profile keeps the exact GamerTag entered here; the first GamerTag is signed into Slot 0.';
+      hint.style.cssText = 'margin:5px 0 0;color:#cbd4e6;font-size:.9em;line-height:1.25';
+      xboxBiosDialogMessage.append(hint);
+      if (!await profileApproval) return null;
+      const gamerTags = [...gamerTagList.querySelectorAll('input')].map(input => input.value.trim()).filter(Boolean);
+      if (!gamerTags.length) throw new Error('Enter at least one GamerTag.');
+      if (new Set(gamerTags.map(name => name.toLocaleLowerCase())).size !== gamerTags.length) throw new Error('Each GamerTag must be unique.');
+      return gamerTags;
+    }
+
+    document.querySelector('.gamertag-console-button')?.addEventListener('click', async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const device = selectedDevice;
+      try {
+        if (!device || !selectedDeviceOnline) throw new Error('Select an online Batocera machine first.');
+        const statusResponse = await fetch(`${apiBase}/api/xenia-profile/status?device=${encodeURIComponent(device)}`);
+        const status = await statusResponse.json();
+        if (!statusResponse.ok || !status.ok) throw new Error(status.error || 'Could not read Xbox 360 GamerTags.');
+        const existing = Array.isArray(status.profiles) ? status.profiles.map(profile => profile.gamertag).filter(Boolean) : [];
+        const gamerTags = await promptXbox360GamerTags(device, existing);
+        if (!gamerTags) return;
+        syncStatus.textContent = 'Creating and verifying Xbox 360 GamerTags…';
+        const prepareResponse = await fetch(`${apiBase}/api/xenia-profile/prepare`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device, gamerTags})});
+        const prepared = await prepareResponse.json();
+        if (!prepareResponse.ok || !prepared.ok) throw new Error(prepared.error || 'Could not save Xbox 360 GamerTags.');
+        syncStatus.textContent = `Xbox 360 GamerTags ready: ${gamerTags.join(', ')}`;
+        await showXboxBiosDialog({title:'Xbox 360 GamerTags', device, message:`Saved: ${gamerTags.join(', ')}. These profiles are available to every Xbox 360 game on this machine.`, confirmLabel:'OK'});
+      } catch (error) {
+        syncStatus.textContent = `Xbox 360 GamerTags failed: ${error.message}`;
+        await showXboxBiosDialog({title:'Xbox 360 GamerTags', device, message:error.message, confirmLabel:'OK'});
+      }
+    });
 
     async function refreshUsbLibraryReaderButton(device, button) {
       try {
@@ -8906,9 +9012,9 @@
       retroBatMachineMenu?.remove();
       retroBatMachineMenu = null;
     }
-    async function openMachineDisplay(card) {
+    async function openMachineFrameRate(card) {
       const device = card.dataset.device;
-      const finished = showXboxBiosDialog({title:'Display', device, message:'Reading display options…', confirmLabel:'Done'});
+      const finished = showXboxBiosDialog({title:'Frame Rate', device, message:'Reading frame-rate and performance HUD options…', confirmLabel:'Done'});
       xboxBiosDialog.classList.add('display-compact');
       try {
         const response = await fetch(`/api/machine-display?device=${encodeURIComponent(device)}`, {cache:'no-store'});
@@ -8947,6 +9053,94 @@
       await finished;
       xboxBiosDialog.classList.remove('display-compact');
       xboxBiosDialogMessage.style.whiteSpace = 'pre-line';
+    }
+    async function openMachineRemoteDisplay(card) {
+      const device = card.dataset.device;
+      try {
+        syncStatus.textContent = `Checking Display support on ${machineDisplayName(device)}…`;
+        const response = await fetch(`/api/remote-display/status?device=${encodeURIComponent(device)}`, {cache:'no-store'});
+        const status = await response.json();
+        if (!response.ok || !status.ok) throw new Error(status.error || 'Could not check Display support.');
+        const installed = status.moonlightInstalled && status.sunshineInstalled && status.sunshineRunning;
+        const decision = showXboxBiosDialog({
+          title:'Display', device, cancellable:true,
+          confirmLabel: installed ? 'Open Display' : 'Install Both', cancelLabel:'Cancel',
+          message: status.supported ? 'Play this Batocera machine in a low-latency window on the RP1 computer.' : status.reason
+        });
+        xboxBiosDialog.classList.add('display-compact');
+        const components = document.createElement('div');
+        components.style.cssText = 'display:grid;gap:6px;margin-top:10px';
+        const component = (name, ready, detail) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 10px;border:1px solid #ffffff18;border-radius:7px;background:#ffffff08';
+          row.innerHTML = `<span><strong style="display:block">${name}</strong><small style="opacity:.72">${detail}</small></span><strong style="color:${ready ? '#75df8b' : '#f0c94f'}">${ready ? 'Ready' : 'Not installed'}</strong>`;
+          return row;
+        };
+        components.append(
+          component('Sunshine', status.sunshineInstalled && status.sunshineRunning, 'Video/audio host on the selected Batocera machine'),
+          component('Moonlight', status.moonlightInstalled, 'Playable client window on this RP1 computer')
+        );
+        xboxBiosDialogMessage.append(components);
+        confirmXboxBiosDialog.disabled = !status.supported;
+        const approved = await decision;
+        xboxBiosDialog.classList.remove('display-compact');
+        if (!approved) return;
+        if (!installed) {
+          const working = showXboxBiosDialog({title:'Display — Installing', device, message:'Installing Sunshine on Batocera and Moonlight on this computer…', confirmLabel:'Working'});
+          confirmXboxBiosDialog.disabled = true;
+          xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
+          const installResponse = await fetch('/api/remote-display/install', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
+          const result = await installResponse.json();
+          xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
+          if (!installResponse.ok || !result.ok) throw new Error(result.error || 'Display support installation failed.');
+          syncStatus.textContent = `Display support installed on ${machineDisplayName(device)}.`;
+          await showXboxBiosDialog({title:'Display Ready', device, message:'Sunshine and Moonlight were installed and verified. Open Display again to pair or launch the playable window.', confirmLabel:'OK'});
+          return;
+        }
+        if (!status.moonlightPaired) {
+          showXboxBiosDialog({title:'Display — Pairing', device, message:'Pairing Moonlight with Sunshine…', confirmLabel:'Working'});
+          confirmXboxBiosDialog.disabled = true;
+          xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
+          const pairResponse = await fetch('/api/remote-display/pair', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
+          const paired = await pairResponse.json();
+          xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
+          if (!pairResponse.ok || !paired.ok) throw new Error(paired.error || 'Display pairing failed.');
+        }
+        const openResponse = await fetch('/api/remote-display/open', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
+        const opened = await openResponse.json();
+        if (!openResponse.ok || !opened.ok) throw new Error(opened.error || 'Could not prepare the Display stream.');
+        const invoke = window.__TAURI__?.core?.invoke;
+        if (!invoke) throw new Error('Display must be opened from the RP1 desktop application.');
+        await invoke('open_embedded_display', {executable:opened.executable, host:opened.host || ''});
+        syncStatus.textContent = `Display opened for ${machineDisplayName(device)}.`;
+      } catch (error) {
+        xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact');
+        await showXboxBiosDialog({title:'Display', device, message:error.message, confirmLabel:'OK'});
+      }
+    }
+    async function openMachineAdHocDisplay(card) {
+      const device = card.dataset.device;
+      try {
+        const approved = await showXboxBiosDialog({
+          title:'Ad hoc Display', device, cancellable:true, confirmLabel:'Configure Direct Link', cancelLabel:'Cancel',
+          message:'Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine. RP1 will assign a private gigabit link (10.77.0.1 ↔ 10.77.0.2) and use it only for Display. Windows may request administrator approval.\n\nThis can show Batocera after it boots. It cannot show BIOS, rEFInd, or the Windows/Batocera boot menu; that requires HDMI capture.'
+        });
+        if (!approved) return;
+        showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working'});
+        confirmXboxBiosDialog.disabled = true;
+        xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
+        const response = await fetch('/api/remote-display/ad-hoc', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
+        const result = await response.json();
+        xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not prepare the direct Display link.');
+        const invoke = window.__TAURI__?.core?.invoke;
+        if (!invoke) throw new Error('Ad hoc Display must be opened from the RP1 desktop application.');
+        await invoke('open_embedded_display', {executable:result.executable, host:result.host});
+        syncStatus.textContent = `Ad hoc Display opened through ${result.adapter?.Name || 'Ethernet'}.`;
+      } catch (error) {
+        xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact');
+        await showXboxBiosDialog({title:'Ad hoc Display', device, message:error.message, confirmLabel:'OK'});
+      }
     }
     function showRetroBatMachineMenu(card, x, y) {
       closeRetroBatMachineMenu();
@@ -9262,13 +9456,29 @@
           }
         });
         menu.append(xeniaProfileButton);
+        const remoteDisplayButton = document.createElement('button');
+        remoteDisplayButton.type = 'button';
+        remoteDisplayButton.className = 'advanced-item';
+        remoteDisplayButton.setAttribute('role', 'menuitem');
+        remoteDisplayButton.textContent = 'Display';
+        remoteDisplayButton.style.marginTop = '4px';
+        remoteDisplayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineRemoteDisplay(card); });
+        menu.append(remoteDisplayButton);
+        const adHocDisplayButton = document.createElement('button');
+        adHocDisplayButton.type = 'button';
+        adHocDisplayButton.className = 'advanced-item';
+        adHocDisplayButton.setAttribute('role', 'menuitem');
+        adHocDisplayButton.textContent = 'Ad hoc Display';
+        adHocDisplayButton.style.marginTop = '4px';
+        adHocDisplayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineAdHocDisplay(card); });
+        menu.append(adHocDisplayButton);
         const displayButton = document.createElement('button');
         displayButton.type = 'button';
         displayButton.className = 'advanced-item';
         displayButton.setAttribute('role', 'menuitem');
-        displayButton.textContent = 'Display';
+        displayButton.textContent = 'Frame Rate';
         displayButton.style.marginTop = '4px';
-        displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineDisplay(card); });
+        displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineFrameRate(card); });
         menu.append(displayButton);
       }
       showCompactMachineMenu(button);

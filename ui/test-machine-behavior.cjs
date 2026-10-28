@@ -11,6 +11,7 @@ const html = fs.readFileSync(path.join(root, 'Ready Player One.html'), 'utf8');
 assert.match(css, /\.settings-card-grid\s*\{[^}]*grid-template-columns:repeat\(2/u, 'Settings cards must use two columns');
 assert.doesNotMatch(appearance, /id="openMachineBehavior"/u, 'Machine Behavior must not remain in the general Settings cards');
 assert.match(html, /Add \/ Update Credentials'[\s\S]*Machine Behavior'/u, 'Machine Behavior must appear directly below credentials in the machine menu');
+assert.match(html, /menu\.style\.width = '210px'[\s\S]*item\.style\.whiteSpace = 'nowrap'/u, 'Machine menu actions must be wide enough to stay on one line');
 assert.match(appearance, /window\.openMachineBehavior = device/u, 'Machine menu must be able to open behavior for its clicked machine');
 assert.match(appearance, /machine-behavior-machines/u, 'Machine Behavior must show a machine selector');
 assert.match(appearance, /Start screensaver after/u, 'screensaver timing must be configurable');

@@ -5,7 +5,6 @@ const { pipeline } = require('node:stream/promises');
 const { Transform, Writable } = require('node:stream');
 const { inspectSharedDualBootImage } = require('./shared-dual-boot-image');
 
-const IMAGE_BASE = 'batocera-x86_64-43.1-20260529.img';
 const REFIND_NAME = 'refind-bin-0.14.2.zip';
 const REFIND_SHA256 = '410c7828c4fec2f2179bd956073522415831d27c00416381b8f71153c190a311';
 const REFIND_SOURCE = path.join(__dirname, '..', 'companions', 'ready-player-two', 'vendor', 'refind', REFIND_NAME);
@@ -38,14 +37,15 @@ async function copyFileVerified(source, temp, onProgress = () => {}) {
   return {sourceSha256,total};
 }
 
-async function stageSharedDualBootImage({ imagePath, host, targetComputerName, windowsGb, defaultOs, onProgress = () => {} }) {
+async function stageSharedDualBootImage({ imagePath, host, targetComputerName, windowsGb, bootTimeoutSeconds = 10, defaultOs, onProgress = () => {} }) {
   if (!/^[a-zA-Z0-9.-]+$/.test(host) || host.includes('..')) throw new Error('Invalid Windows host.');
   if (!/^[a-zA-Z0-9_-]{1,63}$/.test(targetComputerName)) throw new Error('The Windows computer name is invalid.');
   if (!Number.isInteger(windowsGb) || windowsGb < 1) throw new Error('Choose a valid Windows partition size.');
+  if (!Number.isInteger(bootTimeoutSeconds) || bootTimeoutSeconds < 5 || bootTimeoutSeconds > 300) throw new Error('Choose a boot-menu wait from 5 to 300 seconds.');
   if (!['windows', 'batocera'].includes(defaultOs)) throw new Error('Choose a default boot OS.');
   const image = await inspectSharedDualBootImage(imagePath);
   const imageName = image.name.toLowerCase();
-  if (![IMAGE_BASE, `${IMAGE_BASE}.gz`].includes(imageName)) throw new Error(`Choose ${IMAGE_BASE} or ${IMAGE_BASE}.gz.`);
+  if (!/^batocera-x86_64-[a-z0-9._-]+\.img(?:\.gz)?$/i.test(imageName)) throw new Error('Choose a Batocera x86_64 .img or .img.gz image.');
   const stageRoot = `\\\\${host}\\RP2Stage`;
   const destination = path.win32.join(stageRoot, imageName);
   const temp = path.win32.join(stageRoot, `${imageName}.${crypto.randomUUID()}.partial`);
@@ -95,6 +95,7 @@ async function stageSharedDualBootImage({ imagePath, host, targetComputerName, w
       refindSha256: REFIND_SHA256,
       targetComputerName,
       windowsGb,
+      bootTimeoutSeconds,
       defaultOs,
       createdAt: new Date().toISOString(),
       status: 'staged-only'

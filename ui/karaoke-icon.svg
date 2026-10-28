@@ -1,25 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Karaoke">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Karaoke microphone">
   <defs>
-    <linearGradient id="bg" x1="18" y1="10" x2="80" y2="88" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#263247"/>
-      <stop offset="1" stop-color="#0d141f"/>
+    <linearGradient id="panel" x1="12" y1="8" x2="84" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#273650"/>
+      <stop offset=".55" stop-color="#121c2c"/>
+      <stop offset="1" stop-color="#090e18"/>
     </linearGradient>
-    <linearGradient id="note" x1="27" y1="15" x2="74" y2="80" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7dd3fc"/>
-      <stop offset=".46" stop-color="#60a5fa"/>
-      <stop offset="1" stop-color="#f472b6"/>
+    <linearGradient id="mic" x1="29" y1="18" x2="70" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f8fbff"/>
+      <stop offset=".35" stop-color="#9bdcff"/>
+      <stop offset=".7" stop-color="#6d8dff"/>
+      <stop offset="1" stop-color="#df63c8"/>
     </linearGradient>
-    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="3.4" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <linearGradient id="grille" x1="34" y1="17" x2="62" y2="45" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f7fbff"/>
+      <stop offset=".5" stop-color="#b9d8ed"/>
+      <stop offset="1" stop-color="#7188a6"/>
+    </linearGradient>
+    <filter id="glow" x="-45%" y="-45%" width="190%" height="190%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <rect x="7" y="7" width="82" height="82" rx="18" fill="url(#bg)" stroke="#5b6f8f" stroke-width="3"/>
-  <path d="M35 61V25l34-7v35" fill="none" stroke="url(#note)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
-  <ellipse cx="27" cy="65" rx="12" ry="9" fill="url(#note)" filter="url(#glow)"/>
-  <ellipse cx="61" cy="57" rx="12" ry="9" fill="url(#note)" filter="url(#glow)"/>
-  <path d="M35 34l34-7" fill="none" stroke="#dbeafe" stroke-width="3" stroke-linecap="round" opacity=".72"/>
+  <rect x="6" y="6" width="84" height="84" rx="20" fill="url(#panel)" stroke="#62789d" stroke-width="3"/>
+  <circle cx="22" cy="29" r="3" fill="#79d7ff" opacity=".85"/>
+  <circle cx="75" cy="24" r="2.5" fill="#ec70cf" opacity=".9"/>
+  <circle cx="76" cy="67" r="2" fill="#79d7ff" opacity=".75"/>
+  <path d="M24 52c3 13 12 20 24 20s21-7 24-20" fill="none" stroke="#60a5fa" stroke-width="4" stroke-linecap="round" opacity=".75" filter="url(#glow)"/>
+  <rect x="43" y="68" width="10" height="13" rx="5" fill="url(#mic)"/>
+  <path d="M35 82h26" fill="none" stroke="#e9f4ff" stroke-width="5" stroke-linecap="round"/>
+  <rect x="31" y="16" width="34" height="50" rx="17" fill="url(#mic)" filter="url(#glow)"/>
+  <rect x="36" y="20" width="24" height="25" rx="12" fill="url(#grille)"/>
+  <g fill="none" stroke="#52677f" stroke-width="1.8" stroke-linecap="round" opacity=".9">
+    <path d="M39 25h18M37.5 31h21M37.5 37h21"/>
+    <path d="M42 21l-3 22M49 20v25M56 21l3 22"/>
+  </g>
+  <path d="M38 49v3c0 7 4 11 10 11s10-4 10-11v-3" fill="none" stroke="#edf7ff" stroke-width="3" stroke-linecap="round" opacity=".78"/>
+  <path d="M68 38l5-5M70 44h8M27 39l-5-5M25 45h-7" fill="none" stroke="#f3a4dc" stroke-width="3" stroke-linecap="round"/>
 </svg>

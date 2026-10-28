@@ -37,6 +37,8 @@ module.exports = function localMediaTheme(base, system) {
     <image name="gridtile.image">
       <maxSize>${imageSize}</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
     </image>
+    ${system === 'wiiu' ? `<text name="gridtile"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>
+    <text name="gridtile:selected"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>` : ''}
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/${folder}/media/rp1-${system}-selector.png</path>
       <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding><color>4FA9FFFF</color>

@@ -2,7 +2,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const EXPECTED_NAME = 'batocera-x86_64-43.1-20260529.img';
 const PROBE_BYTES = 2 * 1024 * 1024;
 
 function readImagePrefix(filePath, compressed) {
@@ -81,7 +80,7 @@ function parseGpt(prefix) {
 async function inspectSharedDualBootImage(imagePath) {
   const resolved = path.resolve(String(imagePath || ''));
   const name = path.basename(resolved).toLowerCase();
-  if (name !== EXPECTED_NAME && name !== `${EXPECTED_NAME}.gz`) throw new Error(`Choose ${EXPECTED_NAME} or ${EXPECTED_NAME}.gz.`);
+  if (!/^batocera-x86_64-[a-z0-9._-]+\.img(?:\.gz)?$/i.test(name)) throw new Error('Choose a Batocera x86_64 .img or .img.gz image.');
   const info = fs.statSync(resolved);
   if (!info.isFile() || info.size < 1024 * 1024) throw new Error('The selected image is not a valid-sized file.');
   const compressed = name.endsWith('.gz');

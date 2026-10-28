@@ -15,6 +15,7 @@ const SEVEN_ZIP_DLL: &[u8] = include_bytes!("../../vendor/7zip/7z.dll");
 const SEVEN_ZIP_LICENSE: &str = include_str!("../../vendor/7zip/License.txt");
 const WINDOWS_BOOT_ICON: &[u8] = include_bytes!("../../boot-theme/windows11.png");
 const BATOCERA_BOOT_ICON: &[u8] = include_bytes!("../../boot-theme/batocera.png");
+const BOOT_SELECTION: &[u8] = include_bytes!("../../boot-theme/selection-big.png");
 const DUAL_BOOT_UNDO: &[u8] = include_bytes!("../../../../ui/dual-boot-undo.exe");
 
 fn install_dual_boot_undo_shortcut() -> Result<(PathBuf, PathBuf), String> {
@@ -88,6 +89,7 @@ fn main() {
     let seven_zip_dll_path = run_root.join("7z.dll");
     let windows_boot_icon_path = run_root.join("windows11.png");
     let batocera_boot_icon_path = run_root.join("batocera.png");
+    let boot_selection_path = run_root.join("selection-big.png");
     let log_root = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
@@ -109,6 +111,7 @@ fn main() {
         fs::write(&windows_boot_icon_path, WINDOWS_BOOT_ICON).map_err(|error| error.to_string())?;
         fs::write(&batocera_boot_icon_path, BATOCERA_BOOT_ICON)
             .map_err(|error| error.to_string())?;
+        fs::write(&boot_selection_path, BOOT_SELECTION).map_err(|error| error.to_string())?;
         fs::write(&license_path, SEVEN_ZIP_LICENSE).map_err(|error| error.to_string())?;
         let shortcut_detail = match install_dual_boot_undo_shortcut() {
             Ok((tool, shortcut)) => format!(
@@ -118,7 +121,7 @@ fn main() {
             ),
             Err(error) => format!("Dual Boot Undo shortcut needs attention: {error}\n"),
         };
-        fs::write(&log_path, format!("Ready Player Two 1.0.58 launched with the native Windows interface.\n{shortcut_detail}"))
+        fs::write(&log_path, format!("Ready Player Two 1.0.65 launched with the native Windows interface.\n{shortcut_detail}"))
             .map_err(|error| error.to_string())?;
         let mut process = Command::new("powershell.exe");
         process.creation_flags(0x08000000);
@@ -143,7 +146,7 @@ fn main() {
     let existing_log = fs::read_to_string(&log_path).unwrap_or_default();
     let _ = fs::write(
         &log_path,
-        format!("{existing_log}Ready Player Two 1.0.58\n{detail}"),
+        format!("{existing_log}Ready Player Two 1.0.65\n{detail}"),
     );
     let _ = fs::remove_file(setup_path);
     let _ = fs::remove_file(ui_path);

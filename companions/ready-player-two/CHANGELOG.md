@@ -1,3 +1,20 @@
+# Ready Player Two 1.0.65
+
+- Keep 384-pixel boot choices while adding a padded custom selector so the tiles no longer visually touch.
+- Enlarge the Windows and Batocera artwork inside each tile and make 10 seconds the permanent default boot-menu wait.
+
+# Ready Player Two 1.0.64
+
+- Reduce the rEFInd boot-menu icons from the oversized 768-pixel setting to 384 pixels while retaining the high-resolution logo sources.
+- Add configurable boot-menu timeout and default operating-system settings to the RP1-managed dual-boot plan.
+
+# Ready Player Two 1.0.63
+
+- Dual Boot Undo now presents a permanent-data-loss warning and requires typing `Delete All` (case-insensitive) before it can remove Batocera, SHARE, games, saves, artwork, settings, and other Batocera data.
+- Undo now requires an RP2-owned versioned journal, matching computer identity, installation ID, boot paths, exact partition ownership, expected adjacent disk geometry, matching reclaimed capacity, and a verified Windows EFI loader before any partition can be removed.
+- The Undo launcher now waits for its administrator process and shows/logs startup failures instead of silently flashing and closing.
+- The typed `Delete All` safeguard now uses an explicit ordinal case-insensitive comparison, accepting any capitalization exactly as promised.
+
 # Ready Player Two 1.0.56
 
 - Prepare shared-drive Batocera installations with a persistent ext4 container for Xenia's internal runtime when `/userdata` uses NTFS or exFAT.

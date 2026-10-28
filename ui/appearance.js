@@ -56,11 +56,17 @@
         <button class="appearance-tour" id="openAppearance" type="button"><span class="appearance-tour-icon" aria-hidden="true">◐</span><span><strong>Appearance</strong><small>Choose colors and warmth</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
         <button class="appearance-tour" id="openRemoveMachine" type="button"><span class="appearance-tour-icon remove-machine-icon" aria-hidden="true">−</span><span><strong>Remove Machine</strong><small>Remove an offline saved machine</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
         <button class="appearance-tour" id="openProgramTopology" type="button"><span class="appearance-tour-icon topology-icon" aria-hidden="true">⌘</span><span><strong>Program Topology</strong><small>Open the printable architecture brief</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
+        <button class="appearance-tour" id="openMachineLog" type="button"><span class="appearance-tour-icon machine-log-icon" aria-hidden="true">▦</span><span><strong>Machine Log</strong><small>Store machine and compatibility records</small></span><span class="appearance-tour-arrow" aria-hidden="true">→</span></button>
       </div>
     </div>`;
     const tour = dialog.querySelector('#openQuickTour');
     settings.querySelector('.settings-card-grid').append(tour);
     document.body.append(settings);
+    const machineLog = document.createElement('dialog');
+    machineLog.className = 'machine-log-dialog';
+    machineLog.setAttribute('aria-label','Machine Log');
+    machineLog.innerHTML = '<button class="machine-log-close" type="button" aria-label="Close Machine Log">×</button><iframe title="Machine Log" src="ui/machine-log.html"></iframe>';
+    document.body.append(machineLog);
     const behavior = document.createElement('dialog');
     behavior.className = 'appearance-dialog machine-behavior-dialog';
     behavior.setAttribute('aria-labelledby','machineBehaviorTitle');
@@ -228,6 +234,14 @@
         button.disabled = false;
       }
     });
+    settings.querySelector('#openMachineLog').addEventListener('click', () => {
+      settings.close();
+      machineLog.showModal();
+    });
+    machineLog.querySelector('.machine-log-close').addEventListener('click', () => machineLog.close());
+    machineLog.addEventListener('click', event => {
+      if (event.target === machineLog) machineLog.close();
+    });
     settings.querySelector('#openRemoveMachine').addEventListener('click', async () => {
       settings.close();
       try {
@@ -243,9 +257,13 @@
         grid.className = 'layout-machine-grid';
         xboxBiosDialogMessage.append(grid);
         const choices = [];
-        for (const machine of result.machines || []) {
+        const removableMachines = (result.machines || []).filter(machine => {
           const headerCard = [...document.querySelectorAll('.device-card')].find(item => item.dataset.device === machine.id);
-          const removable = Boolean(machine.removable && (!headerCard || headerCard.classList.contains('offline')));
+          return Boolean(machine.removable && (!headerCard || headerCard.classList.contains('offline')));
+        });
+        for (const machine of removableMachines) {
+          const headerCard = [...document.querySelectorAll('.device-card')].find(item => item.dataset.device === machine.id);
+          const removable = true;
           const card = document.createElement('button');
           card.type = 'button';
           card.className = `layout-machine-card${removable ? ' offline' : ' unsupported'}`;
@@ -269,7 +287,7 @@
         }
         if (!choices.length) {
           const empty = document.createElement('p');
-          empty.textContent = 'There are no saved machines to remove.';
+          empty.textContent = 'There are no offline saved machines to remove.';
           grid.append(empty);
         }
         const update = () => {
