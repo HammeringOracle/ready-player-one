@@ -14,7 +14,7 @@ The partition and boot-manager actions have not been exercised on this user's ph
 
 **Configure All** now honors the explicit blank-password checkbox even when no game frontend is detected. That checkbox changes Windows network-logon policy for *all local accounts* on this PC; leave it unchecked unless needed. A real Windows account password is safer and is not the same as a PIN. RP2 reports whether its local network-logon check passed; remote SMB access still needs verification from RP1. Windows error 1327 can also be caused by other account restrictions.
 
-Latest portable built into RP1: **`ui/ready-player-two.exe` (1.0.65)**. Running it creates or refreshes a **Dual Boot Undo** shortcut on that Windows user's Desktop, then opens RP2. Copy it to the Windows PC and run Configure All once to update the protected worker.
+Latest portable built into RP1: **`ui/ready-player-two.exe` (1.0.69)**. Running it creates or refreshes a **Dual Boot Undo** shortcut on that Windows user's Desktop, then opens RP2. Copy it to the Windows PC and run Configure All once to update the protected worker.
 
 The pinned rEFInd 0.14.2 binary archive comes from [the upstream SourceForge project](https://sourceforge.net/projects/refind/files/0.14.2/refind-bin-0.14.2.zip/download), SHA-256 `410c7828c4fec2f2179bd956073522415831d27c00416381b8f71153c190a311`. Its bundled license and upstream source references are retained in the archive.
 

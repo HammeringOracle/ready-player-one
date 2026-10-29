@@ -37,13 +37,16 @@ async function copyFileVerified(source, temp, onProgress = () => {}) {
   return {sourceSha256,total};
 }
 
-async function stageSharedDualBootImage({ imagePath, host, targetComputerName, windowsGb, bootTimeoutSeconds = 10, defaultOs, onProgress = () => {} }) {
+async function stageSharedDualBootImage({ imagePath, expectedImageName, expectedImageBytes, expectedImageModifiedAt, host, targetComputerName, windowsGb, bootTimeoutSeconds = 10, defaultOs, onProgress = () => {} }) {
   if (!/^[a-zA-Z0-9.-]+$/.test(host) || host.includes('..')) throw new Error('Invalid Windows host.');
   if (!/^[a-zA-Z0-9_-]{1,63}$/.test(targetComputerName)) throw new Error('The Windows computer name is invalid.');
   if (!Number.isInteger(windowsGb) || windowsGb < 1) throw new Error('Choose a valid Windows partition size.');
   if (!Number.isInteger(bootTimeoutSeconds) || bootTimeoutSeconds < 5 || bootTimeoutSeconds > 300) throw new Error('Choose a boot-menu wait from 5 to 300 seconds.');
   if (!['windows', 'batocera'].includes(defaultOs)) throw new Error('Choose a default boot OS.');
   const image = await inspectSharedDualBootImage(imagePath);
+  if (image.name !== String(expectedImageName || '').toLowerCase() || image.sizeBytes !== Number(expectedImageBytes) || image.modifiedAt !== expectedImageModifiedAt) {
+    throw new Error('The selected Batocera image changed before staging began. Choose the image again.');
+  }
   const imageName = image.name.toLowerCase();
   if (!/^batocera-x86_64-[a-z0-9._-]+\.img(?:\.gz)?$/i.test(imageName)) throw new Error('Choose a Batocera x86_64 .img or .img.gz image.');
   const stageRoot = `\\\\${host}\\RP2Stage`;
@@ -53,19 +56,29 @@ async function stageSharedDualBootImage({ imagePath, host, targetComputerName, w
   try {
     const sourceSha256 = await sha256File(image.path);
     const total = (await fs.promises.stat(image.path)).size;
+    let previousPlan = null;
+    try { previousPlan = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8')); }
+    catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
+    if (previousPlan?.status === 'staged-only' && previousPlan.targetComputerName === targetComputerName &&
+        /^batocera-x86_64-[a-z0-9._-]+\.img(?:\.gz)?$/i.test(previousPlan.imageName || '') && previousPlan.imageName !== imageName) {
+      await fs.promises.rm(path.win32.join(stageRoot, previousPlan.imageName), { force: true });
+      await fs.promises.rm(manifestPath, { force: true });
+      previousPlan = null;
+    }
     let existing = null;
     try { existing = await fs.promises.stat(destination); }
     catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
     if (existing) {
-      let previousPlan = null;
-      try { previousPlan = JSON.parse(await fs.promises.readFile(manifestPath, 'utf8')); }
-      catch (error) { if (!['ENOENT','UNKNOWN'].includes(error.code)) throw error; }
       if (existing.size !== total || previousPlan?.imageName !== imageName ||
           previousPlan.imageBytes !== total || previousPlan.imageSha256 !== sourceSha256 ||
           previousPlan.targetComputerName !== targetComputerName || previousPlan.status !== 'staged-only') {
-        throw new Error('A different or unverified Batocera image is already staged on this Windows PC. RP1 will not overwrite it.');
+        await fs.promises.rm(destination, { force: true });
+        const copied = await copyFileVerified(image.path,temp,onProgress);
+        if (copied.sourceSha256 !== sourceSha256 || copied.total !== total) throw new Error('The copied image differs from the selected local image.');
+        await fs.promises.rename(temp, destination);
+      } else {
+        onProgress({ phase: 'verifying', copiedBytes: total, totalBytes: total });
       }
-      onProgress({ phase: 'verifying', copiedBytes: total, totalBytes: total });
     } else {
       const copied = await copyFileVerified(image.path,temp,onProgress);
       if (copied.sourceSha256 !== sourceSha256 || copied.total !== total) throw new Error('The copied image differs from the selected local image.');

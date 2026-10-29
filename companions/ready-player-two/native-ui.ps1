@@ -70,7 +70,7 @@ function Save-RP2OperationLog([string]$Action,[object]$Result) {
 }
 
 $xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Ready Player Two 1.0.65" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Ready Player Two 1.0.69" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
   <Window.Resources>
     <Style TargetType="TextBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="CaretBrush" Value="#101722"/><Setter Property="Padding" Value="8,4"/></Style>
     <Style TargetType="ComboBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="Padding" Value="7,3"/></Style>
@@ -81,7 +81,7 @@ $xaml = @'
   </Window.Resources>
   <Grid Margin="20">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.65" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
+    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.69" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
     <Border Grid.Row="1" Background="#1D2938" BorderBrush="#4F6B8E" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,10,0,10"><StackPanel><TextBlock Text="Make this Windows PC visible in Ready Player One." FontSize="15" FontWeight="Bold" Margin="0,0,0,3"/><TextBlock Text="Configures Windows discovery and supported frontends." TextWrapping="Wrap" Foreground="#BFD4EC"/></StackPanel></Border>
     <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="0.9*"/></Grid.ColumnDefinitions>
       <StackPanel Margin="0,0,14,0"><TextBlock Text="DETECTED PROGRAMS" FontWeight="Bold" Foreground="#70B8FF"/><ListBox Name="Programs" Margin="0,6,0,10" Height="105" Background="#182230" Foreground="White" BorderBrush="#526C8E" FontSize="16"/><TextBlock Text="HOME NETWORK" FontWeight="Bold" Foreground="#70B8FF"/><ComboBox Name="Networks" Margin="0,6,0,0" Height="32" Background="#EAF2FF" Foreground="#111722"/></StackPanel>
@@ -214,7 +214,7 @@ $setup.Add_Click({
         $request=[ordered]@{platform='all';folder='';account=$account.Text.Trim();interfaceIndex=[int]$networks.SelectedValue;makePrivate=[bool]$makePrivate.IsChecked;allowBlankPassword=[bool]$blankPassword.IsChecked}
         $result=Invoke-RP2 'setup' $request -Elevated
         $operationLog=Save-RP2OperationLog 'Configure All' $result
-        if($result.ok){$status.Text="Setup complete. RP1 discovery, RP2Stage, and the protected dual-boot worker are active.`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue;$script:rp2SessionStartedAt=(Get-Date).ToUniversalTime();$installTimer.Start();[Windows.MessageBox]::Show('Setup complete. RP1 discovery and the protected dual-boot worker are active.','Ready Player Two - Configure All','OK','Information')|Out-Null}
+        if($result.ok){$status.Text="Setup complete. RP1 discovery, RP2Stage, and the protected dual-boot worker are active.`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot.`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue;$script:rp2SessionStartedAt=(Get-Date).ToUniversalTime();$installTimer.Start();[Windows.MessageBox]::Show("Setup complete. RP1 discovery and the protected dual-boot worker are active.`n`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot.",'Ready Player Two - Configure All','OK','Information')|Out-Null}
         else{$status.Text="Setup needs attention: $($result.error)`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed}
     } catch {$status.Text="Setup failed: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed}
     finally {$setup.IsEnabled=$true;$refresh.IsEnabled=$true}

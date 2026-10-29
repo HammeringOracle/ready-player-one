@@ -200,7 +200,7 @@ while ($true) {
     Start-ScheduledTask -TaskName $taskName
     $statusRoot = Join-Path $env:ProgramData 'Ready Player Two\status'
     if (Test-Path -LiteralPath $statusRoot -PathType Container) {
-        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.65';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.69';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     }
 }
 function Get-FirmwareType {
@@ -373,9 +373,11 @@ function Get-RP2EfiFreeBytes {
 function Get-RP2BootDiagnostic {
     $firmware = (& bcdedit.exe /enum '{fwbootmgr}' 2>&1 | Out-String)
     $firmwareExit = $LASTEXITCODE
+    $firmwareEntries = (& bcdedit.exe /enum firmware /v 2>&1 | Out-String)
+    $firmwareEntriesExit = $LASTEXITCODE
     $bootManager = (& bcdedit.exe /enum '{bootmgr}' 2>&1 | Out-String)
     $bootManagerExit = $LASTEXITCODE
-    $report = [ordered]@{ ok=$true; schema=1; computer=$env:COMPUTERNAME; capturedAt=(Get-Date).ToUniversalTime().ToString('o'); inspectionOnly=$true; firmwareBootManager=$firmware; firmwareExitCode=$firmwareExit; windowsBootManager=$bootManager; windowsBootManagerExitCode=$bootManagerExit; efiMounted=$false; refindLoaderExists=$false; refindConfigExists=$false; windowsLoaderExists=$false; refindConfig=''; error='' }
+    $report = [ordered]@{ ok=$true; schema=1; computer=$env:COMPUTERNAME; capturedAt=(Get-Date).ToUniversalTime().ToString('o'); inspectionOnly=$true; firmwareBootManager=$firmware; firmwareExitCode=$firmwareExit; firmwareEntries=$firmwareEntries; firmwareEntriesExitCode=$firmwareEntriesExit; windowsBootManager=$bootManager; windowsBootManagerExitCode=$bootManagerExit; efiMounted=$false; refindLoaderExists=$false; refindConfigExists=$false; windowsLoaderExists=$false; refindConfig=''; error='' }
     $letter = $null
     try {
         foreach ($candidate in @('R','S','T','U','V','W','X','Y','Z')) {
@@ -396,6 +398,40 @@ function Get-RP2BootDiagnostic {
     $statusPath=Join-Path $env:ProgramData 'Ready Player Two\status\boot-diagnostic.json'
     [IO.File]::WriteAllText($statusPath,($report | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
     return $report
+}
+function Ensure-RP2FirmwareBootEntry([string]$JournalPath) {
+    $journal=Get-Content -LiteralPath $JournalPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    $entries=(& bcdedit.exe /enum firmware /v 2>&1 | Out-String)
+    if($LASTEXITCODE -ne 0){throw 'Windows firmware boot entries could not be inspected.'}
+    $entryId=''
+    if([string]$journal.firmwareEntryId -match '^\{[0-9a-fA-F-]{36}\}$'){$entryId=[string]$journal.firmwareEntryId}
+    if(-not $entryId){
+        foreach($block in @($entries -split '(?:\r?\n){2,}')){
+            if($block -match '(?im)^description\s+Ready Player One Dual Boot\s*$' -and $block -match [regex]::Escape('\EFI\refind\refind_x64.efi') -and $block -match '(?im)^identifier\s+(\{[0-9a-fA-F-]{36}\})\s*$'){$entryId=$Matches[1];break}
+        }
+    }
+    $created=$false
+    if(-not $entryId -or $entries -notmatch [regex]::Escape($entryId)){
+        $copyOutput=(& bcdedit.exe /copy '{bootmgr}' /d 'Ready Player One Dual Boot' 2>&1 | Out-String)
+        if($LASTEXITCODE -ne 0 -or $copyOutput -notmatch '\{[0-9a-fA-F-]{36}\}'){throw "Windows could not create the dedicated RP2 firmware entry. $($copyOutput.Trim())"}
+        $entryId=$Matches[0]
+        $created=$true
+    }
+    try {
+        & bcdedit.exe /set $entryId path '\EFI\refind\refind_x64.efi' | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Windows rejected the rEFInd path on the dedicated RP2 firmware entry.'}
+        & bcdedit.exe /set '{fwbootmgr}' displayorder $entryId /addfirst | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Windows could not place the dedicated RP2 entry first in firmware boot order.'}
+        & bcdedit.exe /set '{fwbootmgr}' bootsequence $entryId 2>$null | Out-Null
+        $verified=(& bcdedit.exe /enum firmware /v 2>&1 | Out-String)
+        if($LASTEXITCODE -ne 0 -or $verified -notmatch [regex]::Escape($entryId) -or $verified -notmatch '(?im)^description\s+Ready Player One Dual Boot\s*$' -or $verified -notmatch [regex]::Escape('\EFI\refind\refind_x64.efi')){throw 'The dedicated RP2 firmware entry did not verify.'}
+        $journal | Add-Member -NotePropertyName firmwareEntryId -NotePropertyValue $entryId -Force
+        [IO.File]::WriteAllText($JournalPath,($journal | ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
+        return [pscustomobject]@{id=$entryId;changed=$created}
+    } catch {
+        if($created){& bcdedit.exe /delete $entryId 2>$null | Out-Null}
+        throw
+    }
 }
 function Add-RP2BootDiagnosticLog([System.Collections.Generic.List[string]]$Log) {
     try {
@@ -496,6 +532,27 @@ function Invoke-RP2ManagedBootMaintenance([System.Collections.Generic.List[strin
     }
     $Log.Add($(if ($repair.changed) { 'Verified the existing RP2-managed Batocera installation and repaired its boot menu.' } else { 'Verified the existing RP2-managed Batocera installation and boot menu; no repair was needed.' }))
     if (Install-RP2BatoceraRuntimeBootstrap) { $Log.Add('Installed the Batocera shared-drive Xbox 360 runtime storage preflight.') }
+    if (Hide-RP2ManagedBatoceraVolumes) { $Log.Add('Removed Windows drive letters from the RP2-managed Batocera volumes to prevent format prompts.') }
+}
+function Hide-RP2ManagedBatoceraVolumes {
+    $journalPath=Join-Path $env:ProgramData 'Ready Player Two\staging\install-state.json'
+    if(-not (Test-Path -LiteralPath $journalPath -PathType Leaf)){return $false}
+    $journal=Get-Content -LiteralPath $journalPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    if([int]$journal.schema -ne 2 -or [string]$journal.managedBy -cne 'Ready Player Two' -or $journal.undoSupported -ne $true -or
+       [string]$journal.installationId -notmatch '^[0-9a-fA-F-]{36}$' -or @($journal.createdPartitions).Count -ne 2){return $false}
+    $expected=@('BATOCERA','SHARE')
+    for($index=0;$index -lt 2;$index++){
+        $partition=Get-Partition -DiskNumber ([int]$journal.diskNumber) -PartitionNumber ([int]$journal.createdPartitions[$index]) -ErrorAction Stop
+        $volume=Get-Volume -Partition $partition -ErrorAction Stop
+        if([string]$volume.FileSystemLabel -cne $expected[$index]){throw "The managed partition $($partition.PartitionNumber) is not the expected $($expected[$index]) volume; its Windows mount was not changed."}
+        Set-Partition -DiskNumber ([int]$journal.diskNumber) -PartitionNumber ([int]$partition.PartitionNumber) -NoDefaultDriveLetter $true -ErrorAction Stop
+        foreach($accessPath in @($partition.AccessPaths)){
+            if([string]$accessPath -match '^[A-Za-z]:\\$'){
+                Remove-PartitionAccessPath -DiskNumber ([int]$journal.diskNumber) -PartitionNumber ([int]$partition.PartitionNumber) -AccessPath ([string]$accessPath) -ErrorAction Stop
+            }
+        }
+    }
+    return $true
 }
 function Install-RP2BatoceraRuntimeBootstrap {
     $shareVolumes = @(Get-Volume -FileSystemLabel 'SHARE' -ErrorAction SilentlyContinue)
@@ -559,7 +616,8 @@ fi
 function Repair-RP2BootMenu {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator approval is required to repair the boot menu.' }
     $stageRoot=Join-Path $env:ProgramData 'Ready Player Two\staging'
-    $journal=Get-Content -LiteralPath (Join-Path $stageRoot 'install-state.json') -Raw -ErrorAction Stop | ConvertFrom-Json
+    $journalPath=Join-Path $stageRoot 'install-state.json'
+    $journal=Get-Content -LiteralPath $journalPath -Raw -ErrorAction Stop | ConvertFrom-Json
     $plan=Get-Content -LiteralPath (Join-Path $stageRoot 'plan.json') -Raw -ErrorAction Stop | ConvertFrom-Json
     if ($journal.phase -ne 'awaiting-first-boot' -or $plan.schema -ne 1 -or [string]$plan.targetComputerName -ine $env:COMPUTERNAME -or $plan.defaultOs -notin @('windows','batocera')) { throw 'This PC does not match a completed RP2-managed installation. No boot setting was changed.' }
     if (@($journal.createdPartitions).Count -ne 2) { throw 'The Batocera partition journal is incomplete. No boot setting was changed.' }
@@ -641,7 +699,10 @@ function Repair-RP2BootMenu {
         $targetText=($target -join "`n").Trim()
         $installedThemeDir=Join-Path $efiRoot 'EFI\refind\themes\rp1'
         $themeComplete=(Test-Path -LiteralPath (Join-Path $installedThemeDir 'windows11.png') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $installedThemeDir 'batocera.png') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $installedThemeDir 'selection-big.png') -PathType Leaf)
-        if ($current -eq $targetText -and $themeComplete -and $bootPathIsRefind) { return @{ok=$true;changed=$false;detail='The two-choice graphical menu with high-resolution Windows and Batocera logos is already configured. No files changed.'} }
+        if ($current -eq $targetText -and $themeComplete -and $bootPathIsRefind) {
+            $firmwareEntry=Ensure-RP2FirmwareBootEntry $journalPath
+            return @{ok=$true;changed=$firmwareEntry.changed;detail='The two-choice graphical menu and its dedicated first-priority firmware entry are verified.'}
+        }
         if ($current -and $current -ne $targetText -and $current -ne (($legacy -join "`n").Trim()) -and $current -ne (($plainText -join "`n").Trim()) -and $current -ne (($graphicalV1 -join "`n").Trim()) -and $current -ne (($graphicalCustomV1 -join "`n").Trim()) -and $current -ne (($graphicalCustomV2 -join "`n").Trim()) -and $current -ne (($graphicalCustomV3 -join "`n").Trim())) { throw 'The rEFInd configuration differs from the RP2-installed version. No boot setting was changed.' }
         $backupRoot=Join-Path $env:ProgramData ('Ready Player Two\boot-backup\menu-repair-' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
         New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop | Out-Null
@@ -668,12 +729,13 @@ function Repair-RP2BootMenu {
                 $verifiedBootManager=(& bcdedit.exe /enum '{bootmgr}' 2>&1 | Out-String)
                 if ($LASTEXITCODE -ne 0 -or $verifiedBootManager -notmatch [regex]::Escape('\EFI\refind\refind_x64.efi')) { throw 'The repaired rEFInd boot path did not verify.' }
             }
+            $firmwareEntry=Ensure-RP2FirmwareBootEntry $journalPath
         } catch {
             if(Test-Path -LiteralPath $backupPath -PathType Leaf){Copy-Item -LiteralPath $backupPath -Destination $configPath -Force -ErrorAction Stop}else{Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue}
             if(-not $bootPathIsRefind){& bcdedit.exe /set '{bootmgr}' path '\EFI\Microsoft\Boot\bootmgfw.efi' | Out-Null}
             throw "Boot menu repair failed; original configuration restored. $($_.Exception.Message)"
         }
-        return @{ok=$true;changed=$true;detail="Two-choice graphical menu configured with a $bootTimeoutSeconds-second $defaultName default. Reboot and verify both choices on the actual display.";backupPath=$backupPath}
+        return @{ok=$true;changed=$true;detail="Two-choice graphical menu and dedicated firmware entry configured with a $bootTimeoutSeconds-second $defaultName default. Reboot and verify both choices on the actual display.";backupPath=$backupPath}
     } finally {
         if ($mounted) { & mountvol.exe "$letter`:" /D | Out-Null }
         if ($bootTempLetter) { Remove-PartitionAccessPath -DiskNumber ([int]$journal.diskNumber) -PartitionNumber ([int]$bootPartition.PartitionNumber) -AccessPath "$bootTempLetter`:\" -ErrorAction Stop }
@@ -978,8 +1040,10 @@ function Install-RP2Refind {
         $bootPathChanged = $true
         $bootManager = (& bcdedit.exe /enum '{bootmgr}' | Out-String)
         if ($LASTEXITCODE -ne 0 -or $bootManager -notmatch [regex]::Escape('\EFI\refind\refind_x64.efi')) { throw 'The new boot path did not verify.' }
+        $firmwareEntry=Ensure-RP2FirmwareBootEntry $journalPath
         Set-RP2InstallState 'awaiting-first-boot' 'rEFInd and Batocera boot entries installed. Reboot and test both Windows and Batocera before considering dual boot verified.'
-        return @{ok=$true;phase='awaiting-first-boot';defaultOs=$plan.defaultOs;bootTimeoutSeconds=$bootTimeoutSeconds;backupPath=$bcdBackup;bootMenuInstalled=$true}
+        $null=Hide-RP2ManagedBatoceraVolumes
+        return @{ok=$true;phase='awaiting-first-boot';defaultOs=$plan.defaultOs;bootTimeoutSeconds=$bootTimeoutSeconds;backupPath=$bcdBackup;bootMenuInstalled=$true;firmwareEntryId=$firmwareEntry.id}
     } catch {
         $failure = $_.Exception.Message
         if ($bootPathChanged) {

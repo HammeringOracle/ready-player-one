@@ -1,3 +1,17 @@
+# Ready Player Two 1.0.69
+
+- Creates and verifies a dedicated `Ready Player One Dual Boot` UEFI entry, places it first, and records its identifier so Dual Boot Undo removes only that entry. This fixes firmware that bypasses the redirected generic Windows Boot Manager entry.
+
+- Configure All now ends with an explicit instruction to return to RP1 and run Windows/Batocera Dual Boot.
+
+# Ready Player Two 1.0.67
+
+- Hide the verified RP2-managed BATOCERA and SHARE partitions from Windows after installation and during Configure All maintenance, preventing Windows format prompts without touching unrelated disks.
+
+# Ready Player Two 1.0.66
+
+- Increase the visible inside-edge gap between the Windows 11 and Batocera boot artwork from approximately 8 px to 12 px without changing the tile size.
+
 # Ready Player Two 1.0.65
 
 - Keep 384-pixel boot choices while adding a padded custom selector so the tiles no longer visually touch.

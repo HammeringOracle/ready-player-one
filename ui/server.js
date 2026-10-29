@@ -389,6 +389,11 @@ function readTransferJobs() {
     const deviceSettings = readDeviceSettings();
     return saved.map(job => {
       if (!job || !job.device || !job.system || !job.fileName) return null;
+      // v2 queues originate only from an explicit backend enqueue/click and
+      // carry their verified installation UUID. Older auto queues could be
+      // reconstructed from UI checkbox history and must not cross into a new
+      // Batocera image.
+      if (!job.completed && job.autoQueued && job.queueVersion !== 2) return null;
       const currentInstallation = String(deviceSettings[job.device]?.installationId || "").trim();
       // Legacy jobs have no installation identity. Once a Batocera image has
       // been identified, they cannot safely be replayed or displayed there.
@@ -1327,6 +1332,17 @@ function withTimeout(promise, timeoutMs, fallback = null) {
   ]);
 }
 
+function withRejectingTimeout(promise, timeoutMs, message) {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      timer.unref?.();
+    })
+  ]);
+}
+
 async function resolveDeviceHosts(device, { includeAliases = true } = {}) {
   const aliases = includeAliases ? device.aliases || [] : [];
   const candidates = [device.discoveredHost, device.host, ...aliases].filter(Boolean);
@@ -1560,7 +1576,25 @@ function reconcileBatoceraInstallation(id, installationId) {
   const settings = readDeviceSettings();
   const previousId = String(settings[id]?.installationId || "").trim();
   verifiedInstallationIds.set(id, installationId);
-  if (!previousId || previousId === installationId) return;
+  if (!previousId) {
+    for (const [key, job] of transferJobs) {
+      if (job.device === id) transferJobs.delete(key);
+    }
+    scheduleTransferPersistence(true);
+    const currentSettings = readDeviceSettings();
+    currentSettings[id] = {
+      ...(currentSettings[id] || {}),
+      installationId,
+      installationResetToken: `${installationId}:${crypto.randomUUID()}`,
+      installationDisplayName: "",
+      osVersion: ""
+    };
+    delete currentSettings[id].visibleSystems;
+    delete currentSettings[id].remoteDisplayPassword;
+    writeDeviceSettings(currentSettings);
+    return;
+  }
+  if (previousId === installationId) return;
   // A fresh image on the same computer is not the old ROM library. Never
   // replay its durable upload queue or show completed jobs on the new install.
   for (const [key, job] of transferJobs) {
@@ -1577,20 +1611,37 @@ function reconcileBatoceraInstallation(id, installationId) {
   delete resetState.pending?.[`batocera-installation:${previousId}`];
   delete resetState.pending?.[id];
   writeSoftResetState(resetState);
+  // The MAC identifies the computer, not the Batocera installation. A new
+  // userdata UUID must begin with no inherited console selection or services.
+  // Live inspection below repopulates the new version/name after this reset.
+  const currentSettings = readDeviceSettings();
+  if (currentSettings[id]) {
+    currentSettings[id] = {
+      ...currentSettings[id],
+      installationId,
+      installationResetToken: `${installationId}:${crypto.randomUUID()}`,
+      installationDisplayName: "",
+      osVersion: ""
+    };
+    delete currentSettings[id].visibleSystems;
+    delete currentSettings[id].remoteDisplayPassword;
+    writeDeviceSettings(currentSettings);
+  }
 }
 async function refreshMachineDisplayNames(statuses) {
   await Promise.all(Object.entries(statuses).map(async ([id, status]) => {
     let settings = readDeviceSettings();
     status.mac = String(devices[id]?.mac || settings[id]?.mac || "").toLowerCase();
-    status.displayName = savedMachineDisplayName(settings[id], id);
-    status.osVersion = String(settings[id]?.osVersion || "");
+    const savedInstallationVerified = settings[id]?.installationId &&
+      verifiedInstallationIds.get(id) === settings[id].installationId;
+    status.displayName = savedInstallationVerified ? savedMachineDisplayName(settings[id], id) : "BATOCERA";
+    status.osVersion = savedInstallationVerified ? String(settings[id]?.osVersion || "") : "";
+    status.installationResetToken = String(settings[id]?.installationResetToken || "");
     if (!status.online || status.access !== "ssh" || !devices[id]) {
       status.hostName = status.displayName;
-      const savedInstallationMatchesName = settings[id]?.installationId &&
-        settings[id]?.installationDisplayName === status.displayName;
-      status.instanceId = savedInstallationMatchesName
-        ? `batocera-installation:${settings[id].installationId}`
-        : `batocera-provisional:${status.mac || status.host || id}:${status.displayName}`;
+      // Never present a saved installation as current until its live userdata
+      // UUID has been read during this RP1 session.
+      status.instanceId = `batocera-provisional:${status.mac || status.host || id}:${status.displayName}`;
       return;
     }
     const previous = machineNameChecks.get(id);
@@ -1628,6 +1679,7 @@ async function refreshMachineDisplayNames(statuses) {
     settings = readDeviceSettings();
     status.displayName = savedMachineDisplayName(settings[id], id);
     status.osVersion = String(settings[id]?.osVersion || "");
+    status.installationResetToken = String(settings[id]?.installationResetToken || "");
     status.hostName = status.displayName;
     const savedInstallationMatchesName = settings[id]?.installationId &&
       settings[id]?.installationDisplayName === status.displayName;
@@ -1668,8 +1720,15 @@ async function ensureCurrentBatoceraInstallation(id, device) {
 }
 
 function invalidateMachineConnection(name) {
-  verifiedOnlineUntil.delete(name);
   discoveryCache.at = 0;
+  // A transfer, scrape, or EmulationStation restart can delay one SSH probe.
+  // Do not turn an already verified machine yellow while its renewable grace
+  // window is active; discovery can repair its address in the background.
+  if (Number(verifiedOnlineUntil.get(name) || 0) > Date.now()) {
+    startDeepDiscovery();
+    return;
+  }
+  verifiedOnlineUntil.delete(name);
   if (discoveryCache.devices?.[name]) {
     discoveryCache.devices[name] = { ...discoveryCache.devices[name], online: false, searching: true };
   }
@@ -1938,11 +1997,16 @@ function runSoftReset(device) {
         "grep -q \"^menu_show_load_content[[:space:]]*=.*true\" \"$cfg\" || exit 3; " +
         "(systemctl restart retroarch.service >/dev/null 2>&1 || systemctl restart retroarch >/dev/null 2>&1 || killall -HUP retroarch >/dev/null 2>&1 || true) & " +
         "echo OK'"
-      : "sh -c \"(batocera-es-swissknife --emukill 5 >/dev/null 2>&1 || true; batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 & echo OK\"";
+      : "sh -c \"old=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
+        "(batocera-es-swissknife --emukill 5 >/dev/null 2>&1 || true); " +
+        "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)); " +
+        "i=0; while [ \\$i -lt 25 ]; do new=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
+        "if [ -n \\\"\\$new\\\" ] && { [ -z \\\"\\$old\\\" ] || [ \\\"\\$new\\\" != \\\"\\$old\\\" ]; }; then echo OK; exit 0; fi; " +
+        "i=\\$((i+1)); sleep 1; done; echo 'EmulationStation did not confirm its restart.' >&2; exit 4\"";
     let settled = false;
     const timeout = setTimeout(() => {
       fail(new Error("Soft reset command timed out before the machine confirmed receipt."));
-    }, 12000);
+    }, device.platform === "lakka" ? 12000 : 32000);
 
     const fail = error => {
       if (!settled) {
@@ -8822,7 +8886,7 @@ const server = http.createServer(async (req, res) => {
         const jobId = crypto.randomUUID();
         const job = {id:jobId,host:machine.host,phase:'copying',copiedBytes:0,totalBytes:0,startedAt:new Date().toISOString()};
         sharedDualBootStageJobs.set(jobId,job);
-        stageSharedDualBootImage({imagePath:body.imagePath,host:machine.host,targetComputerName:targetReport.computer,windowsGb:Number(body.windowsGb),bootTimeoutSeconds:Number(body.bootTimeoutSeconds),defaultOs:body.defaultOs,onProgress:progress => Object.assign(job,progress)})
+        stageSharedDualBootImage({imagePath:body.imagePath,expectedImageName:body.expectedImageName,expectedImageBytes:Number(body.expectedImageBytes),expectedImageModifiedAt:body.expectedImageModifiedAt,host:machine.host,targetComputerName:targetReport.computer,windowsGb:Number(body.windowsGb),bootTimeoutSeconds:Number(body.bootTimeoutSeconds),defaultOs:body.defaultOs,onProgress:progress => Object.assign(job,progress)})
           .then(plan => { job.phase='staged'; job.plan=plan; job.finishedAt=new Date().toISOString(); })
           .catch(error => { job.phase='failed'; job.error=error.message; job.finishedAt=new Date().toISOString(); });
         sendJson(res,202,{ok:true,jobId});
@@ -8858,6 +8922,7 @@ const server = http.createServer(async (req, res) => {
         if (planBuffer.length > 8192) throw new Error('The staged plan is unexpectedly large.');
         const plan = JSON.parse(planBuffer.toString('utf8'));
         if (plan.schema !== 1 || plan.status !== 'staged-only' || plan.refindName !== 'refind-bin-0.14.2.zip' || plan.refindSha256 !== '410c7828c4fec2f2179bd956073522415831d27c00416381b8f71153c190a311') throw new Error('This staged plan does not include the approved rEFInd package. Stage the image again from RP1.');
+        if (body.imageName !== plan.imageName || Number(body.imageBytes) !== Number(plan.imageBytes) || body.imageSha256 !== plan.imageSha256) throw new Error('The staged Batocera image does not match the image selected for this installation. Choose and stage it again.');
         const report = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\preflight.json`,'utf8'));
         let worker = null;
         try { worker = JSON.parse(await fs.promises.readFile(`\\\\${machine.host}\\RP2Status\\dual-boot-worker.json`,'utf8')); } catch {}
@@ -9146,11 +9211,14 @@ const server = http.createServer(async (req, res) => {
           const cached = discoveryCache.devices?.[name] || {};
           const cachedOnline = Boolean(cached.online) && cached.host === host
             && Date.now() - discoveryCache.at < 15000;
-          const online = batoceraSsh && device.discoveredAccess === "ssh";
-          if (online && macHost && macHost !== device.discoveredHost) {
+          const directlyOnline = batoceraSsh && device.discoveredAccess === "ssh";
+          if (directlyOnline) verifiedOnlineUntil.set(name, Date.now() + 120 * 1000);
+          const recentlyVerified = Number(verifiedOnlineUntil.get(name) || 0) > Date.now();
+          const online = directlyOnline || recentlyVerified;
+          if (directlyOnline && macHost && macHost !== device.discoveredHost) {
             saveDiscoveredHost(name, macHost, "ssh", savedMac);
           }
-          if (online) {
+          if (directlyOnline) {
             setImmediate(() => ensureBatoceraWifiStability(name, {
               ...device,
               host,
@@ -9161,9 +9229,9 @@ const server = http.createServer(async (req, res) => {
             ...cached,
             host: online ? host : (cached.host || host),
             configuredHost: device.host,
-            resolvedFrom: online ? "saved Batocera SSH connection" : (cached.resolvedFrom || "background discovery"),
+            resolvedFrom: directlyOnline ? "saved Batocera SSH connection" : recentlyVerified ? "recent verified Batocera connection" : (cached.resolvedFrom || "background discovery"),
             online: online || cachedOnline,
-            reachable: ssh || (cachedOnline && Boolean(cached.reachable)),
+            reachable: ssh || recentlyVerified || (cachedOnline && Boolean(cached.reachable)),
             searching: !(online || cachedOnline) && Boolean(deepDiscoveryPromise),
             access: online ? "ssh" : (cachedOnline ? cached.access || "" : ""),
             checks: { ...(cached.checks || {}), ssh },
@@ -9214,14 +9282,17 @@ const server = http.createServer(async (req, res) => {
         ? await refreshMachineDisplayNames(batoceraStatuses)
         : Object.fromEntries(Object.entries(batoceraStatuses).map(([id, status]) => {
             const settings = readDeviceSettings();
-            const displayName = savedMachineDisplayName(settings[id], id);
+            const installationVerified = settings[id]?.installationId &&
+              verifiedInstallationIds.get(id) === settings[id].installationId;
+            const displayName = installationVerified ? savedMachineDisplayName(settings[id], id) : "BATOCERA";
             return [id, {
               ...status,
               displayName,
-              osVersion: String(settings[id]?.osVersion || ""),
+              osVersion: installationVerified ? String(settings[id]?.osVersion || "") : "",
+              installationResetToken: String(settings[id]?.installationResetToken || ""),
               hostName: displayName,
               mac: String(devices[id]?.mac || settings[id]?.mac || "").toLowerCase(),
-              instanceId: settings[id]?.installationId && settings[id]?.installationDisplayName === displayName
+              instanceId: settings[id]?.installationId && verifiedInstallationIds.get(id) === settings[id].installationId
                 ? `batocera-installation:${settings[id].installationId}`
                 : `batocera-provisional:${status.mac || status.host || id}:${displayName}`
             }];
@@ -9388,10 +9459,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/active") {
-      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera", { skipConnectionProbe: true });
+      const machineId = url.searchParams.get("device") || "Batocera";
+      const device = await getRuntimeDevice(machineId, { skipConnectionProbe: true });
       if (!device) {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
+      }
+      if (device.access === "ssh" && (!device.platform || device.platform === "batocera")) {
+        await ensureCurrentBatoceraInstallation(machineId, device);
       }
 
       const system = url.searchParams.get("system") || "mame";
@@ -9410,7 +9485,6 @@ const server = http.createServer(async (req, res) => {
       }
       const deletion = device.access === 'usb' && device.usbMode === 'staged'
         ? deletionState(device.driveRoot,systemFolders[system] || system) : null;
-      const machineId = url.searchParams.get('device') || 'Batocera';
       sendJson(res, 200, {
         ok: true,
         items,
@@ -9425,6 +9499,9 @@ const server = http.createServer(async (req, res) => {
       const deviceName = String(url.searchParams.get("device") || "");
       const device = await getRuntimeDevice(deviceName);
       if (!device) { sendJson(res, 404, {ok:false, error:"Machine not found."}); return; }
+      if (device.access === "ssh" && (!device.platform || device.platform === "batocera")) {
+        await ensureCurrentBatoceraInstallation(deviceName, device);
+      }
       const systems = [];
       if (['lakka','recalbox'].includes(device.platform)) {
         systems.push(...await listLakkaSystems(device));
@@ -9457,7 +9534,10 @@ if os.path.exists(p):
           if ((await listRemoteRoms(device, key)).length) systems.push(key);
         }
       }
-      const savedVisibleSystems = readDeviceSettings()[deviceName]?.visibleSystems;
+      const deviceSettings = readDeviceSettings()[deviceName] || {};
+      const installationVerified = !devices[deviceName] ||
+        (deviceSettings.installationId && verifiedInstallationIds.get(deviceName) === deviceSettings.installationId);
+      const savedVisibleSystems = installationVerified ? deviceSettings.visibleSystems : null;
       sendJson(res, 200, {ok:true, systems, visibleSystems:Array.isArray(savedVisibleSystems) ? savedVisibleSystems : null, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
       return;
     }
@@ -10074,7 +10154,7 @@ ${check}
       const body = JSON.parse((await readBody(req)) || "{}");
       const companion = String(body.companion || "").toLowerCase();
       const companionFiles = {
-        two: { fileName: "Ready Player Two 1.0.65.exe", source: "ready-player-two.exe" },
+        two: { fileName: "Ready Player Two 1.0.69.exe", source: "ready-player-two.exe" },
         "dual-boot-undo": { fileName: "Dual Boot Undo 1.0.3.exe", source: "dual-boot-undo.exe" }
       };
       const selected = companionFiles[companion];
@@ -10171,7 +10251,9 @@ ${check}
         const size = localTransferSize(system, fileName);
         transferJobs.set(transferKey, {
           device: body.device, transport: device.access, system, fileName,
+          queueVersion: 2,
           installationId: String(readDeviceSettings()[body.device]?.installationId || ""),
+          installationResetToken: String(readDeviceSettings()[body.device]?.installationResetToken || ""),
           running: false, completed: false, totalFiles: 0, completedFiles: 0,
           totalBytes: Number(size.totalBytes || 0), transferredBytes: 0,
           skippedFiles: 0, percent: 0, current: "Queued", error: "",
@@ -10209,7 +10291,9 @@ ${check}
       }
       const job = {
         device: body.device,
+        queueVersion: 2,
         installationId: String(readDeviceSettings()[body.device]?.installationId || ""),
+        installationResetToken: String(readDeviceSettings()[body.device]?.installationResetToken || ""),
         transport: device.access,
         system: body.system,
         fileName: body.fileName,
@@ -10231,14 +10315,33 @@ ${check}
         autoQueued: Boolean(existingJob?.autoQueued || existingJob?.queuedAt),
         queuedAt: existingJob?.queuedAt || "",
         nextAttemptAt: 0,
-        startedAt: new Date().toISOString()
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString()
       };
       transferJobs.set(transferKey, job);
       scheduleTransferPersistence(true);
+      // The SFTP layer has byte-level idle timers, but a lost callback or a
+      // hung setup/verification request must not leave a durable queue entry
+      // marked running forever.  This independent heartbeat closes the
+      // dedicated upload connection; the normal catch path then preserves the
+      // .bw-part prefix and retries it through the one-at-a-time dispatcher.
+      const jobWatchdog = setInterval(() => {
+        if (!job.running || job.completed || job.cancelRequested) return;
+        const lastActivity = Date.parse(job.lastActivityAt || job.startedAt || 0);
+        if (lastActivity && Date.now() - lastActivity > 150000) {
+          job.current = "Transfer stalled; reconnecting";
+          job.error = "Transfer stopped making progress and will resume automatically.";
+          job.lastActivityAt = new Date().toISOString();
+          scheduleTransferPersistence(true);
+          activeUploadCancels.get(transferKey)?.();
+        }
+      }, 5000);
+      jobWatchdog.unref?.();
       try {
         const item = await uploadRom(device, body.system, body.fileName, update => {
           if (job.cancelRequested) throw new Error("Transfer paused by user.");
           Object.assign(job, update);
+          job.lastActivityAt = new Date().toISOString();
           // One monotonic progress bar represents the complete operation.
           // ROM bytes occupy 0-75%; picture matching/copying occupies 75-100%.
           // This prevents a copied ROM from looking finished while its cover
@@ -10260,13 +10363,15 @@ ${check}
           job.percent = 75;
           job.current = "Matching cover";
           job.artworkPercent = 0;
+          job.lastActivityAt = new Date().toISOString();
           scheduleTransferPersistence(true);
-          artwork = await publishTransferredRomArtwork(device, body.device, body.system, body.fileName, (percent, current) => {
+          artwork = await withRejectingTimeout(publishTransferredRomArtwork(device, body.device, body.system, body.fileName, (percent, current) => {
             job.artworkPercent = percent;
             job.percent = Math.min(99.9, Number((75 + (Math.max(0, Math.min(100, Number(percent) || 0)) * 0.25)).toFixed(1)));
             job.current = /default/i.test(String(current || "")) ? "Transferring default cover" : "Transferring cover";
+            job.lastActivityAt = new Date().toISOString();
             scheduleTransferPersistence();
-          });
+          }), 90000, "Cover transfer timed out; the ROM was preserved.");
         } catch (error) {
           artwork = { status: "failed", matched: false, artwork: false, error: error.message || String(error) };
           console.error(`Post-transfer artwork for ${body.system}/${body.fileName}:`, artwork.error);
@@ -10303,6 +10408,7 @@ ${check}
         scheduleTransferPersistence(true);
         throw error;
       } finally {
+        clearInterval(jobWatchdog);
         activeUploadCancels.delete(transferKey);
       }
       return;
@@ -10313,7 +10419,15 @@ ${check}
       const requestedSystem = url.searchParams.get("system") || "";
       const requestedFile = url.searchParams.get("fileName") || "";
       if (url.searchParams.get("all") === "1") {
-        const matching = [...transferJobs.values()].filter(item => !requestedDevice || item.device === requestedDevice);
+        const settings = readDeviceSettings();
+        const matching = [...transferJobs.values()].filter(item => {
+          if (requestedDevice && item.device !== requestedDevice) return false;
+          if (!devices[item.device]) return true;
+          const currentInstallation = String(settings[item.device]?.installationId || "").trim();
+          const resetToken = String(settings[item.device]?.installationResetToken || "").trim();
+          return Boolean(currentInstallation) && verifiedInstallationIds.get(item.device) === currentInstallation &&
+            item.installationId === currentInstallation && (!resetToken || item.installationResetToken === resetToken);
+        });
         if (url.searchParams.get("unfinished") === "1") {
           const jobs = matching.filter(item => !item.completed && !item.partialDeleted);
           sendJson(res, 200, { ok: true, jobs, resetNeeded: isSoftResetNeeded(requestedDevice) });
@@ -10746,6 +10860,7 @@ function requestQueuedTransfer(job) {
 }
 
 let queuedTransferDispatchRunning = false;
+const lastDispatchedTransferSystem = new Map();
 const backendStartedAt = Date.now();
 async function dispatchPersistedTransferQueue() {
   // Let the UI, library, and saved-machine cards become usable before an old
@@ -10758,10 +10873,14 @@ async function dispatchPersistedTransferQueue() {
     const now = Date.now();
     const candidates = [...transferJobs.values()].filter(job => {
       if (!job || job.running || job.dispatching || job.completed || job.cancelled || job.cancelRequested || job.partialDeleted) return false;
+      if (/^Batocera(?: \d+)?$/i.test(String(job.device || "")) && !devices[job.device]) return false;
       // A persisted queue is tied to the image that created it. Wait for a
       // fresh SSH identity check before resuming anything on Batocera.
       if (devices[job.device] && (!readDeviceSettings()[job.device]?.installationId ||
           verifiedInstallationIds.get(job.device) !== readDeviceSettings()[job.device].installationId)) return false;
+      if (devices[job.device] && job.installationId !== readDeviceSettings()[job.device].installationId) return false;
+      if (devices[job.device] && readDeviceSettings()[job.device]?.installationResetToken &&
+          job.installationResetToken !== readDeviceSettings()[job.device].installationResetToken) return false;
       if (!(job.autoQueued || job.queuedAt)) return false;
       if (Number(job.nextAttemptAt || 0) > now) return false;
       try {
@@ -10789,9 +10908,18 @@ async function dispatchPersistedTransferQueue() {
       // the application itself.
       const concurrency = 1;
       const available = Math.max(0, concurrency - activeSlots.length);
-      for (const job of selectedPool.slice(0, available)) {
+      // Rotate consoles instead of draining one enormous Upload All batch
+      // before another console gets a turn.  The per-device connection limit
+      // remains one, preserving UI/network responsiveness, while a newly
+      // selected N64 (or any other console) can no longer sit behind hundreds
+      // of SNES/NES entries and look permanently stalled.
+      const lastSystem = lastDispatchedTransferSystem.get(deviceName) || "";
+      const nextJob = selectedPool.find(job => job.system !== lastSystem) || selectedPool[0];
+      const dispatchBatch = available > 0 && nextJob ? [nextJob] : [];
+      for (const job of dispatchBatch) {
         job.dispatching = true;
         job.current = "Restarting";
+        lastDispatchedTransferSystem.set(deviceName, job.system);
         scheduleTransferPersistence();
         requestQueuedTransfer(job).catch(error => {
           const current = transferJobs.get(JSON.stringify([job.device, job.system, job.fileName]));

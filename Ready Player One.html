@@ -1030,6 +1030,12 @@
       white-space: nowrap;
     }
 
+    .local-library-size {
+      color: var(--green);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
     .main > aside.panel { display: flex; flex-direction: column; min-height: 0; }
     .main > aside.panel > .panel-title { flex-shrink: 0; }
     .systems-list {
@@ -3949,7 +3955,7 @@
     // A single slow SSH/library poll must not demote a machine that was just
     // fully verified. Genuine disconnects still transition after this short,
     // bounded confirmation window.
-    const machineOnlineGraceMs = 20000;
+    const machineOnlineGraceMs = 120000;
     const softReset = document.querySelector("#softReset");
     const saveTransferLayout = document.querySelector("#saveTransferLayout");
     const openTransferLayout = document.querySelector("#openTransferLayout");
@@ -4195,6 +4201,7 @@
     })();
     let librarySignature = "";
     const storageFreeCacheKey = "readyPlayerOne.storageFreeByMachine.v1";
+    const storageTotalCacheKey = "readyPlayerOne.storageTotalByMachine.v1";
     const storageFreeByDevice = new Map((() => {
       try {
         const saved = JSON.parse(localStorage.getItem(storageFreeCacheKey) || "[]");
@@ -4203,7 +4210,16 @@
         return [];
       }
     })());
+    const storageTotalByDevice = new Map((() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageTotalCacheKey) || "[]");
+        return Array.isArray(saved) ? saved : [];
+      } catch {
+        return [];
+      }
+    })());
     let currentStorageFree = storageFreeByDevice.get(selectedDevice) || "--";
+    let currentStorageTotal = storageTotalByDevice.get(selectedDevice) || "--";
 
     function rememberStorageFree(device, value) {
       if (!device || !value || value === "--") return;
@@ -4211,6 +4227,16 @@
       try {
         localStorage.setItem(storageFreeCacheKey, JSON.stringify([...storageFreeByDevice.entries()]));
       } catch {}
+    }
+    function rememberStorageTotal(device, value) {
+      if (!device || !value || value === "--") return;
+      storageTotalByDevice.set(device, value);
+      try {
+        localStorage.setItem(storageTotalCacheKey, JSON.stringify([...storageTotalByDevice.entries()]));
+      } catch {}
+    }
+    function storageHeaderText(free = currentStorageFree, total = currentStorageTotal) {
+      return `Free: ${free || "--"} of ${total || "--"}`;
     }
     let pendingKaraokeInstallDevice = "Batocera";
     let pendingPs1BiosFile = null;
@@ -4581,8 +4607,10 @@
       const approved = await approval;
       if (!approved) return;
       let xbox360ProfileChoice = null;
-      // Open GamerTag setup only when Xbox 360 is newly selected in this round.
-      // Unrelated console changes must not replay an older setup message.
+      // Open GamerTag setup for a newly selected Xbox 360 console and also
+      // recover from an older/incomplete setup that has no verified profile.
+      // A configured Xbox 360 console does not reopen this while unrelated
+      // console changes are applied.
       const xbox360NeedsGamerTags = added.has('xbox360');
       if (xbox360NeedsGamerTags) {
         const gamerTags = await promptXbox360GamerTags(visibilityDevice);
@@ -4947,84 +4975,15 @@
         if (!response.ok || !status.ok) throw new Error(status.error || "Could not read saved transfers.");
         const incomplete = (status.jobs || []).filter(job => job.device === device && !job.running && !job.completed
           && !job.partialDeleted && Number(job.percent || 0) < 100);
-        let resumed = 0;
-        let failed = 0;
-        const resumeGroup = async (jobs, concurrency) => {
-          let nextIndex = 0;
-          const worker = async () => {
-            while (nextIndex < jobs.length) {
-              const job = jobs[nextIndex++];
-              try {
-                const start = await fetch(`${apiBase}/api/roms/add`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:job.device,system:job.system,fileName:job.fileName})});
-                const result = await start.json();
-                if (!start.ok || !result.ok) throw new Error(result.error || `Could not resume ${job.fileName}.`);
-                resumed += 1;
-              } catch (error) {
-                failed += 1;
-                console.warn(`Could not automatically resume ${job.system}/${job.fileName}:`, error);
-              }
-            }
-          };
-          await Promise.all(Array.from({length: Math.min(concurrency, jobs.length)}, () => worker()));
-        };
-        const small = incomplete.filter(job => Number(job.totalBytes || 0) <= WAREHOUSE_LARGE_FILE_BYTES);
-        const large = incomplete.filter(job => Number(job.totalBytes || 0) > WAREHOUSE_LARGE_FILE_BYTES);
-        // One size class at a time keeps the documented ceiling at 10 small
-        // jobs or 4 large jobs instead of accidentally creating 14 workers.
-        await resumeGroup(small, 10);
-        await resumeGroup(large, 4);
-        // "Upload All" persists every selected filename, including work that
-        // had not yet reached the backend when RP1 closed. Resuming only the
-        // partial backend jobs therefore stops after those few files. Rebuild
-        // the remainder from the saved machine queue and the live inventory.
-        const savedSelections = readDeviceTransferSelections(device);
-        const remaining = [];
-        for (const [system, names] of Object.entries(savedSelections)) {
-          if (!Array.isArray(names) || !names.length) continue;
-          try {
-            const activeResponse = await fetchStatusWithTimeout(`${apiBase}/api/active?device=${encodeURIComponent(device)}&system=${encodeURIComponent(system)}`, 20000);
-            const activeResult = await activeResponse.json();
-            if (!activeResponse.ok || !activeResult.ok) throw new Error(activeResult.error || `Could not read ${system} inventory.`);
-            const installed = new Set(activeLayoutNames(system, activeResult.items || []));
-            const localItems = (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || [];
-            const sizes = new Map(localItems.map(item => [item[0], Number(item[7] || 0)]));
-            names.forEach(fileName => {
-              if (!installed.has(fileName)) remaining.push({ device, system, fileName, totalBytes: sizes.get(fileName) || 0 });
-            });
-          } catch (error) {
-            failed += 1;
-            console.warn(`Could not restore saved ${system} queue for ${device}:`, error);
-          }
-        }
-        const resumeSavedGroup = async (items, concurrency) => {
-          let nextIndex = 0;
-          const worker = async () => {
-            while (nextIndex < items.length) {
-              const item = items[nextIndex++];
-              // The user may uncheck an item while automatic recovery runs.
-              if (!readDeviceTransferSelections(device)[item.system]?.includes(item.fileName)) continue;
-              try {
-                const start = await fetch(`${apiBase}/api/roms/add`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:item.device,system:item.system,fileName:item.fileName})});
-                const result = await start.json();
-                if (!start.ok || !result.ok) throw new Error(result.error || `Could not resume ${item.fileName}.`);
-                resumed += 1;
-              } catch (error) {
-                failed += 1;
-                console.warn(`Could not resume saved ${item.system}/${item.fileName}:`, error);
-              }
-            }
-          };
-          await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, () => worker()));
-        };
-        const savedSmall = remaining.filter(item => Number(item.totalBytes || 0) <= WAREHOUSE_LARGE_FILE_BYTES);
-        const savedLarge = remaining.filter(item => Number(item.totalBytes || 0) > WAREHOUSE_LARGE_FILE_BYTES);
-        await resumeSavedGroup(savedSmall, 10);
-        await resumeSavedGroup(savedLarge, 4);
-        if (resumed) {
-          syncStatus.textContent = `Automatically resumed ${resumed} incomplete transfer${resumed === 1 ? "" : "s"} for ${machineDisplayName(device)}`;
+        // The backend is the sole dispatcher.  Starting ten small and four
+        // large frontend requests here bypassed its connection limit after a
+        // restart, saturated Batocera SSH, and left N64/cover jobs appearing
+        // stalled.  Reading the durable queue is enough: its watchdog resumes
+        // jobs one at a time and rotates fairly between consoles.
+        if (incomplete.length) {
+          syncStatus.textContent = `Resuming ${incomplete.length} saved transfer${incomplete.length === 1 ? "" : "s"} for ${machineDisplayName(device)}`;
           refreshTransferActivity();
         }
-        if (failed) startupAutoResumeDevices.delete(device);
       } catch (error) {
         startupAutoResumeDevices.delete(device);
         console.warn(`Automatic transfer resume failed for ${device}:`,error);
@@ -5873,7 +5832,10 @@
     }
 
     const remoteLibrarySnapshots = new Map();
-    const remoteLibrarySnapshotStoragePrefix = 'readyPlayerOne.remoteLibrarySnapshot.v1.';
+    // v2 drops snapshots that predate installation-aware machine identity.
+    // Those rows could survive a clean Batocera reinstall and look installed
+    // even when the live console directory was empty.
+    const remoteLibrarySnapshotStoragePrefix = 'readyPlayerOne.remoteLibrarySnapshot.v2.';
     const activeInventoryReconcileTimers = new Map();
     function readRemoteLibrarySnapshot(scope) {
       if (remoteLibrarySnapshots.has(scope)) return remoteLibrarySnapshots.get(scope);
@@ -5893,6 +5855,20 @@
         localStorage.setItem(`${remoteLibrarySnapshotStoragePrefix}${encodeURIComponent(scope)}`, JSON.stringify(safeItems));
       } catch {}
       return safeItems;
+    }
+    function clearRemoteLibrarySnapshotsForDevice(device) {
+      const scopePrefix = `${device}\u0000`;
+      for (const scope of [...remoteLibrarySnapshots.keys()]) {
+        if (scope.startsWith(scopePrefix)) remoteLibrarySnapshots.delete(scope);
+      }
+      for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith(remoteLibrarySnapshotStoragePrefix)) continue;
+        try {
+          const scope = decodeURIComponent(key.slice(remoteLibrarySnapshotStoragePrefix.length));
+          if (scope.startsWith(scopePrefix)) localStorage.removeItem(key);
+        } catch {}
+      }
     }
     function updateRemoteLibrarySnapshot(device, system, fileName, item = null) {
       const scope = `${device}\u0000${system}`;
@@ -5974,9 +5950,13 @@
     async function loadActiveList(key = selectedSystem) {
       if (!readVisibleSystems().has(key)) return;
       const requestDevice = selectedDevice;
-      const requestGeneration = ++activeLoadGeneration;
       const requestScope = `${requestDevice}\u0000${key}`;
-      if (activeListScope !== requestScope) {
+      const scopeChanged = activeListScope !== requestScope;
+      // Refreshes for the same visible pane are cooperative. Incrementing the
+      // generation for every poll caused two healthy N64 responses to mark one
+      // another stale, leaving the initial Loading message on screen forever.
+      const requestGeneration = scopeChanged ? ++activeLoadGeneration : activeLoadGeneration;
+      if (scopeChanged) {
         activeListScope = requestScope;
         activeList.dataset.device = requestDevice;
         activeList.dataset.system = key;
@@ -6019,13 +5999,16 @@
         // inventory so the pane always shows the complete growing list instead
         // of collapsing to only the rows currently copying.
         const visibleNames = new Set(visibleItems.map(item => item[0]));
+        const scopedJobs = transferDisplayJobs.get(requestScope) || [];
         const preserveNames = new Set([
           ...pendingResetGames(requestDevice, key),
-          ...(transferDisplayJobs.get(requestScope) || []).map(job => job.fileName)
+          ...scopedJobs.filter(job => job.running && !job.completed && !job.partialDeleted && !job.cancelRequested)
+            .map(job => job.fileName)
         ]);
-        const consoleHasActiveTransfers = (transferDisplayJobs.get(requestScope) || []).some(job =>
+        const transferPrefix = `${requestDevice}\u0000${key}\u0000`;
+        const consoleHasActiveTransfers = scopedJobs.some(job =>
           job.running && !job.completed && !job.partialDeleted
-        ) || optimisticUploadingSystems.has(consoleTransferKey(requestDevice, key));
+        ) || [...pendingTransferKeys].some(transferKey => transferKey.startsWith(transferPrefix));
         for (const item of readRemoteLibrarySnapshot(requestScope) || []) {
           // A live directory response can be incomplete while several files are
           // being created. During that window preserve the complete last-known
@@ -6077,7 +6060,8 @@
             activeList.querySelector('.library-connection-message')?.remove();
             activeList.classList.remove('empty-state');
           } else {
-            showLibraryConnectionMessage('Loading this machine’s library…');
+            showLibraryConnectionMessage('Could not read this machine’s library yet. Retrying…');
+            scheduleActiveInventoryReconcile(requestDevice, key);
           }
         } else {
           showLibraryConnectionMessage(error.message || 'Unable to refresh this machine’s library.');
@@ -6094,17 +6078,21 @@
 
       if (!selectedDeviceOnline) {
         const lastKnown = storageFreeByDevice.get(requestDevice);
+        const lastKnownTotal = storageTotalByDevice.get(requestDevice);
         if (lastKnown) {
           currentStorageFree = lastKnown;
-          badge.textContent = `Free: ${lastKnown}`;
+          currentStorageTotal = lastKnownTotal || currentStorageTotal;
+          badge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
         }
         return;
       }
 
       const lastKnown = storageFreeByDevice.get(requestDevice);
+      const lastKnownTotal = storageTotalByDevice.get(requestDevice);
       if (lastKnown) {
         currentStorageFree = lastKnown;
-        badge.textContent = `Free: ${lastKnown}`;
+        currentStorageTotal = lastKnownTotal || currentStorageTotal;
+        badge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
       }
       try {
         const response = await fetch(`${apiBase}/api/device/storage?device=${encodeURIComponent(requestDevice)}`);
@@ -6115,8 +6103,10 @@
         }
 
         currentStorageFree = result.storage?.free || "--";
+        currentStorageTotal = result.storage?.total || "--";
         rememberStorageFree(requestDevice, currentStorageFree);
-        badge.textContent = result.storage?.display || `Free: ${currentStorageFree}`;
+        rememberStorageTotal(requestDevice, currentStorageTotal);
+        badge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
       } catch (error) {
         if (selectedDevice !== requestDevice || !badge.isConnected) return;
         console.error(error);
@@ -6231,6 +6221,9 @@
             item[8] = nextTracks;
           }
         });
+        const totalBytes = items.reduce((sum, item) => sum + Number(item[7] || 0), 0);
+        const sizeBadge = document.querySelector('#localLibrarySize');
+        if (sizeBadge && system === selectedSystem) sizeBadge.textContent = `Size: ${formatFileSize(totalBytes) || '0 B'}`;
         if (changed) renderConsole(system);
       } catch (error) {
         console.error(error);
@@ -6270,10 +6263,12 @@
         folderHeader = `<button class="layout-button" id="musicFolderBack" type="button">← Music Folders</button>`;
       }
       const virtualCollection = virtualCollectionSystems.has(key);
+      const localConsoleBytes = (data.warehouse || []).reduce((sum, item) => sum + Number(item[7] || 0), 0);
+      const localConsoleSize = formatFileSize(localConsoleBytes) || ((data.warehouse || []).length ? 'Calculating…' : '0 B');
       warehouseTitle.innerHTML = virtualCollection
-        ? `<span class="warehouse-heading"><span>${data.label}</span></span><span class="count">Automatic Collection</span>`
-        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span>`;
-      activeTitle.innerHTML = `<span class="active-heading"><span class="active-machine-name">On ${machineDisplayName(selectedDevice)}</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="storage-count" id="storageCount">Free: ${currentStorageFree}</span><span class="count">${data.label}</span></span>`;
+        ? `<span class="warehouse-heading"><span>${data.label}</span></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`
+        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`;
+      activeTitle.innerHTML = `<span class="active-heading"><span class="active-machine-name">On ${machineDisplayName(selectedDevice)}</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="count">${data.label}</span><span class="storage-count" id="storageCount">${storageHeaderText()}</span></span>`;
       warehouseList.innerHTML = folderHeader + warehouseItems.map(gameRow).join("");
       if (!warehouseItems.length) {
         const message = document.createElement('div');
@@ -6396,14 +6391,22 @@
       saveSelectionSet(selectedSystem, set);
     }
 
-    function rememberGameSelection(game, checked) {
-      setLayoutSelection(selectedSystem, game.dataset.name, checked);
-      if (selectedSystem === "music" && game.dataset.kind === "folder") {
-        folderTrackNames(game).forEach(track => setLayoutSelection(selectedSystem, track, checked));
+    function rememberGameSelection(game, checked, system = selectedSystem) {
+      setLayoutSelection(system, game.dataset.name, checked);
+      if (system === "music" && game.dataset.kind === "folder") {
+        folderTrackNames(game).forEach(track => setLayoutSelection(system, track, checked));
       }
     }
 
-    let warehouseBulkChanging = false;
+    // Bulk work is scoped to the machine and console that started it. A large
+    // NES queue must never lock N64's controls or inherit N64 after navigation.
+    const warehouseBulkChangingScopes = new Set();
+    function warehouseBulkScope(device = selectedDevice, system = selectedSystem) {
+      return pendingResetScope(device, system);
+    }
+    function warehouseBulkChanging(device = selectedDevice, system = selectedSystem) {
+      return warehouseBulkChangingScopes.has(warehouseBulkScope(device, system));
+    }
     const WAREHOUSE_LARGE_FILE_BYTES = 50 * 1024 * 1024;
 
     async function stopConsoleTransfersForRemoval(device, system) {
@@ -6556,8 +6559,8 @@
           const attempts = selectAll ? 3 : 1;
           for (let attempt = 1; attempt <= attempts && !completed; attempt += 1) {
             checkbox.checked = selectAll;
-            syncFolderTrackChecks(game, selectAll);
-            rememberGameSelection(game, selectAll);
+            syncFolderTrackChecks(game, selectAll, queueSystem);
+            rememberGameSelection(game, selectAll, queueSystem);
             completed = await syncWarehouseSelection(game, { device: queueDevice, system: queueSystem });
             if (!completed && attempt < attempts) {
               await new Promise(resolve => setTimeout(resolve, attempt * 750));
@@ -6582,7 +6585,7 @@
     }
 
     async function continueWarehouseSelectionQueue() {
-      if (warehouseBulkChanging || !selectedDeviceOnline || pausedMachineQueues.has(selectedDevice)) return;
+      if (warehouseBulkChanging() || !selectedDeviceOnline || pausedMachineQueues.has(selectedDevice)) return;
       const selectedNames = selectionSetFor(selectedSystem);
       const queuedGames = [...warehouseList.querySelectorAll(".game")].filter(game => {
         const checkbox = game.querySelector(".game-check");
@@ -6592,19 +6595,24 @@
         return queued;
       });
       if (!queuedGames.length) return;
-      warehouseBulkChanging = true;
+      const bulkScope = warehouseBulkScope();
+      warehouseBulkChangingScopes.add(bulkScope);
       updateWarehouseAllControl();
       try {
-        const smallGames = queuedGames.filter(game => Number(game.dataset.size || 0) <= WAREHOUSE_LARGE_FILE_BYTES);
-        const largeGames = queuedGames.filter(game => Number(game.dataset.size || 0) > WAREHOUSE_LARGE_FILE_BYTES);
-        await runWarehouseBulkQueue(smallGames, 10, true, true);
-        await runWarehouseBulkQueue(largeGames, 4, true, true);
+        const response = await fetch(`${apiBase}/api/transfers/enqueue`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            device: selectedDevice,
+            system: selectedSystem,
+            fileNames: queuedGames.map(game => game.dataset.name)
+          })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not save the transfer queue.");
+        refreshTransferActivity();
       } finally {
-        warehouseBulkChanging = false;
+        warehouseBulkChangingScopes.delete(bulkScope);
         updateWarehouseAllControl();
-        // A rendered/filtered batch may represent only part of Upload All.
-        // Recheck after the batch drains so the queue cannot silently stop.
-        setTimeout(continueWarehouseSelectionQueue, 250);
       }
     }
 
@@ -6616,7 +6624,7 @@
       const allSelected = checkboxes.length > 0 && checked === checkboxes.length;
       control.checked = allSelected;
       control.indeterminate = checked > 0 && !allSelected;
-      control.disabled = warehouseBulkChanging || checkboxes.length === 0;
+      control.disabled = warehouseBulkChanging() || checkboxes.length === 0;
       control.dataset.action = allSelected ? "remove" : "select";
       control.nextElementSibling.textContent = allSelected ? "Remove All" : "All";
     }
@@ -6626,7 +6634,10 @@
       if (!control) return;
       updateWarehouseAllControl();
       control.addEventListener("change", async () => {
-        if (warehouseBulkChanging) return;
+        const bulkDevice = selectedDevice;
+        const bulkSystem = selectedSystem;
+        const bulkScope = warehouseBulkScope(bulkDevice, bulkSystem);
+        if (warehouseBulkChangingScopes.has(bulkScope)) return;
         const selectAll = control.dataset.action !== "remove";
         const games = [...warehouseList.querySelectorAll(".game")]
           .filter(game => game.querySelector(".game-check"));
@@ -6655,22 +6666,22 @@
         }
         const removeAllInstead = choice === "remove-all";
         const bulkGames = removeAllInstead ? removeAllGames : changedGames;
-        warehouseBulkChanging = true;
+        warehouseBulkChangingScopes.add(bulkScope);
         updateWarehouseAllControl();
         try {
           if (!selectAll || removeAllInstead) {
-            await runConsoleRemoveAll(selectedDevice, selectedSystem);
+            await runConsoleRemoveAll(bulkDevice, bulkSystem);
           } else {
-            showConsoleTransferImmediately(selectedDevice, selectedSystem);
+            showConsoleTransferImmediately(bulkDevice, bulkSystem);
             // Persist the complete request before the first copy starts so a
             // refresh, disconnect, or app restart can reconstruct the rest.
-            const completeConsoleNames = activeLayoutNames(selectedSystem,
-              (window.warehouseLibrary || fallbackLibrary)[selectedSystem]?.warehouse || []);
-            saveSelectionSet(selectedSystem, new Set(completeConsoleNames));
+            const completeConsoleNames = activeLayoutNames(bulkSystem,
+              (window.warehouseLibrary || fallbackLibrary)[bulkSystem]?.warehouse || []);
+            saveSelectionSet(bulkSystem, new Set(completeConsoleNames));
             games.forEach(game => {
               const checkbox = game.querySelector(".game-check");
               checkbox.checked = true;
-              syncFolderTrackChecks(game, true);
+              syncFolderTrackChecks(game, true, bulkSystem);
             });
             // Persist every not-yet-installed title in the backend before the
             // first copy begins. A restart can then resume the whole request,
@@ -6678,23 +6689,23 @@
             const enqueueResponse = await fetch(`${apiBase}/api/transfers/enqueue`, {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                device: selectedDevice,
-                system: selectedSystem,
+                device: bulkDevice,
+                system: bulkSystem,
                 fileNames: changedGames.map(game => game.dataset.name)
               })
             });
             const enqueued = await enqueueResponse.json();
             if (!enqueueResponse.ok || !enqueued.ok) throw new Error(enqueued.error || "Could not save the transfer queue.");
-            startupAutoResumeDevices.delete(selectedDevice);
-            await autoResumePersistedTransfers(selectedDevice);
+            startupAutoResumeDevices.delete(bulkDevice);
+            await autoResumePersistedTransfers(bulkDevice);
           }
         } catch (error) {
-          if (selectAll && !removeAllInstead) clearOptimisticConsoleTransfer(selectedDevice, selectedSystem);
+          if (selectAll && !removeAllInstead) clearOptimisticConsoleTransfer(bulkDevice, bulkSystem);
           finishFooterRemoval(false);
           syncStatus.textContent = error.message;
           await showXboxBiosDialog({ title: "Remove All Failed", device: selectedDevice, message: error.message, confirmLabel: "OK" });
         } finally {
-          warehouseBulkChanging = false;
+          warehouseBulkChangingScopes.delete(bulkScope);
           updateWarehouseAllControl();
           setTimeout(continueWarehouseSelectionQueue, 0);
         }
@@ -6705,7 +6716,13 @@
       activeList.querySelectorAll('.transfer-pending').forEach(row => {
         row.classList.remove('transfer-pending');
         row.classList.remove('artwork-stage');
-        row.querySelector('.cover.playability-shield')?.classList.remove('downloading');
+        const cover = row.querySelector('.cover');
+        if (cover?.dataset.transferOriginalClass) {
+          cover.className = cover.dataset.transferOriginalClass;
+          delete cover.dataset.transferOriginalClass;
+        } else {
+          cover?.classList.remove('downloading');
+        }
         row.querySelectorAll('.transfer-row-progress,.transfer-row-percent,.transfer-row-stage').forEach(element => element.remove());
       });
     }
@@ -6734,7 +6751,14 @@
           : Number(job.percent);
         const percent = Math.max(0, Math.min(100, legacyArtworkPercent || 0));
         row.classList.toggle('artwork-stage', artworkStage);
-        row.querySelector('.cover.playability-shield')?.classList.add('downloading');
+        const cover = row.querySelector('.cover');
+        if (cover) {
+          if (!cover.dataset.transferOriginalClass) cover.dataset.transferOriginalClass = cover.className;
+          // A transfer has one icon: the download arrow. Removing every
+          // legacy format/playability class prevents its letters or shield
+          // glyph from rendering underneath the arrow.
+          cover.className = 'cover playability-shield downloading';
+        }
         const track = document.createElement('div');
         track.className = 'transfer-row-progress';
         const fill = document.createElement('span');
@@ -7354,8 +7378,8 @@
       return Array.from(game.querySelectorAll(".track-row")).map(row => row.dataset.track).filter(Boolean);
     }
 
-    function syncFolderTrackChecks(game, checked) {
-      if (selectedSystem !== "music" || game.dataset.kind !== "folder") {
+    function syncFolderTrackChecks(game, checked, system = selectedSystem) {
+      if (system !== "music" || game.dataset.kind !== "folder") {
         return;
       }
 
@@ -7723,8 +7747,10 @@
         const badge = document.querySelector("#storageCount");
         if (badge && result.storage) {
           currentStorageFree = result.storage.free || "--";
+          currentStorageTotal = result.storage.total || "--";
           rememberStorageFree(targetDevice, currentStorageFree);
-          badge.textContent = result.storage.display || `Free: ${currentStorageFree}`;
+          rememberStorageTotal(targetDevice, currentStorageTotal);
+          badge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
         }
         if (!scope.deferStorageRefresh) {
           await loadDeviceStorage();
@@ -8119,10 +8145,11 @@
       activeList.classList.remove("empty-state");
       activeList.innerHTML = "";
       currentStorageFree = storageFreeByDevice.get(selectedDevice) || "--";
+      currentStorageTotal = storageTotalByDevice.get(selectedDevice) || "--";
       const activeMachineName = activeTitle.querySelector('.active-machine-name');
       if (activeMachineName) activeMachineName.textContent = `On ${machineDisplayName(selectedDevice)}`;
       const storageBadge = document.querySelector('#storageCount');
-      if (storageBadge) storageBadge.textContent = `Free: ${currentStorageFree}`;
+      if (storageBadge) storageBadge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
       transferLayoutSelections = readDeviceTransferSelections(selectedDevice);
       selectedDeviceOnline = card.dataset.online === "true";
       selectedDeviceHost = card.dataset.host || "";
@@ -8169,6 +8196,29 @@
       const host = searching && !online ? "" : (status?.host || card.dataset.host || "");
       const deviceId = card.dataset.device || "Batocera";
       const previousInstanceId = deviceStorageIdentity(deviceId);
+      const installationResetToken = String(status?.installationResetToken || "");
+      if (installationResetToken) {
+        const acknowledgementKey = `readyPlayerOne.installationReset.v1.${encodeURIComponent(deviceId)}`;
+        if (localStorage.getItem(acknowledgementKey) !== installationResetToken) {
+          const identities = new Set([deviceId, previousInstanceId, String(status?.instanceId || "")].filter(Boolean));
+          for (const identity of identities) {
+            const encoded = encodeURIComponent(identity);
+            const roots = [
+              `${systemVisibilityKey}.device.${encoded}`,
+              `${transferQueueKey}.${encoded}`
+            ];
+            for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+              const key = localStorage.key(index);
+              if (key && roots.some(root => key === root || key.startsWith(`${root}.`))) localStorage.removeItem(key);
+            }
+          }
+          localStorage.setItem(acknowledgementKey, installationResetToken);
+          clearRemoteLibrarySnapshotsForDevice(deviceId);
+          systemVisibilityServerChecked.delete(deviceId);
+          startupAutoResumeDevices.delete(deviceId);
+          automaticResumeRunningDevices.delete(deviceId);
+        }
+      }
       // Partial status updates (including Soft Reset) do not carry a fresh
       // installation ID. Preserve the confirmed identity instead of treating
       // the machine as a new installation and resetting its selected system.
@@ -9178,7 +9228,7 @@
         dualBootButton.type = 'button';
         dualBootButton.className = 'advanced-item';
         dualBootButton.setAttribute('role', 'menuitem');
-        dualBootButton.textContent = 'Shared Dual Boot';
+        dualBootButton.textContent = 'Windows/Batocera Dual Boot';
         dualBootButton.style.marginTop = '4px';
         dualBootButton.addEventListener('click', async () => {
           closeRetroBatMachineMenu();
@@ -9298,6 +9348,7 @@
           imageStatus.textContent = 'No Batocera image attached';
           imageRow.append(chooseImageButton, imageStatus);
           let selectedImage = null;
+          let imageSelectionRevision = 0;
           const showImage = image => {
             selectedImage = image;
             const bootGb = Number(image.partitions?.[0]?.sizeBytes || 0) / (1024 ** 3);
@@ -9306,20 +9357,22 @@
             updateSaveState();
           };
           chooseImageButton.addEventListener('click', async () => {
+            const selectionRevision = ++imageSelectionRevision;
             chooseImageButton.disabled = true;
             try {
               const response = await fetch(`${apiBase}/api/windows/dual-boot/choose-image`, {method:'POST'});
               const result = await response.json();
               if (!response.ok || !result.ok) throw new Error(result.error || 'Could not select the image.');
-              if (!result.cancelled) showImage(result.image);
+              if (!result.cancelled && selectionRevision === imageSelectionRevision) showImage(result.image);
             } catch (error) { imageStatus.textContent = error.message; }
             finally { chooseImageButton.disabled = false; }
           });
           const savedImagePath = localStorage.getItem(imagePreferenceKey);
           if (savedImagePath) {
+            const restoreRevision = imageSelectionRevision;
             fetch(`${apiBase}/api/windows/dual-boot/inspect-image`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:savedImagePath})})
-              .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Image no longer available.'); showImage(result.image); })
-              .catch(() => { imageStatus.textContent = 'Saved image unavailable — choose it again'; });
+              .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Image no longer available.'); if (restoreRevision === imageSelectionRevision && !selectedImage) showImage(result.image); })
+              .catch(() => { if (restoreRevision === imageSelectionRevision && !selectedImage) imageStatus.textContent = 'Saved image unavailable — choose it again'; });
           }
           const backupLabel = document.createElement('label');
           backupLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-top:14px;color:#ffcf72;font-weight:700';
@@ -9365,7 +9418,7 @@
             try {
               const response = await fetch(`${apiBase}/api/windows/dual-boot/stage`, {
                 method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,imagePath:selectedImage.path,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value})
+                body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,imagePath:selectedImage.path,expectedImageName:selectedImage.name,expectedImageBytes:selectedImage.sizeBytes,expectedImageModifiedAt:selectedImage.modifiedAt,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value})
               });
               const result = await response.json();
               if (!response.ok || !result.ok) throw new Error(result.error || 'Could not stage the image.');
@@ -9382,7 +9435,7 @@
                     showProgress('Image and rEFInd verified. Asking RP2 to prepare the drive…');
                     const installResponse = await fetch(`${apiBase}/api/windows/dual-boot/install`, {
                       method:'POST',headers:{'Content-Type':'application/json'},
-                      body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value,backupConfirmed:true,recoveryMediaConfirmed:true})
+                      body:JSON.stringify({device:card.dataset.device,host:card.dataset.host,diskNumber:report.diskNumber,windowsGb:Number(sizeInput.value),bootTimeoutSeconds:Number(timeoutInput.value),defaultOs:defaultBootSelect.value,imageName:job.plan.imageName,imageBytes:job.plan.imageBytes,imageSha256:job.plan.imageSha256,backupConfirmed:true,recoveryMediaConfirmed:true})
                     });
                     const install = await installResponse.json();
                     if (!installResponse.ok || !install.ok) throw new Error(install.error || 'RP2 did not accept the install request.');
@@ -9394,7 +9447,7 @@
                       if (!installStatusResponse.ok || !installStatus.ok) throw new Error(installStatus.error || 'Could not read RP2 install status.');
                       const result = installStatus.result;
                       if (result?.requestId === install.requestId && result.ok === true) {
-                        if (stagingDialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = 'rEFInd and Batocera boot entries installed. Reboot the Windows PC and test both Windows and Batocera before considering dual boot verified.'; }
+                        if (stagingDialogOpen) { xboxBiosDialog.classList.remove('dual-boot-working'); progressText.textContent = 'Batocera install completed. Remove USB. Reboot the Windows/Batocera PC to verify dual boot. Make sure Batocera is connected to Wi-Fi.'; }
                         break;
                       }
                       if (result?.requestId === install.requestId && (result.phase === 'failed' || result.error)) throw new Error(result.error || result.detail || 'RP2 preparation failed.');
