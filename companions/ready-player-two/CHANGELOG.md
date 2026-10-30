@@ -1,3 +1,8 @@
+# Ready Player Two 1.0.70
+
+- Gives every native action button the same blue glassy 3D treatment, including hover, pressed, and disabled states.
+- Replaces native message boxes with the RP2-styled modal so every modal uses the same sharp red glass close X as RP1.
+
 # Ready Player Two 1.0.69
 
 - Creates and verifies a dedicated `Ready Player One Dual Boot` UEFI entry, places it first, and records its identifier so Dual Boot Undo removes only that entry. This fixes firmware that bypasses the redirected generic Windows Boot Manager entry.

@@ -1,6 +1,6 @@
 {
   "name": "ready-player-one",
-  "version": "1.0.415",
+  "version": "1.0.418",
   "private": true,
   "description": "Ready Player One desktop game library manager",
   "scripts": {

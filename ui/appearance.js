@@ -31,7 +31,7 @@
     const cog = document.createElement('button');
     cog.id = 'appearanceCog'; cog.type = 'button'; cog.title = 'Settings';
     cog.setAttribute('aria-label', 'Settings'); cog.setAttribute('aria-haspopup', 'dialog');
-    cog.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path stroke-linejoin="round" d="m9.5 3-.6 2.4-2 .9-2.2-.7-2.4 4.1L4 11.4v2.2l-1.7 1.7 2.4 4.1 2.2-.7 2 .9.6 2.4h5l.6-2.4 2-.9 2.2.7 2.4-4.1-1.7-1.7v-2.2l1.7-1.7-2.4-4.1-2.2.7-2-.9L14.5 3z"/><circle cx="12" cy="12.5" r="3.4"/></svg>';
+    cog.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><defs><linearGradient id="rp1CogGlass" x1="5" y1="3" x2="19" y2="21" gradientUnits="userSpaceOnUse"><stop stop-color="#f5fbff"/><stop offset=".28" stop-color="#a9d8ff"/><stop offset=".58" stop-color="#5798e7"/><stop offset=".82" stop-color="#b8e3ff"/><stop offset="1" stop-color="#326ab4"/></linearGradient></defs><path class="cog-rim" stroke="url(#rp1CogGlass)" stroke-width="1.75" stroke-linejoin="round" d="m9.5 3-.6 2.4-2 .9-2.2-.7-2.4 4.1L4 11.4v2.2l-1.7 1.7 2.4 4.1 2.2-.7 2 .9.6 2.4h5l.6-2.4 2-.9 2.2.7 2.4-4.1-1.7-1.7v-2.2l1.7-1.7-2.4-4.1-2.2.7-2-.9L14.5 3z"/><circle class="cog-center" cx="12" cy="12.5" r="3.4" stroke="url(#rp1CogGlass)" stroke-width="1.75"/></svg>';
     advanced.after(cog);
     dialog = document.createElement('dialog'); dialog.className = 'appearance-dialog';
     dialog.setAttribute('aria-labelledby', 'appearanceTitle');

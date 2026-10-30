@@ -21,14 +21,29 @@ if (!/const observedTransferKeys = new Set\(selectedJobs[\s\S]*?observedTransfer
 if (!/activeNames\.has\(item\[0\]\) \|\| transferIsPending\(item\[0\]\) \|\| optimisticallyChecked \? " checked"/.test(html)) {
   throw new Error('New checkbox markup must preserve a click across a background rerender.');
 }
-if (!/pendingTransferKeys\.has\(rowSelectionKey\)[\s\S]*?selectionSetFor\(selectedSystem\)\.has\(item\[0\]\)/.test(html)) {
-  throw new Error('A rerender must restore the persisted user selection before transfer status is available.');
+if (/selectionSetFor\(selectedSystem\)\.has\(item\[0\]\)/.test(html)) {
+  throw new Error('Persisted layout history must not create a checked game without a live transfer or installed file.');
 }
-if (!/: gameCheckbox\.checked \|\| requested \|\| authoritative;/.test(html)) {
-  throw new Error('Background status polling must not clear an existing user check.');
+if (!/const checked = optimisticWarehouseSelections\.has\(selectionKey\)[\s\S]*?optimisticWarehouseSelections\.get\(selectionKey\)[\s\S]*?: authoritative;/.test(html)) {
+  throw new Error('Background status polling must preserve the latest optimistic user choice.');
 }
 if (/game\.dataset\.selectionRevision !== revision \|\| !game\.isConnected/.test(html)) {
   throw new Error('Replacing a row during the next frame must not silently cancel its transfer.');
+}
+if (/requestAnimationFrame\(\(\) => setTimeout\(\(\) => \{[\s\S]{0,1200}syncWarehouseSelection/.test(html)) {
+  throw new Error('A checkbox enqueue must not depend on a WebView animation frame.');
+}
+if (!/setTimeout\(\(\) => \{[\s\S]{0,1200}syncWarehouseSelection\(game, \{ device: targetDevice, system: targetSystem \}\)/.test(html)) {
+  throw new Error('A checkbox enqueue must run from the event-loop task queue.');
+}
+if (!/if \(!installedOnTarget\)[\s\S]*?api\/transfers\/enqueue[\s\S]*?fileNames:\[name\][\s\S]*?pendingSelectionAccepted = true/.test(html)) {
+  throw new Error('Every console checkbox click must create a durable backend job before the frontend yields.');
+}
+if (!/const installedOnTarget = targetDevice === selectedDevice[\s\S]*?activeNames\.has\(name\)[\s\S]*?if \(!installedOnTarget\)/.test(html)) {
+  throw new Error('An optimistic right-pane row must not be mistaken for an installed game.');
+}
+if (/const visibleInTargetPane = [\s\S]{0,300}querySelectorAll\("\.device-game"\)/.test(html)) {
+  throw new Error('Transfer decisions must not use temporary right-pane DOM rows as machine inventory.');
 }
 
 console.log('Immediate game checkbox regression test passed.');

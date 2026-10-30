@@ -15,7 +15,7 @@ for (const system of ['xbox', 'xbox360']) {
   assert(theme.includes(`READY PLAYER ONE ${system === 'xbox' ? 'XBOX' : 'XBOX 360'} PICTURES`));
   assert(theme.includes('<autoLayout>5 2</autoLayout>'));
   assert(theme.includes('<maxSize>1.10 1.10</maxSize>'));
-  assert(theme.includes('<cornerSize>0 0</cornerSize><padding>-38 -38</padding>'));
+  assert(theme.includes('<cornerSize>0 0</cornerSize><padding>-40 -40</padding>'));
   assert(theme.includes(`/userdata/roms/${system}/media/rp1-${system}-blank.png`));
   assert(theme.includes(`/userdata/roms/${system}/media/rp1-${system}-selector.png`));
   assert(theme.includes('<animateColor>F2C94CFF</animateColor>'));

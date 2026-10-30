@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ready Player One — Display</title>
+  <style>
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#070a10;color:#dce7f8;font-family:system-ui,sans-serif}
+    body{display:grid;grid-template-rows:48px minmax(0,1fr)}
+    header{display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px;background:#111927;border-bottom:1px solid #41506a;box-sizing:border-box}
+    .title{letter-spacing:.08em;text-transform:uppercase;font-weight:800}
+    button{height:32px;min-width:72px;border:1px solid #e45b55;border-radius:7px;background:#2a171a;color:#ff7169;font-weight:800;cursor:pointer}
+    .status{display:grid;place-items:center;opacity:.7;letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+  </style>
+</head>
+<body>
+  <header><span class="title">Ready Player One — Display</span><button id="close">Close</button></header>
+  <div class="status">Starting playable display…</div>
+  <script>document.getElementById('close').addEventListener('click',()=>window.__TAURI__?.core?.invoke('close_embedded_display'));</script>
+</body>
+</html>

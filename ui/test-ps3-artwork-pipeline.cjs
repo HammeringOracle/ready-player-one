@@ -12,5 +12,8 @@ assert.match(source,
 assert.match(source,
   /image = await cacheNesPictureArtwork\(metadata\.localImagePath, fileName, system\);/,
   "Matched PS3 covers must be converted and published through the universal disc-art cache");
+assert.match(source,
+  /installationResetToken \|\| machineSettings\.installationId[\s\S]*?installationIdentity[\s\S]*?verifiedArtworkPresentations/,
+  "Disc presentation verification must be scoped to the current Batocera installation, not only its reused IP address");
 
 console.log("PS3 artwork pipeline regression test passed.");

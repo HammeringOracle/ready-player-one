@@ -70,18 +70,22 @@ function Save-RP2OperationLog([string]$Action,[object]$Result) {
 }
 
 $xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Ready Player Two 1.0.69" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Ready Player Two 1.0.70" Width="820" Height="620" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterScreen" ShowActivated="True" SizeToContent="Manual" ResizeMode="CanResize" Background="#111722" Foreground="#EAF2FF">
   <Window.Resources>
     <Style TargetType="TextBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="CaretBrush" Value="#101722"/><Setter Property="Padding" Value="8,4"/></Style>
     <Style TargetType="ComboBox"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#F4F7FB"/><Setter Property="Padding" Value="7,3"/></Style>
     <Style TargetType="ListBox"><Setter Property="Foreground" Value="#F4F7FB"/><Setter Property="Background" Value="#182230"/></Style>
     <Style TargetType="ListBoxItem"><Setter Property="Foreground" Value="#F4F7FB"/><Setter Property="Background" Value="#182230"/><Setter Property="Padding" Value="8,5"/></Style>
     <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#EAF2FF"/><Setter Property="FontSize" Value="14"/></Style>
-    <Style TargetType="Button"><Setter Property="Foreground" Value="#101722"/><Setter Property="Background" Value="#EAF2FF"/><Setter Property="BorderBrush" Value="#70B8FF"/><Setter Property="FontSize" Value="15"/></Style>
+    <Style TargetType="Button">
+      <Setter Property="Foreground" Value="#F8FBFF"/><Setter Property="Background" Value="#245C9E"/><Setter Property="BorderBrush" Value="#78B9FF"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template">
+        <Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="GlassBorder" CornerRadius="7" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}"><Grid ClipToBounds="True"><Border VerticalAlignment="Top" Height="16" Margin="2,1,2,0" CornerRadius="5,5,10,10" Background="#42FFFFFF"/><Border VerticalAlignment="Bottom" Height="14" Margin="1,0,1,1" CornerRadius="0,0,6,6" Background="#34000A18"/><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,4"/></Grid></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="GlassBorder" Property="Effect"><Setter.Value><DropShadowEffect Color="#68AEFF" BlurRadius="10" ShadowDepth="0" Opacity="0.72"/></Setter.Value></Setter></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="GlassBorder" Property="RenderTransform"><Setter.Value><TranslateTransform Y="1"/></Setter.Value></Setter></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="GlassBorder" Property="Opacity" Value="0.45"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
   <Grid Margin="20">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.69" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
+    <StackPanel><TextBlock Text="READY PLAYER ONE COMPANION - VERSION 1.0.70" Foreground="#70B8FF" FontWeight="Bold"/><TextBlock Text="Ready Player Two" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"/></StackPanel>
     <Border Grid.Row="1" Background="#1D2938" BorderBrush="#4F6B8E" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,10,0,10"><StackPanel><TextBlock Text="Make this Windows PC visible in Ready Player One." FontSize="15" FontWeight="Bold" Margin="0,0,0,3"/><TextBlock Text="Configures Windows discovery and supported frontends." TextWrapping="Wrap" Foreground="#BFD4EC"/></StackPanel></Border>
     <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="0.9*"/></Grid.ColumnDefinitions>
       <StackPanel Margin="0,0,14,0"><TextBlock Text="DETECTED PROGRAMS" FontWeight="Bold" Foreground="#70B8FF"/><ListBox Name="Programs" Margin="0,6,0,10" Height="105" Background="#182230" Foreground="White" BorderBrush="#526C8E" FontSize="16"/><TextBlock Text="HOME NETWORK" FontWeight="Bold" Foreground="#70B8FF"/><ComboBox Name="Networks" Margin="0,6,0,0" Height="32" Background="#EAF2FF" Foreground="#111722"/></StackPanel>
@@ -103,6 +107,35 @@ $dualBootStatus = $window.FindName('DualBootStatus')
 $status = $dualBootStatus
 $makePrivate = $window.FindName('MakePrivate'); $blankPassword = $window.FindName('BlankPassword')
 
+function Show-RP2Dialog([string]$Title,[string]$Message,[switch]$Confirm) {
+    $dialogXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="560" SizeToContent="Height" MaxHeight="520" WindowStartupLocation="CenterOwner" WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False">
+  <Border Background="#111722" BorderBrush="#58769B" BorderThickness="1" CornerRadius="9">
+    <Grid><Grid.RowDefinitions><RowDefinition Height="50"/><RowDefinition Height="Auto"/><RowDefinition Height="58"/></Grid.RowDefinitions>
+      <Border Name="DragBar" Background="#202C3C" BorderBrush="#58769B" BorderThickness="0,0,0,1" CornerRadius="9,9,0,0"><Grid Margin="15,0,9,0"><TextBlock Name="DialogTitle" VerticalAlignment="Center" Foreground="#EAF2FF" FontSize="17" FontWeight="Bold"/><Button Name="CloseDialog" Content="X" Width="38" Height="32" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0" Foreground="White" Background="#7A1B20" BorderBrush="#FF7F76" FontSize="19" FontWeight="Black"/></Grid></Border>
+      <ScrollViewer Grid.Row="1" MaxHeight="390" VerticalScrollBarVisibility="Auto"><TextBlock Name="DialogMessage" Margin="20,18" Foreground="#DCE8F7" FontSize="15" LineHeight="22" TextWrapping="Wrap"/></ScrollViewer>
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"><Button Name="CancelDialog" Content="Cancel" Width="96" Height="36" Margin="0,0,8,0"/><Button Name="AcceptDialog" Content="OK" Width="96" Height="36" Background="#245C9E"/></StackPanel>
+    </Grid>
+  </Border>
+</Window>
+'@
+    $dialog = [Windows.Markup.XamlReader]::Load([Xml.XmlNodeReader]::new([xml]$dialogXaml))
+    $dialog.Owner = $window
+    $dialog.Resources = $window.Resources
+    $dialog.FindName('DialogTitle').Text = $Title
+    $dialog.FindName('DialogMessage').Text = $Message
+    $close = $dialog.FindName('CloseDialog'); $cancel = $dialog.FindName('CancelDialog'); $accept = $dialog.FindName('AcceptDialog')
+    $close.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#7A1B20')
+    $close.BorderBrush = [Windows.Media.BrushConverter]::new().ConvertFromString('#FF7F76')
+    $cancel.Visibility = if($Confirm){'Visible'}else{'Collapsed'}
+    $accept.Content = if($Confirm){'Continue'}else{'OK'}
+    $script:rp2DialogAccepted = $false
+    $close.Add_Click({$dialog.Close()}); $cancel.Add_Click({$dialog.Close()}); $accept.Add_Click({$script:rp2DialogAccepted=$true;$dialog.Close()})
+    $dialog.FindName('DragBar').Add_MouseLeftButtonDown({try{$dialog.DragMove()}catch{}})
+    [void]$dialog.ShowDialog()
+    return [bool]$script:rp2DialogAccepted
+}
+
 $stageRoot = Join-Path $env:ProgramData 'Ready Player Two\staging'
 $script:lastInstallResultStamp = $null
 $script:installMonitorStarted = $false
@@ -121,7 +154,7 @@ function Update-DualBootStatus {
             $dualBootStatus.Text = "STOPPED: $($result.error)"
             $dualBootStatus.Foreground = [System.Windows.Media.Brushes]::OrangeRed
             if ($script:installMonitorStarted -and $stamp -and $stamp -ne $script:lastInstallResultStamp) {
-                [Windows.MessageBox]::Show($dualBootStatus.Text,'Shared Dual Boot stopped','OK','Warning') | Out-Null
+                Show-RP2Dialog 'Shared Dual Boot stopped' $dualBootStatus.Text | Out-Null
             }
         } elseif ($state -and $state.phase -in $activePhases) {
             $dualBootStatus.Text = "$($state.phase): $($state.detail)"
@@ -162,15 +195,14 @@ function Refresh-Status([switch]$Silent) {
 }
 $refresh.Add_Click({ Refresh-Status })
 $repairBoot.Add_Click({
-    $answer=[Windows.MessageBox]::Show('Back up the current boot-menu configuration and repair the clean graphical two-choice menu using the saved default OS and wait time? This does not repartition or reinstall Batocera.','Repair Boot Menu','YesNo','Warning')
-    if ($answer -ne [Windows.MessageBoxResult]::Yes) { return }
+    if (-not (Show-RP2Dialog 'Repair Boot Menu' 'Back up the current boot-menu configuration and repair the clean graphical two-choice menu using the saved default OS and wait time? This does not repartition or reinstall Batocera.' -Confirm)) { return }
     $repairBoot.IsEnabled=$false; $status.Text='Checking boot files and backing up the menu configuration...';$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue; $window.Dispatcher.Invoke([action]{}, 'Background')
     try {
         $result=Invoke-RP2 'dual-boot-repair-menu' ([ordered]@{platform='all';folder='';account='';interfaceIndex=0;makePrivate=$false;allowBlankPassword=$false}) -Elevated
         if (-not $result.ok) { throw [string]$result.error }
         $status.Text=[string]$result.detail
-        [Windows.MessageBox]::Show($status.Text,'Boot Menu Repair','OK','Information')|Out-Null
-    } catch { $status.Text="Boot menu repair stopped: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed; [Windows.MessageBox]::Show($status.Text,'Boot Menu Repair','OK','Warning')|Out-Null }
+        Show-RP2Dialog 'Boot Menu Repair' $status.Text | Out-Null
+    } catch { $status.Text="Boot menu repair stopped: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed; Show-RP2Dialog 'Boot Menu Repair' $status.Text | Out-Null }
     finally { $repairBoot.IsEnabled=$true }
 })
 $inspectBoot.Add_Click({
@@ -179,7 +211,7 @@ $inspectBoot.Add_Click({
         $report=Invoke-RP2 'dual-boot-diagnostic' ([ordered]@{platform='all';folder='';account='';interfaceIndex=0;makePrivate=$false;allowBlankPassword=$false}) -Elevated
         if (-not $report.ok) { throw [string]$report.error }
         $status.Text="Boot report saved to RP2Status\\boot-diagnostic.json. rEFInd loader: $($report.refindLoaderExists); config: $($report.refindConfigExists); Windows loader: $($report.windowsLoaderExists). No boot settings were changed."
-        [Windows.MessageBox]::Show($status.Text,'Boot Menu Inspection','OK','Information')|Out-Null
+        Show-RP2Dialog 'Boot Menu Inspection' $status.Text | Out-Null
     } catch { $status.Text="Boot inspection failed: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed }
     finally { $inspectBoot.IsEnabled=$true }
 })
@@ -203,7 +235,7 @@ $inspectDrive.Add_Click({
             'Inspection only. No partition, image, or boot changes were made.'
         )
         $status.Text=$lines -join "`n"
-        [Windows.MessageBox]::Show($status.Text,'Shared Dual Boot - Drive Inspection','OK','Information')|Out-Null
+        Show-RP2Dialog 'Shared Dual Boot - Drive Inspection' $status.Text | Out-Null
     } catch { $status.Text="Drive inspection failed: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed }
     finally { $inspectDrive.IsEnabled=$true }
 })
@@ -214,7 +246,7 @@ $setup.Add_Click({
         $request=[ordered]@{platform='all';folder='';account=$account.Text.Trim();interfaceIndex=[int]$networks.SelectedValue;makePrivate=[bool]$makePrivate.IsChecked;allowBlankPassword=[bool]$blankPassword.IsChecked}
         $result=Invoke-RP2 'setup' $request -Elevated
         $operationLog=Save-RP2OperationLog 'Configure All' $result
-        if($result.ok){$status.Text="Setup complete. RP1 discovery, RP2Stage, and the protected dual-boot worker are active.`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot.`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue;$script:rp2SessionStartedAt=(Get-Date).ToUniversalTime();$installTimer.Start();[Windows.MessageBox]::Show("Setup complete. RP1 discovery and the protected dual-boot worker are active.`n`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot.",'Ready Player Two - Configure All','OK','Information')|Out-Null}
+        if($result.ok){$status.Text="Setup complete. RP1 discovery, RP2Stage, and the protected dual-boot worker are active.`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot.`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::LightSkyBlue;$script:rp2SessionStartedAt=(Get-Date).ToUniversalTime();$installTimer.Start();Show-RP2Dialog 'Ready Player Two - Configure All' "Setup complete. RP1 discovery and the protected dual-boot worker are active.`n`nReturn to Ready Player One, right-click this Windows machine, and run Windows/Batocera Dual Boot." | Out-Null}
         else{$status.Text="Setup needs attention: $($result.error)`nDetails: $operationLog";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed}
     } catch {$status.Text="Setup failed: $($_.Exception.Message)";$status.Foreground=[System.Windows.Media.Brushes]::OrangeRed}
     finally {$setup.IsEnabled=$true;$refresh.IsEnabled=$true}

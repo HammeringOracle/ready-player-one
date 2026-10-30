@@ -121,7 +121,7 @@ fn main() {
             ),
             Err(error) => format!("Dual Boot Undo shortcut needs attention: {error}\n"),
         };
-        fs::write(&log_path, format!("Ready Player Two 1.0.69 launched with the native Windows interface.\n{shortcut_detail}"))
+        fs::write(&log_path, format!("Ready Player Two 1.0.70 launched with the native Windows interface.\n{shortcut_detail}"))
             .map_err(|error| error.to_string())?;
         let mut process = Command::new("powershell.exe");
         process.creation_flags(0x08000000);
@@ -146,7 +146,7 @@ fn main() {
     let existing_log = fs::read_to_string(&log_path).unwrap_or_default();
     let _ = fs::write(
         &log_path,
-        format!("{existing_log}Ready Player Two 1.0.69\n{detail}"),
+        format!("{existing_log}Ready Player Two 1.0.70\n{detail}"),
     );
     let _ = fs::remove_file(setup_path);
     let _ = fs::remove_file(ui_path);

@@ -200,7 +200,7 @@ while ($true) {
     Start-ScheduledTask -TaskName $taskName
     $statusRoot = Join-Path $env:ProgramData 'Ready Player Two\status'
     if (Test-Path -LiteralPath $statusRoot -PathType Container) {
-        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.69';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $statusRoot 'dual-boot-worker.json'),(@{schema=1;version='1.0.70';computer=$env:COMPUTERNAME;configuredAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     }
 }
 function Get-FirmwareType {

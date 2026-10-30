@@ -117,19 +117,84 @@
     }
 
     .soft-reset.needs-reset:not(:disabled) {
-      animation: soft-reset-needed 1.05s ease-in-out infinite !important;
+      animation: soft-reset-needed 1.9s cubic-bezier(.45, 0, .55, 1) infinite !important;
       will-change: box-shadow;
     }
 
     @keyframes soft-reset-needed {
-      0%, 100% { box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.22), 0 0 5px rgba(250, 204, 21, 0.24); }
-      50% { box-shadow: 0 0 0 7px rgba(250, 204, 21, 0.68), 0 0 30px rgba(250, 204, 21, 0.98); }
+      0%, 100% {
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.45),
+          inset 0 -1px 0 rgba(0,0,0,.4),
+          0 3px 7px rgba(0,0,0,.46),
+          0 0 0 1px rgba(255, 218, 82, .16),
+          0 0 7px 1px rgba(250, 204, 21, .13),
+          0 0 15px 3px rgba(250, 190, 20, .05);
+      }
+      50% {
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.48),
+          inset 0 -1px 0 rgba(0,0,0,.4),
+          0 3px 7px rgba(0,0,0,.46),
+          0 0 0 2px rgba(255, 224, 98, .42),
+          0 0 9px 3px rgba(250, 204, 21, .34),
+          0 0 21px 7px rgba(250, 188, 18, .16),
+          0 0 34px 12px rgba(245, 166, 12, .06);
+      }
     }
 
     .layout-button {
       min-width: 96px;
       color: var(--accent);
       box-shadow: 0 0 0 3px rgba(38, 168, 255, 0.14);
+    }
+
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle) {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--header-glass-border);
+      color: var(--header-glass-text);
+      background: linear-gradient(180deg, rgba(255,255,255,.24) 0%, var(--header-glass-mid) 43%, var(--header-glass-bottom) 100%);
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 3px 7px rgba(0,0,0,.46);
+    }
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle)::before {
+      content: '';
+      position: absolute;
+      inset: 1px 4px auto;
+      height: 43%;
+      border-radius: 6px 6px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle):hover {
+      color: #fff;
+      border-color: var(--header-glass-border);
+      background: linear-gradient(180deg, rgba(255,255,255,.31) 0%, var(--header-glass-mid) 43%, var(--header-glass-bottom) 100%);
+      filter: brightness(1.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.54), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 9px rgba(0,0,0,.52);
+    }
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle):active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.52), 0 1px 2px rgba(0,0,0,.36);
+    }
+    #softReset {
+      --header-glass-border: rgba(115,231,151,.86);
+      --header-glass-mid: rgba(43,145,78,.68);
+      --header-glass-bottom: rgba(15,70,37,.9);
+      --header-glass-text: #effff3;
+    }
+    :is(#saveTransferLayout, #openTransferLayout) {
+      --header-glass-border: rgba(115,174,255,.88);
+      --header-glass-mid: rgba(48,111,190,.68);
+      --header-glass-bottom: rgba(18,48,91,.9);
+      --header-glass-text: #f1f7ff;
+    }
+    #advancedToggle {
+      --header-glass-border: rgba(143,187,255,.9);
+      --header-glass-mid: rgba(65,105,178,.7);
+      --header-glass-bottom: rgba(28,42,89,.92);
+      --header-glass-text: #f4f7ff;
     }
 
     .find-machines {
@@ -144,30 +209,48 @@
       min-width: 38px;
       padding: 0;
       border-radius: 50%;
-      border-color: rgba(91, 166, 255, 0.9);
-      background: linear-gradient(145deg, rgba(52,73,102,.98), rgba(17,27,42,.98));
-      color: #7db7ff;
-      box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 0 0 3px rgba(63, 139, 255, 0.14), 0 0 18px rgba(45,132,255,.25);
+      border: 1px solid rgba(121,184,255,.94);
+      background:
+        radial-gradient(circle at 34% 24%, rgba(255,255,255,.42) 0%, rgba(255,255,255,.12) 22%, transparent 42%),
+        linear-gradient(155deg, rgba(86,148,218,.96) 0%, rgba(38,91,157,.98) 45%, rgba(11,39,78,.99) 100%);
+      color: #fff;
+      box-shadow:
+        inset 0 2px 1px rgba(255,255,255,.5),
+        inset 0 -3px 5px rgba(3,20,48,.82),
+        0 2px 3px rgba(0,0,0,.68),
+        0 0 0 2px rgba(63,139,255,.13),
+        0 0 15px rgba(45,132,255,.3);
       z-index: 2;
     }
 
-    .find-machines svg { width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round; }
-    .find-machines:hover {color:#d9ebff;border-color:#b6d7ff;transform:translate(-50%,-50%) scale(1.06);box-shadow:inset 0 1px 1px rgba(255,255,255,.22),0 0 0 4px rgba(74,144,255,.18),0 0 24px rgba(54,139,255,.48)}
+    .find-machines svg {
+      width:21px;height:21px;fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.8)) drop-shadow(0 0 2px rgba(255,255,255,.28));
+    }
+    .find-machines:hover {
+      color:#fff;border-color:#d5eaff;transform:translate(-50%,-50%) scale(1.06);
+      background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.52) 0%,rgba(255,255,255,.16) 23%,transparent 43%),linear-gradient(155deg,rgba(103,170,244,.98),rgba(43,106,184,.98) 46%,rgba(13,45,88,.99));
+      box-shadow:inset 0 2px 1px rgba(255,255,255,.58),inset 0 -3px 5px rgba(3,20,48,.82),0 3px 5px rgba(0,0,0,.7),0 0 0 3px rgba(74,144,255,.2),0 0 24px rgba(54,139,255,.5)
+    }
+    .find-machines:active {
+      transform:translate(-50%,-49%) scale(1.02);
+      box-shadow:inset 0 3px 6px rgba(3,20,48,.8),inset 0 -1px 1px rgba(255,255,255,.25),0 1px 2px rgba(0,0,0,.62),0 0 12px rgba(54,139,255,.34);
+    }
     .find-machines:is(.finding,.awaiting-machine) {
-      color: var(--yellow);
+      color: #fff;
       border-color: var(--yellow);
-      box-shadow: inset 0 1px 1px rgba(255,255,255,.2), 0 0 0 2px rgba(250,204,21,.22), 0 0 12px rgba(250,204,21,.3), 0 0 28px rgba(250,204,21,.14);
+      box-shadow: inset 0 2px 1px rgba(255,255,255,.5), inset 0 -3px 5px rgba(3,20,48,.82), 0 2px 3px rgba(0,0,0,.68), 0 0 0 2px rgba(250,204,21,.22), 0 0 12px rgba(250,204,21,.3), 0 0 28px rgba(250,204,21,.14);
       animation: find-pulse 2.8s cubic-bezier(.45, 0, .55, 1) infinite;
       will-change: box-shadow, filter;
     }
     .find-machines.finding svg { animation:refresh-spin .9s linear infinite; }
     @keyframes find-pulse {
       0%, 100% {
-        box-shadow: inset 0 1px 1px rgba(255,255,255,.2), 0 0 0 2px rgba(250,204,21,.18), 0 0 10px rgba(250,204,21,.28), 0 0 24px rgba(250,204,21,.12);
+        box-shadow: inset 0 2px 1px rgba(255,255,255,.5), inset 0 -3px 5px rgba(3,20,48,.82), 0 2px 3px rgba(0,0,0,.68), 0 0 0 2px rgba(250,204,21,.18), 0 0 10px rgba(250,204,21,.28), 0 0 24px rgba(250,204,21,.12);
         filter: drop-shadow(0 0 1px rgba(255,232,120,.22));
       }
       50% {
-        box-shadow: inset 0 1px 2px rgba(255,255,255,.3), 0 0 0 4px rgba(250,204,21,.28), 0 0 18px rgba(250,204,21,.62), 0 0 42px rgba(250,204,21,.34), 0 0 64px rgba(250,204,21,.12);
+        box-shadow: inset 0 2px 1px rgba(255,255,255,.58), inset 0 -3px 5px rgba(3,20,48,.82), 0 3px 5px rgba(0,0,0,.7), 0 0 0 4px rgba(250,204,21,.28), 0 0 18px rgba(250,204,21,.62), 0 0 42px rgba(250,204,21,.34), 0 0 64px rgba(250,204,21,.12);
         filter: drop-shadow(0 0 5px rgba(255,232,120,.48));
       }
     }
@@ -672,6 +755,54 @@
       background: rgba(75, 190, 115, 0.18);
     }
 
+    .advanced-menu > .advanced-item {
+      --advanced-glass-border: rgba(115, 174, 255, 0.72);
+      --advanced-glass-mid: rgba(48, 111, 190, 0.55);
+      --advanced-glass-bottom: rgba(17, 43, 80, 0.88);
+      position: relative;
+      overflow: hidden;
+      justify-content: center;
+      border: 1px solid var(--advanced-glass-border);
+      border-radius: 7px;
+      color: #f7fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.23) 0%, var(--advanced-glass-mid) 43%, var(--advanced-glass-bottom) 100%);
+      text-align: center;
+      text-shadow: 0 1px 1px rgba(0,0,0,.75);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.44), inset 0 -1px 0 rgba(0,0,0,.4), 0 3px 6px rgba(0,0,0,.46);
+    }
+
+    .advanced-menu > .advanced-item::before {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 43%;
+      border-radius: 5px 5px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.025));
+      pointer-events: none;
+    }
+
+    .advanced-menu > :is(#openReadyPlayerTwo, .installed-feature-item) {
+      --advanced-glass-border: rgba(118, 235, 157, 0.78);
+      --advanced-glass-mid: rgba(48, 145, 84, 0.55);
+      --advanced-glass-bottom: rgba(16, 67, 37, 0.9);
+      border-color: var(--advanced-glass-border);
+      background: linear-gradient(180deg, rgba(255,255,255,.23) 0%, var(--advanced-glass-mid) 43%, var(--advanced-glass-bottom) 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.44), inset 0 -1px 0 rgba(0,0,0,.4), 0 3px 7px rgba(0,0,0,.46);
+    }
+
+    .advanced-menu > .advanced-item:hover {
+      color: #fff;
+      border-color: var(--advanced-glass-border);
+      background: linear-gradient(180deg, rgba(255,255,255,.31) 0%, var(--advanced-glass-mid) 43%, var(--advanced-glass-bottom) 100%);
+      filter: brightness(1.13);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 9px rgba(0,0,0,.55);
+    }
+
+    .advanced-menu > .advanced-item:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.56), 0 1px 2px rgba(0,0,0,.38);
+    }
+
     .advanced-check {
       width: 100%;
       min-height: 32px;
@@ -919,6 +1050,122 @@
       cursor: pointer;
     }
 
+    .header-cancel-copy {
+      position: relative;
+      overflow: hidden;
+      display: inline-grid;
+      place-items: center;
+      height: 25px;
+      min-height: 25px;
+      box-sizing: border-box;
+      border: 1px solid rgba(255, 127, 118, .78);
+      border-radius: 6px;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(181,58,53,.55) 42%, rgba(83,20,22,.72) 100%);
+      color: #fff1ef;
+      padding: 0 7px;
+      font: inherit;
+      font-size: 8px;
+      line-height: 1;
+      text-transform: uppercase;
+      text-shadow: 0 1px 1px #38080a;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(30,0,0,.4), 0 2px 4px rgba(0,0,0,.42);
+      cursor: pointer;
+    }
+    .header-cancel-copy::before {
+      content: '';
+      position: absolute;
+      inset: 1px 2px auto;
+      height: 42%;
+      border-radius: 4px 4px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.04));
+      pointer-events: none;
+    }
+    .header-cancel-copy:hover {
+      filter: brightness(1.14);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.52), inset 0 -1px 0 rgba(30,0,0,.4), 0 3px 6px rgba(0,0,0,.5);
+    }
+    .header-cancel-copy:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 1px 3px rgba(30,0,0,.58), 0 1px 2px rgba(0,0,0,.35);
+    }
+    .header-cancel-copy:disabled { opacity: .58; cursor: wait; }
+    .header-cancel-copy[hidden] { display: none; }
+
+    .console-transfer-menu .advanced-item {
+      position: relative;
+      overflow: hidden;
+      justify-content: center;
+      border: 1px solid var(--glass-border);
+      border-radius: 7px;
+      color: #f7fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, var(--glass-mid) 43%, var(--glass-bottom) 100%);
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(0,0,0,.38), 0 3px 6px rgba(0,0,0,.44);
+    }
+    .console-transfer-menu .advanced-item::before {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 43%;
+      border-radius: 5px 5px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    .console-transfer-menu .advanced-item:hover {
+      color: #fff;
+      border-color: var(--glass-border);
+      background: linear-gradient(180deg, rgba(255,255,255,.29) 0%, var(--glass-mid) 43%, var(--glass-bottom) 100%);
+      filter: brightness(1.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -1px 0 rgba(0,0,0,.38), 0 4px 8px rgba(0,0,0,.5);
+    }
+    .console-transfer-menu .advanced-item:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.35);
+    }
+    .console-transfer-menu .advanced-item:disabled { opacity: .42; filter: grayscale(.35); cursor: default; }
+    .console-transfer-menu .copy-all {
+      --glass-border: rgba(115,174,255,.86); --glass-mid: rgba(48,111,190,.68); --glass-bottom: rgba(18,48,91,.88);
+    }
+    .console-transfer-menu .cancel-transfer {
+      --glass-border: rgba(255,204,91,.86); --glass-mid: rgba(177,119,30,.68); --glass-bottom: rgba(83,48,12,.88);
+    }
+    .console-transfer-menu .remove-all {
+      --glass-border: rgba(255,127,118,.84); --glass-mid: rgba(181,58,53,.66); --glass-bottom: rgba(83,20,22,.88);
+    }
+
+    .machine-context-menu .advanced-item {
+      position: relative;
+      overflow: hidden;
+      justify-content: center;
+      border: 1px solid rgba(115,174,255,.86);
+      border-radius: 7px;
+      color: #f7fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.24) 0%, rgba(48,111,190,.68) 43%, rgba(18,48,91,.9) 100%);
+      text-align: center;
+      text-shadow: 0 1px 1px rgba(0,0,0,.76);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.46), inset 0 -1px 0 rgba(0,0,0,.42), 0 3px 7px rgba(0,0,0,.48);
+    }
+    .machine-context-menu .advanced-item::before {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 43%;
+      border-radius: 5px 5px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.38), rgba(255,255,255,.025));
+      pointer-events: none;
+    }
+    .machine-context-menu .advanced-item:hover {
+      color: #fff;
+      border-color: rgba(143,196,255,.95);
+      background: linear-gradient(180deg, rgba(255,255,255,.32) 0%, rgba(57,126,211,.74) 43%, rgba(21,55,104,.94) 100%);
+      filter: brightness(1.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.58), inset 0 -1px 0 rgba(0,0,0,.42), 0 5px 10px rgba(0,0,0,.56), 0 0 7px rgba(79,158,255,.35);
+    }
+    .machine-context-menu .advanced-item:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 5px rgba(0,0,0,.58), 0 1px 2px rgba(0,0,0,.4);
+    }
+
     .systems-title-actions {
       display: inline-flex;
       align-items: center;
@@ -933,10 +1180,11 @@
       padding: 0;
       display: inline-grid;
       place-items: center;
-      border-radius: 6px;
-      border: 1px solid rgba(83, 166, 255, 0.75);
-      background: rgba(83, 166, 255, 0.13);
-      color: #72b8ff;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      color: #9ed1ff;
       font-size: 0;
       font-weight: 900;
       line-height: 1;
@@ -949,11 +1197,25 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 12px;
-      height: 3px;
-      background: currentColor;
+      width: 15px;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #f4fbff 0%, #b9ddff 24%, #65aaf2 57%, #2868b2 76%, #94caff 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 1px rgba(9,44,91,.8), 0 1px 1px rgba(0,0,0,.75), 0 0 5px rgba(91,174,255,.58);
     }
-    .systems-add::after { width: 3px; height: 12px; }
+    .systems-add::after { width: 4px; height: 15px; }
+    .systems-add:hover, .systems-add:focus-visible {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      outline: none;
+    }
+    .systems-add:hover::before, .systems-add:hover::after,
+    .systems-add:focus-visible::before, .systems-add:focus-visible::after {
+      filter: brightness(1.18);
+      box-shadow: inset 0 1px 0 #fff, inset 0 -1px 1px rgba(9,44,91,.72), 0 1px 1px rgba(0,0,0,.78), 0 0 8px rgba(105,187,255,.88);
+    }
+    .systems-add:active { transform: translateY(1px); background: transparent; box-shadow: none; }
 
     .system-picker-grid {
       display: grid;
@@ -1101,12 +1363,30 @@
       animation: console-transfer-spin .7s linear infinite;
     }
 
+    .systems-list .row.console-transfer-queued > span:nth-child(2) {
+      color: #c6a631;
+      text-shadow: 0 0 6px rgba(198, 166, 49, 0.25);
+    }
+
+    .systems-list .row.console-transfer-queued > span:nth-child(2)::after {
+      content: "";
+      width: 12px;
+      height: 12px;
+      flex: 0 0 12px;
+      margin-left: 7px;
+      box-sizing: border-box;
+      border: 2px dashed #d4b43f;
+      border-radius: 50%;
+      animation: console-transfer-spin 1.4s linear infinite;
+    }
+
     @keyframes console-transfer-spin {
       to { transform: rotate(360deg); }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .systems-list .row.console-transfer-active > span:nth-child(2)::after {
+      .systems-list .row.console-transfer-active > span:nth-child(2)::after,
+      .systems-list .row.console-transfer-queued > span:nth-child(2)::after {
         animation-duration: 1.4s;
       }
     }
@@ -1120,21 +1400,23 @@
     .systems-list .row > .count::after { content: ")"; }
 
     .gamertag-console-button {
-      width: 24px;
-      height: 24px;
-      min-width: 24px;
+      width: 16px;
+      height: 20px;
+      min-width: 16px;
       padding: 0;
       display: grid;
       place-items: center;
-      border: 1px solid rgba(101, 164, 255, .72);
-      border-radius: 50%;
-      background: rgba(69, 119, 203, .16);
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       box-shadow: none;
+      margin-right: -6px;
     }
     .gamertag-console-button:hover {
-      border-color: #8fc0ff;
-      background: rgba(69, 119, 203, .32);
-      box-shadow: 0 0 10px rgba(91, 157, 255, .32);
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+      filter: brightness(1.22) drop-shadow(0 0 4px rgba(91, 157, 255, .5));
     }
     .gamertag-console-icon {
       position: relative;
@@ -1566,7 +1848,7 @@
 
     .details {
       display: grid;
-      grid-template-rows: 34px minmax(0, 1fr);
+      grid-template-rows: 34px minmax(0, 1fr) auto;
       gap: 0;
       padding: 0;
       background: var(--panel);
@@ -1769,9 +2051,9 @@
       min-height: 0;
       overflow: auto;
       padding: 8px;
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 4px;
-      align-content: start;
     }
 
     .active-device-list.empty-state {
@@ -1789,6 +2071,31 @@
       text-align: center;
       border-radius: 8px;
       background: rgba(20, 24, 30, 0.94);
+    }
+
+    .active-library-status {
+      position: relative;
+      z-index: 5;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      padding: 7px 10px;
+      color: #facc15;
+      line-height: 1.25;
+      font-size: 11px;
+      text-align: left;
+      border-top: 1px solid rgba(250, 204, 21, 0.42);
+      background: linear-gradient(180deg, rgba(38, 40, 43, 0.97), rgba(19, 22, 27, 0.98));
+      box-shadow: 0 -5px 14px rgba(0, 0, 0, 0.3);
+      animation: library-status-rise .24s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .active-library-status[hidden] { display: none; }
+    @keyframes library-status-rise {
+      from { opacity: 0; transform: translateY(100%); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .active-library-status { animation: none; }
     }
 
     .device-game {
@@ -2023,6 +2330,88 @@
       max-width: 100%;
       overflow-wrap: anywhere;
     }
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog) {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--dialog-glass-border);
+      color: #f8fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.24) 0%, var(--dialog-glass-mid) 43%, var(--dialog-glass-bottom) 100%);
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 8px rgba(0,0,0,.48);
+    }
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog)::before {
+      content: '';
+      position: absolute;
+      inset: 1px 4px auto;
+      height: 43%;
+      border-radius: 6px 6px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    #xboxBiosDialog.glassy-actions #cancelXboxBiosDialog {
+      --dialog-glass-border: rgba(115,174,255,.88); --dialog-glass-mid: rgba(48,111,190,.68); --dialog-glass-bottom: rgba(18,48,91,.92);
+    }
+    #xboxBiosDialog.glassy-actions #confirmXboxBiosDialog {
+      --dialog-glass-border: rgba(255,127,118,.86); --dialog-glass-mid: rgba(181,58,53,.68); --dialog-glass-bottom: rgba(83,20,22,.92);
+    }
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog):hover {
+      filter: brightness(1.13);
+      border-color: var(--dialog-glass-border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.54), inset 0 -1px 0 rgba(0,0,0,.4), 0 5px 10px rgba(0,0,0,.54);
+    }
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog):active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.54), 0 1px 2px rgba(0,0,0,.36);
+    }
+    #xboxBiosDialog.glassy-actions #closeXboxBiosDialog {
+      position: relative;
+      overflow: hidden;
+      width: 38px;
+      height: 32px;
+      min-width: 38px;
+      padding: 0;
+      border: 1px solid rgba(255,127,118,.9);
+      border-radius: 7px;
+      color: #fff !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(181,58,53,.62) 45%, rgba(76,17,20,.94) 100%);
+      font-size: 0;
+      font-weight: 1000;
+      line-height: 1;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.48), inset 0 -1px 0 rgba(0,0,0,.5), 0 3px 7px rgba(0,0,0,.48);
+    }
+    #xboxBiosDialog.glassy-actions #closeXboxBiosDialog::before {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 42%;
+      z-index: 0;
+      border-radius: 4px 4px 45% 45%;
+      background: linear-gradient(180deg, rgba(255,255,255,.27), rgba(255,255,255,.01));
+      pointer-events: none;
+    }
+    #xboxBiosDialog.glassy-actions #closeXboxBiosDialog::after {
+      content: 'X';
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 19px;
+      font-weight: 1000;
+      line-height: 1;
+      -webkit-text-stroke: .65px #5f090d;
+      text-shadow: 0 1px 1px #140102, 0 0 4px rgba(255,111,101,.9);
+      pointer-events: none;
+    }
+    #xboxBiosDialog.glassy-actions #closeXboxBiosDialog:hover {
+      filter: brightness(1.15);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.58), inset 0 -1px 0 rgba(0,0,0,.5), 0 4px 9px rgba(0,0,0,.55);
+    }
+    #xboxBiosDialog.glassy-actions #closeXboxBiosDialog:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.56), 0 1px 2px rgba(0,0,0,.38);
+    }
     #xboxBiosDialog.display-compact .confirm-modal {
       width: min(390px, 92vw) !important;
     }
@@ -2100,16 +2489,52 @@
       font-size: 13px;
     }
 
+    /* One canonical close control for every RP1 modal. */
     .modal-close {
-      width: 34px;
-      height: 28px;
+      position: relative;
+      overflow: hidden;
+      width: 38px;
+      height: 32px;
+      min-width: 38px;
       padding: 0;
-      display: inline-grid;
-      place-items: center;
+      border: 1px solid rgba(255, 127, 118, .9);
+      border-radius: 7px;
+      color: transparent !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(181,58,53,.62) 45%, rgba(76,17,20,.94) 100%);
+      font-size: 0;
       line-height: 1;
-      color: var(--red);
-      background: rgba(255, 255, 255, 0.08);
-      box-shadow: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.48), inset 0 -1px 0 rgba(0,0,0,.5), 0 3px 7px rgba(0,0,0,.48);
+    }
+    .modal-close::before {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 42%;
+      z-index: 0;
+      border-radius: 4px 4px 45% 45%;
+      background: linear-gradient(180deg, rgba(255,255,255,.27), rgba(255,255,255,.01));
+      pointer-events: none;
+    }
+    .modal-close::after {
+      content: 'X';
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font: 1000 19px/1 Arial, sans-serif;
+      -webkit-text-stroke: .65px #5f090d;
+      text-shadow: 0 1px 1px #140102, 0 0 4px rgba(255,111,101,.9);
+      pointer-events: none;
+    }
+    .modal-close:hover {
+      filter: brightness(1.15);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.58), inset 0 -1px 0 rgba(0,0,0,.5), 0 4px 9px rgba(0,0,0,.55);
+    }
+    .modal-close:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.56), 0 1px 2px rgba(0,0,0,.38);
     }
 
     .modal-actions {
@@ -2890,8 +3315,9 @@
     .transfer-row-stage {
       position: absolute;
       left: auto;
-      right: 88px;
-      max-width: 92px;
+      right: 74px;
+      width: 118px;
+      max-width: none;
       top: 50%;
       transform: translateY(-50%);
       color: #f8fbff !important;
@@ -2900,9 +3326,24 @@
       line-height: 1;
       white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
+      text-overflow: clip;
       pointer-events: none;
       text-align: right;
+    }
+    /* Progress text is absolutely positioned so the bar can span the whole
+       row. Reserve its footprint in the title column: long names then end in
+       an ellipsis with a visible gap instead of running underneath
+       "Transferring Cover" or a deletion stage. */
+    .device-game:is(.artwork-stage,.removal-pending) > .device-game-title {
+      min-width: 0;
+      box-sizing: border-box;
+      padding-right: 204px;
+    }
+    .device-game:is(.artwork-stage,.removal-pending) > .device-game-title > .device-game-title-text {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
     .device-card[hidden] { display: none !important; }
     .device-game[data-transfer-placeholder]:not([data-system="music"][data-kind="folder"]) {
@@ -2925,7 +3366,8 @@
     .reconnecting-dots span { display:inline-block; animation: reconnect-dot 1.2s ease-in-out infinite; }
     .reconnecting-dots span:nth-child(2) { animation-delay:.2s; }
     .reconnecting-dots span:nth-child(3) { animation-delay:.4s; }
-    .library-connection-message.is-reconnecting {
+    .library-connection-message.is-reconnecting,
+    .active-library-status.is-reconnecting {
       min-height: 28px;
       padding: 7px 18px !important;
       display: flex;
@@ -3013,6 +3455,7 @@
           <div class="row" data-system="steam"><span class="icon">STM</span><span>Steam</span><span class="count">0</span></div>
           <div class="row" data-system="c64"><span class="icon">C64</span><span>Commodore 64</span><span class="count">0</span></div>
           <div class="row" data-system="music"><span class="icon">MF</span><span>MP3/FLAC</span><span class="count">0</span></div>
+          <div class="row" data-system="movies"><span class="icon" role="img" aria-label="Movies"></span><span>Movies</span><span class="count">0</span></div>
           <div class="row" data-system="gb"><span class="icon">GB</span><span>Game Boy</span><span class="count">0</span></div>
           <div class="row" data-system="gbc"><span class="icon">GC</span><span>Game Boy Color</span><span class="count">0</span></div>
           <div class="row" data-system="nds"><span class="icon">DS</span><span>Nintendo DS</span><span class="count">0</span></div>
@@ -3051,7 +3494,7 @@
       </aside>
 
       <section class="panel games">
-        <div class="panel-title" id="warehouseTitle"><span class="warehouse-heading"><span>MAME Games</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="count">This Computer</span></div>
+        <div class="panel-title" id="warehouseTitle"><span class="warehouse-heading"><span>Games</span></span><span class="count">This Computer</span></div>
         <div class="game-list" id="warehouseList">
           <div class="initial-library-message">Loading this computer's games…</div>
         </div>
@@ -3062,6 +3505,7 @@
         <div class="active-device-list" id="activeList">
           <div class="initial-library-message">Loading this machine's games…</div>
         </div>
+        <div class="active-library-status" id="activeLibraryStatus" role="status" aria-live="polite" hidden></div>
       </aside>
     </section>
 
@@ -3787,6 +4231,7 @@
     const warehouseList = document.querySelector("#warehouseList");
     const activeTitle = document.querySelector("#activeTitle");
     const activeList = document.querySelector("#activeList");
+    const activeLibraryStatus = document.querySelector("#activeLibraryStatus");
     const warehouseFilter = document.querySelector("#warehouseFilter");
     const findMachines = document.querySelector("#findMachines");
     const controllerTitle = document.querySelector("#controllerTitle");
@@ -3989,7 +4434,7 @@
       dreamcast:"dreamcast", psp:"psp", neogeo:"neogeo", atari2600:"atari2600",
       atari5200:"atari5200", atari7800:"atari7800", atarilynx:"lynx", xegs:"xegs",
       jaguar:"jaguar", jaguarcd:"jaguarcd", atari800:"atari800", atarist:"atarist", pcengine:"pcengine"
-      , wiiu:"wiiu", ps3:"ps3", ps4:"ps4", xbox:"xbox", xbox360:"xbox360", music:"music"
+      , wiiu:"wiiu", ps3:"ps3", ps4:"ps4", xbox:"xbox", xbox360:"xbox360", music:"music", movies:"movies"
     };
     document.querySelectorAll('.systems-list .row[data-system]').forEach(row => {
       const folder = batoceraSystemArtFolders[row.dataset.system];
@@ -4111,6 +4556,10 @@
     }
     let trackedTransferKeys = new Set();
     const pendingTransferKeys = new Set();
+    // A pending key bridges the instant checkbox response and the backend's
+    // first durable job record. If a request is rejected or interrupted before
+    // that record exists, do not let the console spinner remain forever.
+    const unobservedPendingConsoleSince = new Map();
     // The user's latest click owns the checkbox until its matching operation
     // settles. Polling and stale inventory responses must never repaint it.
     const optimisticWarehouseSelections = new Map();
@@ -4185,8 +4634,12 @@
       }
     }
     window.getDiscoveredMachineStatuses = () => structuredClone(lastDeviceStatuses);
-    const reconnectRetryStorageKey = "batoceraWarehouse.reconnectRetries.v1";
+    // v2 intentionally discards the old unscoped retry list. Those entries
+    // could survive a reinstall or a later session and silently start Wii,
+    // Wii U, or any other console when the machine came back online.
+    const reconnectRetryStorageKey = "batoceraWarehouse.reconnectRetries.v2";
     const reconnectRetriesRunning = new Set();
+    const reconnectRetryDevicesRunning = new Set();
     const reconnectRetryNotBefore = new Map();
     const startupAutoResumeDevices = new Set();
     const automaticResumeRunningDevices = new Set();
@@ -4254,7 +4707,7 @@
     // Streaming/audio services are selectable features, not emulated game
     // consoles. Keep them in the list without inflating the console total.
     const virtualCollectionSystems = new Set(["all", "favorites"]);
-    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music", ...virtualCollectionSystems]);
+    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music", "movies", ...virtualCollectionSystems]);
     const systemVisibilityKey = "batoceraWarehouse.visibleSystems";
     const systemRequirementWarning = document.querySelector('#systemRequirementWarning');
     let selectTopSystemOnNextVisibleList = true;
@@ -4297,18 +4750,21 @@
       // selection is authoritative. A network refresh may update games inside
       // those systems, but must never resurrect an intentionally hidden system.
       const hasSavedSystems = localStorage.getItem(visibilityStorageKey(device)) !== null;
+      const savedSystems = readVisibleSystems(device);
+      const consolePaneIsEmpty = !document.querySelector('.systems-list .row:not([hidden])');
       const needsSteamDiscovery = selectedMachinePlatform(device) === 'batocera'
         && localStorage.getItem(steamDiscoveryKey(device)) === null;
       const needsC64Discovery = localStorage.getItem(c64DiscoveryKey(device)) === null;
       const needsCollectionDiscovery = selectedMachinePlatform(device) === 'batocera'
         && localStorage.getItem(collectionDiscoveryKey(device)) === null;
-      if (hasSavedSystems && systemVisibilityServerChecked.has(device) && !needsSteamDiscovery && !needsC64Discovery && !needsCollectionDiscovery) {
-        if (selectedDevice === device) applyVisibleSystems(readVisibleSystems(device));
+      if (hasSavedSystems && savedSystems.size && systemVisibilityServerChecked.has(device)
+          && !consolePaneIsEmpty && !needsSteamDiscovery && !needsC64Discovery && !needsCollectionDiscovery) {
+        if (selectedDevice === device) applyVisibleSystems(savedSystems);
         return;
       }
       systemInventoryLoading.add(device);
       try {
-        const response = await fetchStatusWithTimeout(`${apiBase}/api/device/systems?device=${encodeURIComponent(device)}`, 25000);
+        const response = await fetchStatusWithTimeout(`${apiBase}/api/device/systems?device=${encodeURIComponent(device)}`, 90000);
         const result = await response.json();
         if (!response.ok || !result.ok || !Array.isArray(result.systems)) throw new Error(result.error || "Unable to read systems");
         systemVisibilityServerChecked.add(device);
@@ -4319,7 +4775,10 @@
           localStorage.setItem(steamDiscoveryKey(device), 'done');
           localStorage.setItem(c64DiscoveryKey(device), 'done');
           localStorage.setItem(collectionDiscoveryKey(device), 'done');
-          if (selectedDevice === device) applyVisibleSystems(persisted);
+          if (selectedDevice === device) {
+            applyVisibleSystems(persisted);
+            scheduleEmptyConsoleInventoryRetry(device);
+          }
           return;
         }
         const c64DetectionReady = result.supportedSystems?.includes('c64') || result.systems.includes('c64');
@@ -4351,11 +4810,39 @@
         localStorage.setItem(steamDiscoveryKey(device), 'done');
         if (c64DetectionReady) localStorage.setItem(c64DiscoveryKey(device), 'done');
         if (selectedMachinePlatform(device) === 'batocera') localStorage.setItem(collectionDiscoveryKey(device), 'done');
-        if (selectedDevice === device) applyVisibleSystems(reconciled);
+        if (selectedDevice === device) {
+          applyVisibleSystems(reconciled);
+          scheduleEmptyConsoleInventoryRetry(device);
+        }
       } catch (error) {
         console.error(error);
-        if (selectedDevice === device) showLibraryConnectionMessage(error.message || 'Unable to read this machine’s systems.');
+        // System discovery is background reconciliation. A temporary Batocera
+        // API/SSH outage must not replace the game list with raw curl or timeout
+        // diagnostics; the normal status poll will retry it.
+        if (selectedDevice === device && !activeList.querySelector('.active-item')) {
+          showLibraryConnectionMessage('Waiting for this machine’s systems…');
+        }
+        scheduleEmptyConsoleInventoryRetry(device);
       } finally { systemInventoryLoading.delete(device); }
+    }
+
+    const emptyConsoleInventoryRetries = new Map();
+    function scheduleEmptyConsoleInventoryRetry(device = selectedDevice) {
+      if (device !== selectedDevice || !selectedDeviceOnline) return;
+      if (document.querySelector('.systems-list .row:not([hidden])')) {
+        const existing = emptyConsoleInventoryRetries.get(device);
+        if (existing) clearTimeout(existing);
+        emptyConsoleInventoryRetries.delete(device);
+        return;
+      }
+      if (emptyConsoleInventoryRetries.has(device)) return;
+      const timer = setTimeout(() => {
+        emptyConsoleInventoryRetries.delete(device);
+        if (device !== selectedDevice || !selectedDeviceOnline) return;
+        systemVisibilityServerChecked.delete(device);
+        initializeMachineSystems({refresh:true});
+      }, 1200);
+      emptyConsoleInventoryRetries.set(device, timer);
     }
 
     function applyVisibleSystems(visible) {
@@ -4377,7 +4864,7 @@
           renderConsole(selectedSystem);
         } else {
           activeNames = new Set();
-          activeList.classList.remove("empty-state");
+          clearLibraryConnectionMessage();
           activeList.innerHTML = "";
           warehouseList.innerHTML = "";
         }
@@ -4390,6 +4877,44 @@
 
     let systemPickerPage = 0;
     const transferDisplayJobs = new Map();
+    const stoppingConsoleQueues = new Set();
+    let activeTransferScrollRequest = null;
+    function requestActiveTransferScroll(device, system) {
+      activeTransferScrollRequest = {
+        scope: pendingResetScope(device, system),
+        expiresAt: Date.now() + 5000
+      };
+    }
+    function scrollToRequestedActiveTransfer() {
+      const request = activeTransferScrollRequest;
+      if (!request) return false;
+      if (Date.now() > request.expiresAt) {
+        activeTransferScrollRequest = null;
+        return false;
+      }
+      if (request.scope !== pendingResetScope(selectedDevice, selectedSystem)) return false;
+      const activeTransfer = activeList.querySelector('.device-game.transfer-pending');
+      if (!activeTransfer) return false;
+      const listBounds = activeList.getBoundingClientRect();
+      const rowBounds = activeTransfer.getBoundingClientRect();
+      const targetTop = Math.max(0, activeList.scrollTop + rowBounds.top - listBounds.top
+        - Math.round((activeList.clientHeight - rowBounds.height) / 2));
+      activeList.scrollTo({ top: targetTop, behavior: 'smooth' });
+      return true;
+    }
+    function keepActiveTransferInView() {
+      const activeTransfer = activeList.querySelector('.device-game.transfer-pending');
+      if (!activeTransfer) return false;
+      const listBounds = activeList.getBoundingClientRect();
+      const rowBounds = activeTransfer.getBoundingClientRect();
+      const visibleTop = listBounds.top + 4;
+      const visibleBottom = listBounds.bottom - 4;
+      if (rowBounds.top >= visibleTop && rowBounds.bottom <= visibleBottom) return true;
+      const targetTop = Math.max(0, activeList.scrollTop + rowBounds.top - listBounds.top
+        - Math.round((activeList.clientHeight - rowBounds.height) / 2));
+      activeList.scrollTo({ top: targetTop, behavior: 'auto' });
+      return true;
+    }
     const systemPickerPageSize = 20;
     let systemPickerDevice = selectedDevice;
     const unsupportedSystemsByPlatform = {
@@ -4487,6 +5012,7 @@
         xbox: 'Install verified cached Xbox BIOS files', xbox360: "Prepare Batocera's internal Xenia runtime",
         windows: 'Verify Batocera Wine and prepare Windows game, installer, and dependency folders',
         wiiu: 'Install cached Cemu keys', karaoke: 'Install Karaoke launcher and refresh machine game list',
+        movies: 'Install the VLC Movies launcher and refresh the machine movie list',
         pikaraoke: 'Check existing PiKaraoke, browser, and dependencies; install only missing components',
         '3dsen': 'Install the 3dSen launcher only after Windows (Wine) has been selected and configured'
       };
@@ -4740,6 +5266,9 @@
             else if (system === 'karaoke') {
               const status = await request(`/api/karaoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/karaoke/install', {device});
+            } else if (system === 'movies') {
+              const status = await request(`/api/movies/status?device=${encodeURIComponent(device)}`, null, 'GET');
+              if (!status.installed) await request('/api/movies/install', {device});
             } else if (system === 'pikaraoke') {
               const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/pikaraoke/setup', {device});
@@ -4889,8 +5418,9 @@
       optimisticUploadingSystems.add(consoleTransferKey(device, system));
       if (device !== selectedDevice) return;
       rows.forEach(row => {
-        if (row.dataset.system === system) row.classList.add('console-transfer-active');
+        if (row.dataset.system === system) row.classList.add('console-transfer-queued');
       });
+      updateCancelCopyHeader();
     }
 
     function clearOptimisticConsoleTransfer(device, system) {
@@ -4920,17 +5450,32 @@
 
     function queueReconnectRetry(device, system, fileName, type = "") {
       removeReconnectRetry(device, system, fileName);
-      reconnectRetryQueue.push({ device, system, fileName, type });
+      reconnectRetryQueue.push({
+        device, system, fileName, type,
+        machineIdentity: deviceStorageIdentity(device),
+        requestedAt: Date.now()
+      });
       saveReconnectRetryQueue();
     }
 
     async function retryTransfersForOnlineDevices(statuses = lastDeviceStatuses) {
       for (const item of [...reconnectRetryQueue]) {
+        const currentIdentity = deviceStorageIdentity(item.device);
+        const expired = !Number(item.requestedAt) || Date.now() - Number(item.requestedAt) > 30 * 60 * 1000;
+        // A retry is authorization for one current machine installation and a
+        // short recovery window—not a permanent instruction. Drop legacy,
+        // expired, or replaced-machine work instead of launching it later.
+        if (!item.machineIdentity || item.machineIdentity !== currentIdentity || expired) {
+          removeReconnectRetry(item.device, item.system, item.fileName);
+          continue;
+        }
         if (pausedMachineQueues.has(item.device)) continue;
         const key = transferSelectionKey(item.device, item.system, item.fileName);
         if (!statuses?.[item.device]?.online || reconnectRetriesRunning.has(key)
+          || reconnectRetryDevicesRunning.has(item.device)
           || Date.now() < (reconnectRetryNotBefore.get(key) || 0)) continue;
         reconnectRetriesRunning.add(key);
+        reconnectRetryDevicesRunning.add(item.device);
         pendingTransferKeys.add(key);
         if (item.device === selectedDevice) markWarehouseChecks();
         syncStatus.textContent = `Connection restored. Retrying ${item.fileName}...`;
@@ -4958,6 +5503,7 @@
           }
         } finally {
           reconnectRetriesRunning.delete(key);
+          reconnectRetryDevicesRunning.delete(item.device);
           pendingTransferKeys.delete(key);
           if (item.device === selectedDevice) markWarehouseChecks();
           refreshTransferActivity();
@@ -5039,13 +5585,29 @@
           optimisticUploadingSystems.delete(consoleTransferKey(requestDevice, job.system));
         }
         const activelyUploadingSystems = new Set(selectedJobs
-          .filter(job => job.running && !job.completed && !job.partialDeleted && !job.cancelRequested)
+          .filter(job => job.running && !job.completed && !job.partialDeleted)
+          .map(job => job.system));
+        const stoppingSystems = new Set(selectedJobs
+          .filter(job => job.running && !job.completed && !job.partialDeleted && job.cancelRequested)
+          .map(job => job.system));
+        const queuedUploadingSystems = new Set(selectedJobs
+          .filter(job => !job.running && !job.completed && !job.partialDeleted && !job.cancelRequested
+            && (job.dispatching || job.autoQueued || job.queuedAt))
           .map(job => job.system));
         for (const key of optimisticUploadingSystems) {
           const [device, system] = key.split("\u0000");
-          if (device === requestDevice) activelyUploadingSystems.add(system);
+          if (device === requestDevice && !activelyUploadingSystems.has(system)) queuedUploadingSystems.add(system);
         }
-        rows.forEach(row => row.classList.toggle('console-transfer-active', activelyUploadingSystems.has(row.dataset.system)));
+        rows.forEach(row => {
+          const active = activelyUploadingSystems.has(row.dataset.system);
+          row.classList.toggle('console-transfer-active', active);
+          row.classList.toggle('console-transfer-queued', !active && queuedUploadingSystems.has(row.dataset.system));
+        });
+        updateCancelCopyHeader();
+        for (const scope of [...stoppingConsoleQueues]) {
+          const [device, system] = scope.split("\u0000");
+          if (device === requestDevice && !stoppingSystems.has(system)) stoppingConsoleQueues.delete(scope);
+        }
         // New backends provide the persistent, machine-specific flag. Older
         // running backends omit it; omission must never be interpreted as
         // false or the one-second poll will erase a transfer completion that
@@ -5056,7 +5618,12 @@
           if (Boolean(result.resetNeeded) !== locallyNeeded) setSoftResetNeeded(Boolean(result.resetNeeded), requestDevice);
         }
         transferDisplayJobs.set(pendingResetScope(requestDevice, requestSystem), selectedJobs.filter(job =>
-          job.system === requestSystem && job.running && !job.completed && !job.cancelRequested
+          job.system === requestSystem && !job.completed && !job.partialDeleted
+            && !job.cancelled && !job.cancelRequested
+            // The right pane represents what is installed or actively moving.
+            // Waiting queue entries stay in the scheduler and console spinner,
+            // but never appear as if they already exist on the machine.
+            && (job.running || job.dispatching)
             && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName))
         ));
         const completedKeys = new Set(selectedJobs
@@ -5114,7 +5681,8 @@
         // contains the game). Releasing it when /api/roms/add merely returns
         // creates a race where this poll briefly redraws the box unchecked.
         const observedTransferKeys = new Set(selectedJobs
-          .filter(job => (job.running || job.completed) && !job.partialDeleted && !job.cancelRequested)
+          .filter(job => (job.running || job.completed || job.dispatching || job.autoQueued || job.queuedAt)
+            && !job.partialDeleted && !job.cancelRequested)
           .map(job => transferSelectionKey(job.device, job.system, job.fileName)));
         for (const key of [...pendingTransferKeys]) {
           if (observedTransferKeys.has(key)) {
@@ -5135,9 +5703,30 @@
           const [device, system] = key.split("\u0000");
           if (device !== requestDevice) continue;
           const prefix = `${device}\u0000${system}\u0000`;
-          const stillPending = [...pendingTransferKeys].some(item => item.startsWith(prefix));
+          let stillPending = [...pendingTransferKeys].some(item => item.startsWith(prefix));
           const stillRunning = selectedJobs.some(job => job.system === system && job.running
             && !job.completed && !job.partialDeleted && !job.cancelRequested);
+          // Remaining pending keys were not observed as running, completed,
+          // dispatching, or durably queued above. A historical completion for
+          // this console must not keep these phantom keys—and its spinner—
+          // alive forever after the real queue has drained.
+          if (stillPending && !stillRunning) {
+            const firstUnobserved = unobservedPendingConsoleSince.get(key) || Date.now();
+            unobservedPendingConsoleSince.set(key, firstUnobserved);
+            // Allow normal preflight/identity checks to create their job, but
+            // make the backend authoritative after that grace period. This
+            // clears abandoned Wii/Wii U indicators without touching another
+            // console or a genuine running transfer.
+            if (Date.now() - firstUnobserved >= 15000) {
+              for (const pendingKey of [...pendingTransferKeys]) {
+                if (pendingKey.startsWith(prefix)) pendingTransferKeys.delete(pendingKey);
+              }
+              stillPending = false;
+              unobservedPendingConsoleSince.delete(key);
+            }
+          } else {
+            unobservedPendingConsoleSince.delete(key);
+          }
           if (!stillPending && !stillRunning) optimisticUploadingSystems.delete(key);
         }
         markWarehouseChecks();
@@ -5688,8 +6277,7 @@
       // otherwise the browser briefly shows the check and then recreates an
       // unchecked element from stale machine inventory.
       const optimisticallyChecked = optimisticWarehouseSelections.get(rowSelectionKey) === true
-        || pendingTransferKeys.has(rowSelectionKey)
-        || selectionSetFor(selectedSystem).has(item[0]);
+        || pendingTransferKeys.has(rowSelectionKey);
       const trackList = selectedSystem !== "music" && isFolder && tracks.length
         ? `<div class="track-list">${tracks.map(track => {
             const path = `${item[0]}/${track}`;
@@ -5913,12 +6501,25 @@
       }, 1800));
     }
     let activeListNeedsRetry = false;
+    function clearLibraryConnectionMessage() {
+      activeList.querySelector(".library-connection-message")?.remove();
+      activeLibraryStatus.replaceChildren();
+      activeLibraryStatus.classList.remove('is-reconnecting');
+      activeLibraryStatus.removeAttribute('aria-label');
+      delete activeLibraryStatus.dataset.message;
+      activeLibraryStatus.hidden = true;
+      activeList.classList.remove("empty-state");
+    }
     function showLibraryConnectionMessage(message) {
       const reconnecting = message.startsWith("Reconnecting") || message.startsWith("Checking connection");
       const loading = message.startsWith("Loading");
       const empty = message === "No games found for this system on this machine.";
-      const centered = reconnecting || loading || empty;
-      if (reconnecting && activeList.querySelector(".reconnecting-dots")) return;
+      // Connection, loading, retry, and timeout notices belong at the bottom
+      // of the game list. Only a genuinely empty console uses the centered
+      // empty-state presentation.
+      const centered = empty;
+      if (reconnecting && activeLibraryStatus.querySelector(".reconnecting-dots")) return;
+      if (!centered && !activeLibraryStatus.hidden && activeLibraryStatus.dataset.message === message) return;
       if (empty && activeList.querySelector(".device-game")) {
         activeList.querySelector(".library-connection-message.is-empty")?.remove();
         activeList.classList.remove("empty-state");
@@ -5945,7 +6546,23 @@
         }
         note.append(dots);
       } else note.textContent = message;
-      activeList.prepend(note);
+      if (centered) {
+        activeLibraryStatus.replaceChildren();
+        activeLibraryStatus.hidden = true;
+        activeList.prepend(note);
+      } else {
+        // Diagnostics live outside the scrolling ROM list. Replacing the
+        // fixed strip restarts its bottom-up entrance without moving rows.
+        activeLibraryStatus.replaceChildren(...note.childNodes);
+        activeLibraryStatus.dataset.message = message;
+        activeLibraryStatus.classList.toggle('is-reconnecting', reconnecting);
+        if (reconnecting) activeLibraryStatus.setAttribute('aria-label', 'Reconnecting');
+        else activeLibraryStatus.removeAttribute('aria-label');
+        activeLibraryStatus.hidden = false;
+        activeLibraryStatus.style.animation = 'none';
+        void activeLibraryStatus.offsetHeight;
+        activeLibraryStatus.style.animation = '';
+      }
     }
     async function loadActiveList(key = selectedSystem) {
       if (!readVisibleSystems().has(key)) return;
@@ -5957,6 +6574,7 @@
       // another stale, leaving the initial Loading message on screen forever.
       const requestGeneration = scopeChanged ? ++activeLoadGeneration : activeLoadGeneration;
       if (scopeChanged) {
+        clearLibraryConnectionMessage();
         activeListScope = requestScope;
         activeList.dataset.device = requestDevice;
         activeList.dataset.system = key;
@@ -5967,7 +6585,7 @@
         activeList.classList.remove("empty-state");
         activeList.innerHTML = snapshot ? snapshot.map(activeRow).join("") : "";
         if (snapshot?.length) {
-          activeList.querySelector('.library-connection-message')?.remove();
+          clearLibraryConnectionMessage();
         } else {
           showLibraryConnectionMessage("Loading this machine’s library…");
         }
@@ -6021,6 +6639,16 @@
           }
         }
         activeNames = new Set(visibleItems.map(item => item[0]));
+        // The machine listing is authoritative. Retain only installed titles
+        // and transfers that have a real pending/tracked key; discard legacy
+        // saved selections so they cannot return as phantom checks after a
+        // reload or console switch.
+        const liveSelectionNames = new Set(activeNames);
+        const liveSelectionPrefix = `${requestDevice}\u0000${key}\u0000`;
+        for (const transferKey of [...pendingTransferKeys, ...trackedTransferKeys]) {
+          if (transferKey.startsWith(liveSelectionPrefix)) liveSelectionNames.add(transferKey.slice(liveSelectionPrefix.length));
+        }
+        if (requestDevice === selectedDevice && !consoleRemovalScopes.has(requestScope)) saveSelectionSet(key, liveSelectionNames);
         if (key === "music") {
           visibleItems.forEach(item => {
             if (item[4] === "folder" && Array.isArray(item[5])) {
@@ -6040,6 +6668,7 @@
         const displayItems = [...visibleItems].sort(compareActiveGameNames);
         saveRemoteLibrarySnapshot(requestScope, displayItems);
         activeListNeedsRetry = false;
+        clearLibraryConnectionMessage();
         activeList.classList.remove("empty-state");
         activeList.innerHTML = displayItems.map(activeRow).join("");
         if (!displayItems.length) showLibraryConnectionMessage("No games found for this system on this machine.");
@@ -6047,6 +6676,11 @@
         else if (result.pendingDeletions) showLibraryConnectionMessage(`${result.pendingDeletions} deletion${result.pendingDeletions === 1 ? '' : 's'} queued. Boot this USB in Batocera to apply.`);
         bindActiveRemoves();
         markWarehouseChecks();
+        // Inventory completion replaces the pane's DOM. Reapply live transfer
+        // rows before honoring a console-click scroll request so the target
+        // cannot disappear underneath this asynchronous refresh.
+        renderPendingTransfers();
+        requestAnimationFrame(scrollToRequestedActiveTransfer);
       } catch (error) {
         console.error(error);
         if (requestGeneration !== activeLoadGeneration || selectedDevice !== requestDevice || selectedSystem !== key) return;
@@ -6054,17 +6688,22 @@
         activeListNeedsRetry = true;
         if (error.name === 'AbortError') {
           // A slow inventory refresh does not invalidate the last confirmed
-          // list. Device-status polling retries it; do not cover games with a
-          // timeout message while the machine remains online.
-          if ((readRemoteLibrarySnapshot(requestScope) || []).length) {
-            activeList.querySelector('.library-connection-message')?.remove();
-            activeList.classList.remove('empty-state');
-          } else {
-            showLibraryConnectionMessage('Could not read this machine’s library yet. Retrying…');
-            scheduleActiveInventoryReconcile(requestDevice, key);
-          }
+          // list. Keep the warning below current transfer rows.
+          clearLibraryConnectionMessage();
+          activeList.classList.remove('empty-state');
+          renderPendingTransfers();
+          showLibraryConnectionMessage('Could not read this machine’s library yet. Retrying…');
+          scheduleActiveInventoryReconcile(requestDevice, key);
         } else {
-          showLibraryConnectionMessage(error.message || 'Unable to refresh this machine’s library.');
+          if (transferJobsForActivePane().length) {
+            clearLibraryConnectionMessage();
+            activeList.classList.remove('empty-state');
+            renderPendingTransfers();
+            showLibraryConnectionMessage(error.message || 'Unable to refresh this machine’s library. Retrying…');
+            scheduleActiveInventoryReconcile(requestDevice, key);
+          } else {
+            showLibraryConnectionMessage(error.message || 'Unable to refresh this machine’s library.');
+          }
         }
       }
     }
@@ -6163,12 +6802,19 @@
       return true;
     }
 
+    let localLibraryRevision = '';
     async function refreshLocalLibrary({ forceRender = false } = {}) {
       try {
-        const response = await fetch(`${apiBase}/api/library`);
+        const revisionQuery = localLibraryRevision ? `?revision=${encodeURIComponent(localLibraryRevision)}` : '';
+        const response = await fetch(`${apiBase}/api/library${revisionQuery}`);
         const result = await response.json();
         if (!response.ok || !result.ok) {
           throw new Error(result.error || "Could not load this computer's library.");
+        }
+        if (result.revision) localLibraryRevision = result.revision;
+        if (result.unchanged) {
+          if (forceRender && readVisibleSystems().has(selectedSystem)) renderConsole(selectedSystem);
+          return;
         }
 
         const previousLibrary = window.warehouseLibrary || {};
@@ -6234,6 +6880,23 @@
       const library = window.warehouseLibrary || fallbackLibrary;
       const systemRow = [...rows].find(row => row.dataset.system === key);
       const data = library[key] || { label: systemLabelForRow(systemRow), warehouse: [], active: [] };
+      // Background library/size refreshes may rebuild a large middle pane
+      // while the user is scrolling it. Preserve the first visible game's
+      // identity and exact viewport offset so replacing the DOM cannot make a
+      // GameCube-sized list jump upward or downward.
+      const preserveWarehousePosition = warehouseList.dataset.system === key;
+      const previousWarehouseScrollTop = warehouseList.scrollTop;
+      const warehouseBoundsBefore = preserveWarehousePosition
+        ? warehouseList.getBoundingClientRect()
+        : null;
+      const warehouseAnchorBefore = preserveWarehousePosition
+        ? [...warehouseList.querySelectorAll('.game[data-name]')].find(row =>
+            row.getBoundingClientRect().bottom > warehouseBoundsBefore.top + 1)
+        : null;
+      const warehouseAnchorName = warehouseAnchorBefore?.dataset.name || '';
+      const warehouseAnchorOffset = warehouseAnchorBefore
+        ? warehouseAnchorBefore.getBoundingClientRect().top - warehouseBoundsBefore.top
+        : 0;
       const nextActiveScope = `${selectedDevice}\u0000${key}`;
       paintScopedFooterProgress(selectedDevice, key);
       if (activeListScope !== nextActiveScope) {
@@ -6243,7 +6906,7 @@
         activeList.dataset.device = selectedDevice;
         activeList.dataset.system = key;
         clearActiveTransferRows();
-        activeList.classList.remove('empty-state');
+        clearLibraryConnectionMessage();
         activeList.innerHTML = '';
       }
       const filter = warehouseFilter.value.trim().toLowerCase();
@@ -6267,9 +6930,23 @@
       const localConsoleSize = formatFileSize(localConsoleBytes) || ((data.warehouse || []).length ? 'Calculating…' : '0 B');
       warehouseTitle.innerHTML = virtualCollection
         ? `<span class="warehouse-heading"><span>${data.label}</span></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`
-        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><label class="warehouse-all-control"><input id="warehouseAll" type="checkbox"><span>All</span></label></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`;
+        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><button class="header-cancel-copy" id="cancelConsoleCopy" type="button" hidden>Cancel Copy</button></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`;
       activeTitle.innerHTML = `<span class="active-heading"><span class="active-machine-name">On ${machineDisplayName(selectedDevice)}</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="count">${data.label}</span><span class="storage-count" id="storageCount">${storageHeaderText()}</span></span>`;
       warehouseList.innerHTML = folderHeader + warehouseItems.map(gameRow).join("");
+      warehouseList.dataset.system = key;
+      if (preserveWarehousePosition) {
+        warehouseList.scrollTop = previousWarehouseScrollTop;
+        const anchorAfter = [...warehouseList.querySelectorAll('.game[data-name]')]
+          .find(row => row.dataset.name === warehouseAnchorName);
+        if (anchorAfter) {
+          const warehouseBoundsAfter = warehouseList.getBoundingClientRect();
+          const nextOffset = anchorAfter.getBoundingClientRect().top - warehouseBoundsAfter.top;
+          warehouseList.scrollTop += nextOffset - warehouseAnchorOffset;
+        }
+      } else {
+        warehouseList.scrollTop = 0;
+      }
+      bindCancelCopyHeader();
       if (!warehouseItems.length) {
         const message = document.createElement('div');
         message.style.cssText = 'padding:18px;color:var(--muted)';
@@ -6401,6 +7078,7 @@
     // Bulk work is scoped to the machine and console that started it. A large
     // NES queue must never lock N64's controls or inherit N64 after navigation.
     const warehouseBulkChangingScopes = new Set();
+    const consoleRemovalScopes = new Set();
     function warehouseBulkScope(device = selectedDevice, system = selectedSystem) {
       return pendingResetScope(device, system);
     }
@@ -6410,23 +7088,33 @@
     const WAREHOUSE_LARGE_FILE_BYTES = 50 * 1024 * 1024;
 
     async function stopConsoleTransfersForRemoval(device, system) {
+      const cancelQueue = async deleteAllPartials => {
+        const response = await fetch(`${apiBase}/api/transfers/cancel-system`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device, system, deletePartials: false, deleteAllPartials })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not cancel the console transfer queue.");
+        if (result.cleanupErrors?.length) throw new Error(`Could not remove partial copies: ${result.cleanupErrors[0]}`);
+        return result;
+      };
       const readRunning = async () => {
         const response = await fetch(`${apiBase}/api/transfers/status?all=1&device=${encodeURIComponent(device)}`);
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "Could not inspect active transfers before Remove All.");
-        return (result.jobs || []).filter(job => job.device === device && job.system === system && job.running);
+        return (result.jobs || []).filter(job => job.device === device && job.system === system && (job.running || job.dispatching));
       };
-      const running = await readRunning();
-      await Promise.all(running.map(async job => {
-        const response = await fetch(`${apiBase}/api/transfers/stop`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device, system, fileName: job.fileName })
-        });
-        const result = await response.json();
-        if (!response.ok && response.status !== 404) throw new Error(result.error || `Could not stop ${job.fileName}.`);
-      }));
+      // Cancel the whole scope first. Stopping only the four active uploads left
+      // hundreds of queued GameCube jobs alive; they immediately repopulated
+      // the machine while Remove All was deleting earlier files.
+      await cancelQueue(false);
       for (let attempt = 0; attempt < 60; attempt += 1) {
-        if (!(await readRunning()).length) return;
+        if (!(await readRunning()).length) {
+          // A second pass forgets the now-stopped jobs and removes every
+          // console-scoped staging file in one remote command.
+          await cancelQueue(true);
+          return;
+        }
         await new Promise(resolve => setTimeout(resolve, 250));
       }
       throw new Error(`Active ${String(system).toUpperCase()} transfers did not stop in time. Remove All was not started.`);
@@ -6459,7 +7147,14 @@
     }
 
     async function runConsoleRemoveAll(device, system) {
+      const removalScope = pendingResetScope(device, system);
+      consoleRemovalScopes.add(removalScope);
+      try {
       await stopConsoleTransfersForRemoval(device, system);
+      // The requested end state is empty. Persist and paint that state before
+      // the first delete so polling cannot re-check the center pane while the
+      // machine is still draining its old inventory.
+      clearRemovedConsoleSelectionState(device, system);
 
       // The machine inventory is authoritative. The center pane can be
       // filtered, incomplete, or missing titles that no longer exist locally.
@@ -6538,6 +7233,10 @@
       transferInstalledCache = { device: "", at: 0, systems: {} };
       if (device === selectedDevice && system === selectedSystem) await loadActiveList(system);
       if (failures.length) throw new Error(`${names.length - failures.length}/${names.length} games removed. ${failures[0]}`);
+      } finally {
+        consoleRemovalScopes.delete(removalScope);
+        if (device === selectedDevice && system === selectedSystem) updateWarehouseAllControl();
+      }
     }
 
     async function runWarehouseBulkQueue(games, concurrency, selectAll, forceQueued = false) {
@@ -6622,11 +7321,232 @@
       const checkboxes = [...warehouseList.querySelectorAll(".game .game-check")];
       const checked = checkboxes.filter(checkbox => checkbox.checked).length;
       const allSelected = checkboxes.length > 0 && checked === checkboxes.length;
-      control.checked = allSelected;
-      control.indeterminate = checked > 0 && !allSelected;
-      control.disabled = warehouseBulkChanging() || checkboxes.length === 0;
-      control.dataset.action = allSelected ? "remove" : "select";
-      control.nextElementSibling.textContent = allSelected ? "Remove All" : "All";
+      const prefix = `${selectedDevice}\u0000${selectedSystem}\u0000`;
+      const stopping = stoppingConsoleQueues.has(warehouseBulkScope());
+      const queuePending = [...pendingTransferKeys, ...trackedTransferKeys].some(key => key.startsWith(prefix));
+      control.checked = !stopping && (queuePending || allSelected);
+      control.indeterminate = !queuePending && checked > 0 && !allSelected;
+      control.disabled = stopping || warehouseBulkChanging() || checkboxes.length === 0;
+      control.dataset.action = queuePending ? "cancel-queue" : allSelected ? "remove" : "select";
+      control.nextElementSibling.textContent = stopping ? "Stopping…" : queuePending ? "Cancel Queue" : allSelected ? "Remove All" : "All";
+    }
+
+    async function cancelConsoleTransferQueue(device, system) {
+      const scope = warehouseBulkScope(device, system);
+      stoppingConsoleQueues.add(scope);
+      // Reflect the user's cancellation immediately. The next confirmed
+      // inventory refresh will restore checks only for games that had already
+      // finished installing on the machine.
+      clearRemovedConsoleSelectionState(device, system);
+      updateWarehouseAllControl();
+      updateCancelCopyHeader();
+      syncStatus.textContent = `Stopping ${system.toUpperCase()} transfers…`;
+      try {
+        const response = await fetch(`${apiBase}/api/transfers/cancel-system`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // One remote wildcard cleanup is bounded and immediate even for a
+        // 500+ title GameCube queue. Per-job cleanup made Cancel Copy appear
+        // to succeed while its request was still crawling through the queue.
+        body: JSON.stringify({ device, system, deletePartials: false, deleteAllPartials: true })
+      });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `Could not cancel the ${system.toUpperCase()} queue.`);
+      const prefix = `${device}\u0000${system}\u0000`;
+      for (const collection of [pendingTransferKeys, trackedTransferKeys, dismissedTransferKeys]) {
+        for (const key of [...collection]) if (key.startsWith(prefix)) collection.delete(key);
+      }
+      const selections = selectionSetFor(system);
+      for (const fileName of result.fileNames || []) selections.delete(fileName);
+      saveSelectionSet(system, selections);
+      clearOptimisticConsoleTransfer(device, system);
+      if (device === selectedDevice && system === selectedSystem) {
+        markWarehouseChecks();
+        updateWarehouseAllControl();
+      }
+      refreshTransferActivity();
+      // Keep the visible Stopping state until every active stream confirms it
+      // has closed. Queued jobs are removed immediately by the backend.
+      const deadline = Date.now() + 30000;
+      let finalStatusJobs = [];
+      while (result.running > 0 && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const statusResponse = await fetch(`${apiBase}/api/transfers/status?all=1&device=${encodeURIComponent(device)}`);
+        const status = await statusResponse.json();
+        finalStatusJobs = status.jobs || [];
+        const stillStopping = (status.jobs || []).some(job => job.device === device && job.system === system
+          && (job.running || job.dispatching) && job.cancelRequested);
+        if (!stillStopping) break;
+      }
+        const runningCleanupError = finalStatusJobs.find(job => job.device === device && job.system === system
+          && job.cancelled && job.partialCleanupError)?.partialCleanupError;
+        stoppingConsoleQueues.delete(scope);
+        updateWarehouseAllControl();
+        updateCancelCopyHeader();
+        const cleanupError = result.cleanupErrors?.[0] || runningCleanupError;
+        syncStatus.textContent = cleanupError
+          ? `${system.toUpperCase()} transfers stopped, but a partial file could not be removed: ${cleanupError}`
+          : `${system.toUpperCase()} transfers stopped and partial files removed.`;
+        return result;
+      } catch (error) {
+        stoppingConsoleQueues.delete(scope);
+        updateWarehouseAllControl();
+        updateCancelCopyHeader();
+        throw error;
+      }
+    }
+
+    let consoleTransferMenu = null;
+    function closeConsoleTransferMenu() {
+      consoleTransferMenu?.remove();
+      consoleTransferMenu = null;
+    }
+    function showConsoleTransferMenu(row, x, y) {
+      closeConsoleTransferMenu();
+      const system = row.dataset.system || '';
+      const device = selectedDevice;
+      const prefix = `${device}\u0000${system}\u0000`;
+      const hasTransfer = row.classList.contains('console-transfer-active')
+        || row.classList.contains('console-transfer-queued')
+        || [...pendingTransferKeys, ...trackedTransferKeys].some(key => key.startsWith(prefix))
+        || stoppingConsoleQueues.has(warehouseBulkScope(device, system));
+      const menu = document.createElement('div');
+      menu.className = 'console-transfer-menu';
+      menu.setAttribute('role', 'menu');
+      menu.setAttribute('aria-label', `${systemLabelForRow(row)} transfer options`);
+      menu.style.cssText = 'position:fixed;z-index:10000;width:143px;padding:8px;border:1px solid #779aca;border-radius:10px;background:#182130;box-shadow:0 12px 30px #0007;box-sizing:border-box;';
+      const copyAll = document.createElement('button');
+      copyAll.type = 'button';
+      copyAll.className = 'advanced-item copy-all';
+      copyAll.setAttribute('role', 'menuitem');
+      copyAll.textContent = 'Copy All';
+      copyAll.disabled = hasTransfer || stoppingConsoleQueues.has(warehouseBulkScope(device, system));
+      copyAll.style.cssText = 'width:100%;min-width:0;padding:8px 10px;font-size:12px;line-height:1.2;white-space:nowrap;';
+      copyAll.addEventListener('click', () => {
+        closeConsoleTransferMenu();
+        copyAllConsole(device, system, systemLabelForRow(row));
+      });
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'advanced-item cancel-transfer';
+      cancel.setAttribute('role', 'menuitem');
+      cancel.textContent = stoppingConsoleQueues.has(warehouseBulkScope(device, system)) ? 'Stopping…' : 'Cancel Copy';
+      cancel.disabled = !hasTransfer || stoppingConsoleQueues.has(warehouseBulkScope(device, system));
+      cancel.style.cssText = 'width:100%;min-width:0;margin-top:4px;padding:8px 10px;font-size:12px;line-height:1.2;white-space:nowrap;';
+      cancel.addEventListener('click', async () => {
+        closeConsoleTransferMenu();
+        const accepted = await showXboxBiosDialog({
+          title: 'Cancel Copy',
+          device,
+          message: 'Games that already finished will remain installed.',
+          confirmLabel: 'Cancel Copy',
+          cancelLabel: 'Keep Copying',
+          cancellable: true,
+          glassyActions: true
+        });
+        if (!accepted) return;
+        try {
+          await cancelConsoleTransferQueue(device, system);
+        } catch (error) {
+          syncStatus.textContent = error.message || `Could not stop ${systemLabelForRow(row)} transfers.`;
+        }
+      });
+      const removeAll = document.createElement('button');
+      removeAll.type = 'button';
+      removeAll.className = 'advanced-item remove-all';
+      removeAll.setAttribute('role', 'menuitem');
+      removeAll.textContent = 'Remove All';
+      removeAll.disabled = stoppingConsoleQueues.has(warehouseBulkScope(device, system));
+      removeAll.style.cssText = 'width:100%;min-width:0;margin-top:4px;padding:8px 10px;font-size:12px;line-height:1.2;white-space:nowrap;';
+      removeAll.addEventListener('click', async () => {
+        closeConsoleTransferMenu();
+        const label = systemLabelForRow(row);
+        const accepted = await showXboxBiosDialog({
+          title: 'Remove All', device,
+          message: `Remove every installed ${label} game from ${machineDisplayName(device)}?\n\nActive and waiting ${label} transfers will be stopped first. Associated machine artwork will also be removed. Local PC originals will be kept.`,
+          confirmLabel: 'Remove All', cancelLabel: 'Keep Games', cancellable: true
+        });
+        if (!accepted) return;
+        syncStatus.textContent = `Preparing to remove all ${label} games…`;
+        try {
+          await runConsoleRemoveAll(device, system);
+          syncStatus.textContent = `All ${label} games were removed from ${machineDisplayName(device)}.`;
+        } catch (error) {
+          syncStatus.textContent = error.message || `Could not remove all ${label} games.`;
+        }
+      });
+      menu.append(copyAll, cancel, removeAll);
+      document.body.append(menu);
+      menu.style.left = `${Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8))}px`;
+      consoleTransferMenu = menu;
+      (copyAll.disabled ? cancel : copyAll).focus();
+    }
+
+    async function copyAllConsole(device, system, label) {
+      const library = window.warehouseLibrary || fallbackLibrary;
+      const fileNames = activeLayoutNames(system, library[system]?.warehouse || []);
+      if (!fileNames.length) {
+        syncStatus.textContent = `${label} has no local files to copy.`;
+        return;
+      }
+      const accepted = await showXboxBiosDialog({
+        title: 'Copy All', device,
+        message: `• Copy all ${fileNames.length} ${label} title${fileNames.length === 1 ? '' : 's'} to ${machineDisplayName(device)}.\n• Files already installed and verified will be skipped.`,
+        confirmLabel: 'Copy All', cancelLabel: 'Cancel', cancellable: true,
+        glassyActions: true
+      });
+      if (!accepted) return;
+      showConsoleTransferImmediately(device, system);
+      saveSelectionSet(system, new Set(fileNames));
+      if (device === selectedDevice && system === selectedSystem) markWarehouseChecks();
+      syncStatus.textContent = `Queuing all ${label} titles…`;
+      try {
+        const response = await fetch(`${apiBase}/api/transfers/enqueue`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({device, system, fileNames})
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `Could not queue ${label}.`);
+        syncStatus.textContent = `${label}: ${result.queued} title${result.queued === 1 ? '' : 's'} queued.`;
+        refreshTransferActivity();
+      } catch (error) {
+        clearOptimisticConsoleTransfer(device, system);
+        updateCancelCopyHeader();
+        syncStatus.textContent = error.message || `Could not queue ${label}.`;
+      }
+    }
+
+    function updateCancelCopyHeader() {
+      const button = document.querySelector('#cancelConsoleCopy');
+      if (!button) return;
+      const row = [...rows].find(item => item.dataset.system === selectedSystem);
+      const stopping = stoppingConsoleQueues.has(warehouseBulkScope());
+      const active = row?.classList.contains('console-transfer-active');
+      button.hidden = !active && !stopping;
+      button.disabled = stopping;
+      button.textContent = stopping ? 'Stopping…' : 'Cancel Copy';
+    }
+
+    function bindCancelCopyHeader() {
+      const button = document.querySelector('#cancelConsoleCopy');
+      if (!button || button.dataset.bound === 'true') return;
+      button.dataset.bound = 'true';
+      button.addEventListener('click', async () => {
+        const row = [...rows].find(item => item.dataset.system === selectedSystem);
+        const label = row ? systemLabelForRow(row) : selectedSystem.toUpperCase();
+        const accepted = await showXboxBiosDialog({
+          title: 'Cancel Copy', device: selectedDevice,
+          message: 'Completed games will remain installed.',
+          confirmLabel: 'Cancel Copy', cancelLabel: 'Keep Copying', cancellable: true,
+          glassyActions: true
+        });
+        if (!accepted) return;
+        try { await cancelConsoleTransferQueue(selectedDevice, selectedSystem); }
+        catch (error) { syncStatus.textContent = error.message || `Could not stop ${label}.`; }
+        updateCancelCopyHeader();
+      });
+      updateCancelCopyHeader();
     }
 
     function bindWarehouseAllControl() {
@@ -6638,11 +7558,40 @@
         const bulkSystem = selectedSystem;
         const bulkScope = warehouseBulkScope(bulkDevice, bulkSystem);
         if (warehouseBulkChangingScopes.has(bulkScope)) return;
+        const cancelQueue = control.dataset.action === "cancel-queue";
+        if (cancelQueue) {
+          control.disabled = true;
+          try {
+            const accepted = await showXboxBiosDialog({
+              title: "Cancel Console Queue",
+              device: bulkDevice,
+              message: `Stop the active ${bulkSystem.toUpperCase()} transfer and remove every waiting ${bulkSystem.toUpperCase()} item?\n\nCompleted games will not be deleted.`,
+              confirmLabel: "Cancel Queue",
+              cancelLabel: "Keep Transferring",
+              cancellable: true
+            });
+            if (accepted) {
+              const result = await cancelConsoleTransferQueue(bulkDevice, bulkSystem);
+              syncStatus.textContent = `Cancelled ${result.running + result.queued} ${bulkSystem.toUpperCase()} transfer${result.running + result.queued === 1 ? "" : "s"}`;
+            }
+          } catch (error) {
+            syncStatus.textContent = error.message;
+          } finally {
+            updateWarehouseAllControl();
+          }
+          return;
+        }
         const selectAll = control.dataset.action !== "remove";
         const games = [...warehouseList.querySelectorAll(".game")]
           .filter(game => game.querySelector(".game-check"));
         const changedGames = games.filter(game => game.querySelector(".game-check")?.checked !== selectAll);
-        const fileCount = changedGames.reduce((total, game) => total + Math.max(1, folderTrackNames(game).length), 0);
+        // Upload All is based on the live machine inventory, not old checkbox
+        // state. A cancelled/failed attempt may leave selections checked; using
+        // only changedGames then submits a partial list which appears to begin
+        // halfway through the alphabet.
+        const missingGames = games.filter(game => !activeNames.has(game.dataset.name));
+        const requestedGames = selectAll ? missingGames : changedGames;
+        const fileCount = requestedGames.reduce((total, game) => total + Math.max(1, folderTrackNames(game).length), 0);
         const removeAllGames = selectAll
           ? games.filter(game => game.querySelector(".game-check")?.checked)
           : changedGames;
@@ -6665,7 +7614,7 @@
           return;
         }
         const removeAllInstead = choice === "remove-all";
-        const bulkGames = removeAllInstead ? removeAllGames : changedGames;
+        const bulkGames = removeAllInstead ? removeAllGames : requestedGames;
         warehouseBulkChangingScopes.add(bulkScope);
         updateWarehouseAllControl();
         try {
@@ -6691,7 +7640,7 @@
               body: JSON.stringify({
                 device: bulkDevice,
                 system: bulkSystem,
-                fileNames: changedGames.map(game => game.dataset.name)
+                fileNames: requestedGames.map(game => game.dataset.name)
               })
             });
             const enqueued = await enqueueResponse.json();
@@ -6732,7 +7681,9 @@
       const paneSystem = activeList.dataset.system || '';
       if (paneDevice !== selectedDevice || paneSystem !== selectedSystem) return [];
       return (transferDisplayJobs.get(pendingResetScope(paneDevice, paneSystem)) || [])
-        .filter(job => job.device === paneDevice && job.system === paneSystem);
+        .filter(job => job.device === paneDevice && job.system === paneSystem
+          && (job.running || job.dispatching)
+          && !job.completed && !job.partialDeleted && !job.cancelled && !job.cancelRequested);
     }
 
     function renderPendingTransfers() {
@@ -6741,6 +7692,8 @@
       // Never paint those rows into a pane owned by another machine or console.
       if (activeList.dataset.device !== selectedDevice || activeList.dataset.system !== selectedSystem) return;
       const addProgress = (row, job) => {
+        const stopping = Boolean(job.cancelRequested);
+        const waiting = !job.running && !job.dispatching;
         const artworkStage = job.phase === 'artwork' || /cover|picture|matches/i.test(job.current || '');
         const defaultPictureStage = artworkStage && (job.artwork?.matched === false || /default picture|no picture matches/i.test(job.current || ''));
         // Current backends expose one end-to-end, monotonic percentage. Keep
@@ -6772,77 +7725,31 @@
         // Keep the active-transfer row focused on the ROM filename. A failed
         // local match is reported only after completion by the dark-yellow
         // marker below; while copying, identify only the fallback asset.
-        stage.textContent = artworkStage
+        stage.textContent = stopping
+          ? 'Stopping…'
+          : waiting
+          ? 'Queued'
+          : artworkStage
           ? (defaultPictureStage ? 'Default Cover' : 'Transferring Cover')
           : '';
         stage.hidden = !stage.textContent;
         row.append(track, stage, label);
       };
       const jobs = transferJobsForActivePane();
-      // Keep the complete console-scoped queue in the right pane. Installed
-      // rows remain authoritative; every waiting ROM gets one stable row which
-      // is decorated with progress when its worker starts. Polling must not
-      // collapse Upload All to only the handful of active workers.
-      const savedSelections = readDeviceTransferSelections(selectedDevice);
-      const selectedNames = new Set(Array.isArray(savedSelections[selectedSystem]) ? savedSelections[selectedSystem] : []);
-      // A stopped item can remain in an older persisted selection snapshot
-      // until the next save finishes. Do not resurrect it as a waiting row.
-      for (const fileName of [...selectedNames]) {
-        if (dismissedTransferKeys.has(transferSelectionKey(selectedDevice, selectedSystem, fileName))) selectedNames.delete(fileName);
-      }
-      for (const job of jobs) {
-        if (!job.cancelRequested && !dismissedTransferKeys.has(transferSelectionKey(job.device, job.system, job.fileName))) selectedNames.add(job.fileName);
-      }
+      // Keep the complete current copy operation visible. Waiting rows are
+      // requested work, not old history, and must not disappear while the
+      // first large file establishes a safe connection.
+      const activeJobNames = new Set(jobs.map(job => job.fileName));
       const installedNames = new Set([...activeList.querySelectorAll('.device-game:not([data-transfer-placeholder])')]
         .map(row => row.dataset.name).filter(Boolean));
       let rowsChanged = false;
       activeList.querySelectorAll('.device-game[data-transfer-placeholder]').forEach(row => {
-        if (!selectedNames.has(row.dataset.name) || installedNames.has(row.dataset.name)) {
+        if (!activeJobNames.has(row.dataset.name) || installedNames.has(row.dataset.name)) {
           row.remove();
           rowsChanged = true;
         }
       });
-      const warehouseItems = new Map(((window.warehouseLibrary || fallbackLibrary)[selectedSystem]?.warehouse || [])
-        .map(item => [item[0], item]));
-      // Resolve each display title once. Upload All may contain more than a
-      // thousand rows; repeatedly searching the warehouse inside sort's
-      // comparator made rendering needlessly expensive.
-      const queuedDisplayTitle = fileName => {
-        const item = warehouseItems.get(fileName);
-        return gameTitleWithoutExtension(item?.[6] || fileName, fileName, item?.[4] === 'folder');
-      };
-      const existingNames = new Set([...activeList.querySelectorAll('.device-game[data-name]')].map(row => row.dataset.name));
-      for (const fileName of [...selectedNames].sort((left, right) => compareNaturalGameTitles(
-        queuedDisplayTitle(left), queuedDisplayTitle(right)))) {
-        if (existingNames.has(fileName)) continue;
-        const item = warehouseItems.get(fileName);
-        const row = document.createElement('div');
-        row.className = 'device-game transfer-queued';
-        row.dataset.transferPlaceholder = 'true';
-        row.dataset.name = fileName;
-        const checkbox = document.createElement('input'); checkbox.className = 'active-item-check'; checkbox.type = 'checkbox'; checkbox.checked = true;
-        checkbox.setAttribute('aria-label', `Cancel transfer ${queuedDisplayTitle(fileName)}`);
-        const indicator = document.createElement('span'); indicator.className = 'transfer-download-arrow'; indicator.textContent = '↓'; indicator.title = 'Waiting to download';
-        const title = document.createElement('span'); title.className = 'device-game-title'; title.title = fileName;
-        const titleText = document.createElement('span'); titleText.className = 'device-game-title-text';
-        titleText.textContent = queuedDisplayTitle(fileName);
-        title.append(titleText);
-        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = gameExtensionBadge(fileName, item?.[2] || 'ROM');
-        row.append(checkbox, indicator, title, badge);
-        activeList.append(row);
-        existingNames.add(fileName);
-        rowsChanged = true;
-      }
-      let newestActiveTransferName = "";
-      let newestActiveTransferTime = -1;
       for (const job of jobs) {
-        if (job.running) {
-          const started = Date.parse(job.startedAt || 0) || 0;
-          if (!newestActiveTransferName || started >= newestActiveTransferTime) {
-            newestActiveTransferName = job.fileName;
-            newestActiveTransferTime = started;
-          }
-        }
         const existing = [...activeList.querySelectorAll('.device-game')].find(row => row.dataset.name === job.fileName);
         if (existing) {
           existing.classList.add('transfer-pending');
@@ -6883,19 +7790,9 @@
         row.classList.add('has-no-picture-match');
         row.insertBefore(marker, row.querySelector(':scope > .badge'));
       });
-      if (jobs.length) {
-        requestAnimationFrame(() => {
-          const activeTransfer = [...activeList.querySelectorAll('.device-game.transfer-pending')]
-            .find(row => row.dataset.name === newestActiveTransferName)
-            || activeList.querySelector('.device-game.transfer-pending');
-          if (!activeTransfer) return;
-          const listBounds = activeList.getBoundingClientRect();
-          const rowBounds = activeTransfer.getBoundingClientRect();
-          const targetTop = Math.max(0, activeList.scrollTop + rowBounds.top - listBounds.top
-            - Math.round((activeList.clientHeight - rowBounds.height) / 2));
-          activeList.scrollTo({ top: targetTop, behavior: 'smooth' });
-        });
-      }
+      if (jobs.length) requestAnimationFrame(() => {
+        if (!scrollToRequestedActiveTransfer()) keepActiveTransferInView();
+      });
     }
 
     function markWarehouseChecks() {
@@ -6910,13 +7807,14 @@
           const selectionKey = transferSelectionKey(selectedDevice, selectedSystem, gameName);
           const installed = activeNames.has(gameName) && !runningNames.has(gameName);
           const authoritative = installed || runningNames.has(gameName) || transferIsPending(gameName);
-          const requested = selectionSetFor(selectedSystem).has(gameName);
-          // Polling may add a check, but it cannot erase a check that the user
-          // already made. Only an explicit uncheck records false in the
-          // optimistic state and persisted selection set.
+          // Only the live machine inventory, a real backend job, or the user's
+          // click while its request is in flight may check a row. Persisted
+          // layout selections are intent/history, not proof that a game is on
+          // the machine; treating them as proof created checked rows with
+          // nothing corresponding in the right pane.
           const checked = optimisticWarehouseSelections.has(selectionKey)
             ? optimisticWarehouseSelections.get(selectionKey)
-            : gameCheckbox.checked || requested || authoritative;
+            : authoritative;
           if (gameCheckbox.checked !== checked) gameCheckbox.checked = checked;
           gameCheckbox.dataset.installed = String(installed);
           gameCheckbox.title = installed ? 'Installed on this machine' : 'Pending transfer to this machine';
@@ -7411,10 +8309,14 @@
         pendingTransferKeys.add(selectionKey);
         showConsoleTransferImmediately(targetDevice, targetSystem);
       }
-      requestAnimationFrame(() => setTimeout(() => {
-        // A background library refresh can replace the row before this frame.
-        // The detached row still contains the click snapshot and must start
-        // its operation; only a newer click revision may supersede it.
+      // Queue network work on the event loop, never behind requestAnimationFrame.
+      // WebView may throttle animation frames while a native dialog, background
+      // refresh, or window transition is active; that used to leave a checked
+      // GameCube row with a down arrow but no backend queue entry.
+      setTimeout(() => {
+        // A background library refresh can replace the row before this task.
+        // The detached row still contains the click snapshot and must start its
+        // operation; only a newer click revision may supersede it.
         if (game.dataset.selectionRevision !== revision) return;
         checkbox.checked = desiredChecked;
         syncFolderTrackChecks(game, desiredChecked);
@@ -7427,7 +8329,7 @@
           optimisticWarehouseSelections.delete(selectionKey);
           if (targetDevice === selectedDevice && targetSystem === selectedSystem) markWarehouseChecks();
         });
-      }, 0));
+      }, 0);
     }
 
     async function syncWarehouseSelection(game, scope = {}) {
@@ -7520,21 +8422,31 @@
           }
         }
 
-        const visibleInTargetPane = targetDevice === selectedDevice && targetSystem === selectedSystem
-          && [...activeList.querySelectorAll(".device-game")].some(item => item.dataset.name === name);
-        if (!visibleInTargetPane) {
-          const started = await addToSelectedDevice(name, game.dataset.type, { device: targetDevice, system: targetSystem });
-          if (!started) {
-            clearOptimisticConsoleTransfer(targetDevice, targetSystem);
-            return false;
+        // The optimistic right-pane row is presentation only.  It is inserted
+        // above before the backend request exists, so DOM visibility must
+        // never be used as proof that a game is installed.  Doing that made
+        // the optimistic Xbox 360 row suppress its own transfer.  Only the
+        // inventory read from the machine is authoritative here.
+        const installedOnTarget = targetDevice === selectedDevice
+          && targetSystem === selectedSystem
+          && activeNames.has(name);
+        if (!installedOnTarget) {
+          // Every console uses the same durable, one-stream-per-machine queue.
+          // Directly calling /api/roms/add here allowed several consoles to
+          // divide bandwidth and made each one appear stalled.
+          const enqueueResponse = await fetch(`${apiBase}/api/transfers/enqueue`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({device:targetDevice, system:targetSystem, fileNames:[name]})
+          });
+          const enqueued = await enqueueResponse.json();
+          if (!enqueueResponse.ok || !enqueued.ok || (!enqueued.queued && !enqueued.total)) {
+            throw new Error(enqueued.error || "RP1 could not save the transfer queue.");
           }
           // Keep pendingTransferKeys as the bridge between the immediate UI
           // click and the first status response that contains this job.
           pendingSelectionAccepted = true;
-          if (targetSystem === "music" && game.dataset.kind === "folder") {
-            folderTrackNames(game).forEach(track => activeNames.add(track));
-            syncFolderTrackChecks(game, true);
-          }
+          refreshTransferActivity();
         }
         return true;
       } catch (error) {
@@ -7584,6 +8496,34 @@
     }
 
     async function addToSelectedDevice(fileName, type, scope = {}) {
+      const targetDevice = scope.device || selectedDevice;
+      const targetSystem = scope.system || selectedSystem;
+      const selectionKey = transferSelectionKey(targetDevice, targetSystem, fileName);
+      pendingTransferKeys.add(selectionKey);
+      showConsoleTransferImmediately(targetDevice, targetSystem);
+      syncStatus.textContent = `Queued ${fileName}`;
+      try {
+        const response = await fetch(`${apiBase}/api/transfers/enqueue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device: targetDevice, system: targetSystem, fileNames: [fileName] })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok || (!result.queued && !result.total)) {
+          throw new Error(result.error || "RP1 could not save the transfer queue.");
+        }
+        refreshTransferActivity();
+        return true;
+      } catch (error) {
+        pendingTransferKeys.delete(selectionKey);
+        clearOptimisticConsoleTransfer(targetDevice, targetSystem);
+        throw error;
+      }
+    }
+
+    // Retained temporarily for migration reference; all current UI paths use
+    // the durable queue above rather than opening their own SFTP stream.
+    async function addToSelectedDeviceDirectLegacy(fileName, type, scope = {}) {
       const targetDevice = scope.device || selectedDevice;
       const targetSystem = scope.system || selectedSystem;
       // Device discovery is deliberately not used as a transfer gate here.
@@ -7876,9 +8816,29 @@
     activeTitle.innerHTML = '<span class="active-heading"><span class="active-machine-name">Machine Games</span></span><span class="title-metrics"><span class="storage-count">Free: --</span></span>';
 
     rows.forEach((row) => {
+      row.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        // A context-menu action belongs to the console under the pointer. Make
+        // it the active console first so Copy All, Cancel Copy, and Remove All
+        // never operate on whichever console happened to be left-clicked last.
+        if (!row.classList.contains('active')) row.click();
+        if (row.classList.contains('console-transfer-active') || row.classList.contains('console-transfer-queued')) {
+          requestActiveTransferScroll(selectedDevice, row.dataset.system || 'mame');
+          // If the pane is already rendered, move immediately. If selection
+          // just rebuilt it, renderPendingTransfers/loadActiveList will honor
+          // the same request as soon as the transfer rows are inserted.
+          requestAnimationFrame(scrollToRequestedActiveTransfer);
+        }
+        showConsoleTransferMenu(row, event.clientX, event.clientY);
+      });
       row.addEventListener("click", () => {
         rememberCurrentWarehouseSelection();
         selectTopSystemOnNextVisibleList = false;
+        if (row.classList.contains('console-transfer-active') || row.classList.contains('console-transfer-queued')) {
+          requestActiveTransferScroll(selectedDevice, row.dataset.system || 'mame');
+        } else {
+          activeTransferScrollRequest = null;
+        }
         rows.forEach(row => row.classList.remove("active"));
         row.classList.add("active");
         selectedSystem = row.dataset.system || "mame";
@@ -7890,6 +8850,13 @@
         refreshLocalLibrary();
       });
     });
+    document.addEventListener('pointerdown', event => {
+      if (consoleTransferMenu && !consoleTransferMenu.contains(event.target)) closeConsoleTransferMenu();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeConsoleTransferMenu();
+    });
+    window.addEventListener('resize', closeConsoleTransferMenu);
 
     // Replace the legacy static examples before the first asynchronous fetch.
     // This prevents their obsolete row structure from overlapping under the
@@ -8142,7 +9109,7 @@
       ++activeLoadGeneration;
       activeListScope = "";
       activeNames = new Set();
-      activeList.classList.remove("empty-state");
+      clearLibraryConnectionMessage();
       activeList.innerHTML = "";
       currentStorageFree = storageFreeByDevice.get(selectedDevice) || "--";
       currentStorageTotal = storageTotalByDevice.get(selectedDevice) || "--";
@@ -8159,6 +9126,7 @@
       // A selected machine is authoritative. Re-read its current inventory
       // instead of restoring the previous installation's remembered systems.
       initializeMachineSystems({refresh: selectedDeviceOnline});
+      scheduleEmptyConsoleInventoryRetry(selectedDevice);
       transferInstalledCache = { device: "", at: 0, systems: {} };
       softReset.classList.toggle("setup", !selectedDeviceOnline);
       softReset.classList.toggle("ready", selectedDeviceOnline);
@@ -8266,7 +9234,7 @@
           }
           transferLayoutSelections = readDeviceTransferSelections(deviceId);
           activeNames = new Set();
-          activeList.classList.remove("empty-state");
+          clearLibraryConnectionMessage();
           activeList.innerHTML = "";
           applyVisibleSystems(readVisibleSystems(deviceId));
           transferInstalledCache = {device:"",at:0,systems:{}};
@@ -8288,9 +9256,17 @@
 
     async function fetchStatusWithTimeout(url, timeoutMs = 8000) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutError = new Error(`The RP1 request exceeded ${Math.ceil(timeoutMs / 1000)} seconds and was stopped.`);
+      timeoutError.name = 'AbortError';
+      const timeout = setTimeout(() => controller.abort(timeoutError), timeoutMs);
       try {
         return await fetch(url, { signal: controller.signal });
+      } catch (error) {
+        // WebView implementations otherwise expose the meaningless internal
+        // message "signal is aborted without reason". Preserve a clear,
+        // retryable timeout while leaving genuine network errors untouched.
+        if (controller.signal.aborted) throw timeoutError;
+        throw error;
       } finally {
         clearTimeout(timeout);
       }
@@ -8333,6 +9309,7 @@
         // Continually reconcile with the machine so removed/added systems do
         // not linger as a stale local snapshot after a reboot or USB swap.
         initializeMachineSystems({refresh: selectedDeviceOnline});
+        scheduleEmptyConsoleInventoryRetry(selectedDevice);
         if (!selectedDeviceOnline) {
           // A quick card probe may miss an otherwise working SSH connection.
           // Keep confirmed games visible while the direct library request runs.
@@ -8399,8 +9376,9 @@
       advancedToggle.setAttribute("aria-expanded", "false");
     }
 
-    function showXboxBiosDialog({ title = "Xbox BIOS Install", device = selectedDevice, message = "", confirmLabel = "OK", cancelLabel = "Cancel", cancellable = false, alternateLabel = "", alternateValue = "alternate" } = {}) {
+    function showXboxBiosDialog({ title = "Xbox BIOS Install", device = selectedDevice, message = "", confirmLabel = "OK", cancelLabel = "Cancel", cancellable = false, alternateLabel = "", alternateValue = "alternate", glassyActions = false } = {}) {
       xboxBiosDialog.classList.remove('dual-boot-working');
+      xboxBiosDialog.classList.toggle('glassy-actions', glassyActions);
       xboxBiosDialogTitle.textContent = title;
       xboxBiosDialogDevice.textContent = machineDisplayName(device);
       xboxBiosDialogMessage.textContent = message;
@@ -8418,6 +9396,7 @@
           settled = true;
           xboxBiosDialog.classList.remove("open");
           xboxBiosDialog.classList.remove('dual-boot-working');
+          xboxBiosDialog.classList.remove('glassy-actions');
           confirmXboxBiosDialog.onclick = null;
           cancelXboxBiosDialog.onclick = null;
           alternateXboxBiosDialog.onclick = null;
@@ -9195,6 +10174,7 @@
     function showRetroBatMachineMenu(card, x, y) {
       closeRetroBatMachineMenu();
       const menu = document.createElement('div');
+      menu.className = 'machine-context-menu';
       menu.setAttribute('role', 'menu');
       menu.setAttribute('aria-label', `${machineDisplayName(card.dataset.device)} options`);
       menu.style.cssText = 'position:fixed;z-index:10000;padding:8px;border:1px solid #779aca;border-radius:12px;background:#182130;box-shadow:0 12px 30px #0007;';

@@ -1,0 +1,36 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const html = fs.readFileSync(path.join(__dirname, '..', 'Ready Player One.html'), 'utf8');
+const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+
+assert(html.includes("remoteDisplayButton.textContent = 'Display'"));
+assert(html.includes("displayButton.textContent = 'Frame Rate'"));
+assert(html.includes("confirmLabel: installed ? 'Open Display' : 'Install Both'"));
+assert(html.includes("component('Sunshine'"));
+assert(html.includes("component('Moonlight'"));
+assert(server.includes('async function ensureLocalMoonlight()'));
+assert(server.includes('execFile("tar.exe", ["-xf", archivePath, "-C", extractRoot]'));
+assert(server.includes('async function ensureLocalSunshineAppImage()'));
+assert(server.includes('sunshine-batocera-compatible.AppImage'));
+assert(server.includes('async function ensureLocalSunshineWaylandLibrary()'));
+assert(server.includes('/userdata/system/sunshine-libs/libwayland-client.so.0'));
+assert(server.includes('libwayland-client.so.0.20.0'));
+assert(server.includes('async function installRemoteDisplay(device)'));
+assert(server.includes('/userdata/system/services/sunshine'));
+assert(server.includes('batocera-services enable sunshine'));
+assert(server.includes('/userdata/system/services/sunshine start'));
+assert(server.includes('url.pathname === "/api/remote-display/status"'));
+assert(server.includes('url.pathname === "/api/remote-display/install"'));
+assert(server.includes('url.pathname === "/api/remote-display/open"'));
+assert(server.includes('function configureWindowsDirectAdapter(alias)'));
+assert(server.includes("DestinationPrefix '10.77.0.0/24'"));
+assert(server.includes('localAddress = "10.77.0.1"'));
+assert(server.includes('iptables -C INPUT -i "$iface" -s 10.77.0.0/24'));
+assert(server.includes('function moonlightHostIsPaired(_executable, host)'));
+assert(server.includes('function startMoonlightPairing(executable, host, pin)'));
+assert(server.includes('["pair", host, "--pin", pin]'));
+assert(server.includes('displayStatus = await installRemoteDisplay(device)'));
+assert(server.includes('waitForDirectPort("10.77.0.2", 47990'));
+console.log('Remote Display setup and launch controls passed.');

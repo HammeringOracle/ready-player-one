@@ -33,7 +33,17 @@ function displayGameTitle(system, fileName) {
     const embeddedTitle = readWiiTitle(localPath);
     if (embeddedTitle) return embeddedTitle;
   }
+  if (system === "movies") return movieDisplayTitle(fileName);
   return cleanRomName(fileName);
+}
+
+function compareNaturalGameTitles(leftTitle, rightTitle) {
+  const left = String(leftTitle || "").trim();
+  const right = String(rightTitle || "").trim();
+  const leftStartsWithNumber = /^\d/.test(left);
+  const rightStartsWithNumber = /^\d/.test(right);
+  if (leftStartsWithNumber !== rightStartsWithNumber) return leftStartsWithNumber ? -1 : 1;
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
 }
 
 const uiRoot = __dirname;
@@ -77,7 +87,7 @@ const batoceraSystemArtFolders = new Set([
   "c64",
   "mame", "nes", "snes", "megadrive", "gba", "psx", "ps2", "n64", "gb", "gbc", "nds", "3ds", "gc", "wii",
   "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "xegs", "jaguar", "jaguarcd", "atari800", "atarist", "pcengine",
-  "wiiu", "ps3", "ps4", "xbox", "xbox360", "music"
+  "wiiu", "ps3", "ps4", "xbox", "xbox360", "music", "movies"
 ]);
 const snapshotSystemAliases = {
   sega: "megadrive",
@@ -169,7 +179,8 @@ const supplementalSystemArt = {
   xbox360: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Xbox360.png?width=512",
   // The bundled RP1 artwork is authoritative. This URL is used only if a
   // damaged installation is missing that bundled asset.
-  music: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Vinyl_record.svg?width=512"
+  music: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Vinyl_record.svg?width=512",
+  movies: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Film_reel_icon.svg?width=512"
 };
 function softResetMachineIdentity(deviceName) {
   const settings = readDeviceSettings();
@@ -433,6 +444,11 @@ function readTransferJobs() {
 
 const transferJobs = new Map(readTransferJobs().map(job => [JSON.stringify([job.device, job.system, job.fileName]), job]));
 const activeUploadCancels = new Map();
+// A console-wide cancellation must also stop requests that were already
+// dispatched but had not yet created their running job. Keep a short-lived
+// tombstone until the user explicitly enqueues that console again.
+const cancelledTransferScopes = new Map();
+const transferScopeKey = (device, system) => `${device}\u0000${system}`;
 // Completed transfer history is display-only; retaining thousands of old rows
 // made every queue watchdog pass and persistence update needlessly expensive.
 // Preserve every unfinished job and only the newest completed records.
@@ -516,7 +532,8 @@ const systemFolders = {
   pcengine: "pcengine",
   dos: "dos",
   karaoke: "karaoke",
-  music: "music"
+  music: "music",
+  movies: "movies"
 };
 
 const localFolders = {
@@ -565,12 +582,13 @@ const localFolders = {
   pcengine: "pcengine",
   dos: "dos",
   karaoke: "karaoke",
-  music: "music"
+  music: "music",
+  movies: "movies"
 };
 
 // Stable system IDs keep older saved layouts compatible; only PC paths move.
 for (const system of Object.keys(localFolders)) {
-  if (!["music", "karaoke"].includes(system)) localFolders[system] = `roms/${localFolders[system]}`;
+  if (!["music", "karaoke", "movies"].includes(system)) localFolders[system] = `roms/${localFolders[system]}`;
 }
 
 const systemLabels = {
@@ -619,7 +637,8 @@ const systemLabels = {
   pcengine: "PC Engine",
   dos: "DOS",
   karaoke: "Karaoke",
-  music: "MP3/FLAC"
+  music: "MP3/FLAC",
+  movies: "Movies"
 };
 
 const localExtensions = {
@@ -668,7 +687,8 @@ const localExtensions = {
   pcengine: [".pce", ".cue", ".chd", ".zip", ".7z"],
   dos: [".pc", ".dos", ".zip", ".7z"],
   karaoke: [".cdg"],
-  music: [".mp3", ".flac"]
+  music: [".mp3", ".flac"],
+  movies: [".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv"]
 };
 
 function sendJson(res, status, body) {
@@ -751,7 +771,7 @@ function loadDeviceSettings() {
 
 loadDeviceSettings();
 
-function isTcpPortOpen(host, port, timeoutMs = 900) {
+function isTcpPortOpen(host, port, timeoutMs = 900, localAddress = "") {
   return new Promise(resolve => {
     const socket = new net.Socket();
     let settled = false;
@@ -774,7 +794,7 @@ function isTcpPortOpen(host, port, timeoutMs = 900) {
     socket.once("connect", () => finish(true));
     socket.once("timeout", () => finish(false));
     socket.once("error", () => finish(false));
-    socket.connect(port, host);
+    socket.connect({ port, host, ...(localAddress ? { localAddress } : {}) });
   });
 }
 
@@ -1591,6 +1611,7 @@ function reconcileBatoceraInstallation(id, installationId) {
     };
     delete currentSettings[id].visibleSystems;
     delete currentSettings[id].remoteDisplayPassword;
+    delete currentSettings[id].remoteDisplayPairings;
     writeDeviceSettings(currentSettings);
     return;
   }
@@ -1625,6 +1646,7 @@ function reconcileBatoceraInstallation(id, installationId) {
     };
     delete currentSettings[id].visibleSystems;
     delete currentSettings[id].remoteDisplayPassword;
+    delete currentSettings[id].remoteDisplayPairings;
     writeDeviceSettings(currentSettings);
   }
 }
@@ -1964,12 +1986,12 @@ async function getRuntimeDevice(name, { skipConnectionProbe = false } = {}) {
   if (skipConnectionProbe) {
     const knownHost = lastVerifiedHost || device.host;
     if (knownHost && isAddressOnActiveLan(knownHost)) {
-      return { ...device, host: knownHost, access: device.discoveredAccess || "ssh" };
+      return { ...device, name, host: knownHost, access: device.discoveredAccess || "ssh" };
     }
   }
   if (lastVerifiedHost && isAddressOnActiveLan(lastVerifiedHost) &&
       (skipConnectionProbe || await isTcpPortOpen(lastVerifiedHost, 22, 1200))) {
-    return { ...device, host: lastVerifiedHost, access: device.discoveredAccess || "ssh" };
+    return { ...device, name, host: lastVerifiedHost, access: device.discoveredAccess || "ssh" };
   }
 
   // Do not let a previous successful command keep a disconnected machine green.
@@ -1980,7 +2002,7 @@ async function getRuntimeDevice(name, { skipConnectionProbe = false } = {}) {
     statuses = await getDeviceStatuses({ deep: true, background: false });
   }
 
-  return { ...device, host: device.discoveredHost || device.host, access: device.discoveredAccess || "ssh" };
+  return { ...device, name, host: device.discoveredHost || device.host, access: device.discoveredAccess || "ssh" };
 }
 
 function runSoftReset(device) {
@@ -2088,6 +2110,7 @@ function execSshOnce(device, command, timeoutMs = 15000, abortSignal) {
   return new Promise((resolve, reject) => {
     const client = new Client();
     let settled = false;
+    let releaseAuthentication = () => {};
     let commandStream;
     const abort=()=>{if(commandStream){try{commandStream.signal('TERM');}catch{}}else fail(new Error('Command cancelled.'));};
     const timeout = setTimeout(() => fail(new Error("SSH command timed out.")), timeoutMs);
@@ -2095,6 +2118,7 @@ function execSshOnce(device, command, timeoutMs = 15000, abortSignal) {
     const fail = error => {
       if (!settled) {
         settled = true;
+        releaseAuthentication();
         clearTimeout(timeout);
         abortSignal?.removeEventListener('abort',abort);
         client.end();
@@ -2106,6 +2130,7 @@ function execSshOnce(device, command, timeoutMs = 15000, abortSignal) {
     abortSignal?.addEventListener('abort',abort,{once:true});
     client
       .on("ready", () => {
+        releaseAuthentication();
         client.exec(command, (error, stream) => {
           if (error) {
             fail(error);
@@ -2127,6 +2152,7 @@ function execSshOnce(device, command, timeoutMs = 15000, abortSignal) {
               return;
             }
             settled = true;
+            releaseAuthentication();
             clearTimeout(timeout);
             abortSignal?.removeEventListener('abort',abort);
             client.end();
@@ -2139,12 +2165,20 @@ function execSshOnce(device, command, timeoutMs = 15000, abortSignal) {
         });
       })
       .on("error", fail)
-      .connect({
-        host: device.host,
-        username: device.user,
-        password: device.password,
-        readyTimeout: 8000,
-        tryKeyboard: false
+      ;
+    queueSshAuthentication(device.host, release => {
+      releaseAuthentication = release;
+      if (settled) {
+        release();
+        return;
+      }
+      client.connect({
+          host: device.host,
+          username: device.user,
+          password: device.password,
+          readyTimeout: 8000,
+          tryKeyboard: false
+        });
       });
   });
 }
@@ -2327,6 +2361,96 @@ async function installKaraoke(device) {
   });
   await execSsh(device, karaokeInstallCommand(), 30000);
   return getKaraokeStatus(device);
+}
+
+async function getMoviesStatus(device) {
+  const command = [
+    "missing='';",
+    "test -f /userdata/system/configs/emulationstation/es_systems_movies.cfg || missing=\"$missing system\";",
+    "test -x /userdata/system/scripts/rp1-movies-vlc.sh || missing=\"$missing launcher\";",
+    "test -d /userdata/roms/movies || missing=\"$missing folder\";",
+    "test -f /userdata/roms/movies/media/images/movies.png || missing=\"$missing icon\";",
+    "command -v cvlc >/dev/null 2>&1 || missing=\"$missing vlc\";",
+    "if [ -z \"$missing\" ]; then echo INSTALLED; else echo MISSING:$missing; fi"
+  ].join(" ");
+  const output = (await execSsh(device, command)).trim();
+  const installed = output.includes("INSTALLED");
+  return { installed, missing: installed ? [] : output.replace(/^MISSING:/, "").trim().split(/\s+/).filter(Boolean) };
+}
+
+function moviesInstallCommand() {
+  return `
+set -e
+mkdir -p /userdata/roms/movies/media/images /userdata/system/scripts /userdata/system/configs/emulationstation /userdata/system/logs
+cat > /userdata/system/configs/emulationstation/es_systems_movies.cfg <<'EOF'
+<?xml version="1.0"?>
+<systemList>
+  <system>
+    <fullname>Movies</fullname>
+    <name>movies</name>
+    <manufacturer>Ready Player One</manufacturer>
+    <release>2026</release>
+    <hardware>media</hardware>
+    <path>/userdata/roms/movies</path>
+    <extension>.mp4 .MP4 .mkv .MKV .avi .AVI .mov .MOV .m4v .M4V .webm .WEBM .mpg .MPG .mpeg .MPEG .ts .TS .m2ts .M2TS .wmv .WMV</extension>
+    <command>/userdata/system/scripts/rp1-movies-vlc.sh "%ROM%"</command>
+    <platform>pc</platform>
+    <theme>movies</theme>
+    <group>movies</group>
+  </system>
+</systemList>
+EOF
+cat > /userdata/system/scripts/rp1-movies-vlc.sh <<'EOF'
+#!/bin/sh
+rom="$1"
+log=/userdata/system/logs/rp1-movies-vlc.log
+export HOME=/userdata/system
+export XDG_CONFIG_HOME=/userdata/system/.config
+export XDG_CACHE_HOME=/userdata/system/.cache
+export XDG_RUNTIME_DIR=/var/run
+export DISPLAY=\${DISPLAY:-:0}
+# EmulationStation may shell-escape spaces, brackets, parentheses, and other
+# punctuation before invoking a custom system command. Resolve that escaped
+# representation back to the exact on-disk filename before checking it.
+if [ ! -f "$rom" ]; then
+  unescaped="$(printf '%s' "$rom" | sed 's/\\\\//g')"
+  if [ -f "$unescaped" ]; then rom="$unescaped"; fi
+fi
+if [ ! -f "$rom" ] && [ "$#" -gt 1 ]; then
+  joined="$*"
+  if [ -f "$joined" ]; then
+    rom="$joined"
+  else
+    unescaped="$(printf '%s' "$joined" | sed 's/\\\\//g')"
+    if [ -f "$unescaped" ]; then rom="$unescaped"; fi
+  fi
+fi
+if [ ! -f "$rom" ]; then
+  printf 'Movie not found: %s\n' "$rom" >> "$log"
+  exit 1
+fi
+killall vlc cvlc 2>/dev/null || true
+exec /usr/bin/cvlc -I dummy --vout xcb_x11 --fullscreen --play-and-exit --no-video-title-show "$rom" >> "$log" 2>&1
+EOF
+chmod 644 /userdata/system/configs/emulationstation/es_systems_movies.cfg
+chmod 755 /userdata/system/scripts/rp1-movies-vlc.sh
+echo OK
+`;
+}
+
+async function installMovies(device) {
+  const iconPath = path.join(uiRoot, "system-art", "movies.png");
+  const logoPath = path.join(uiRoot, "system-art", "movies-logo.png");
+  if (!fs.existsSync(iconPath)) throw new Error("Ready Player One's built-in Movies icon is missing.");
+  if (!fs.existsSync(logoPath)) throw new Error("Ready Player One's built-in Movies logo is missing.");
+  await sftpWithDevice(device, async sftp => {
+    await mkdirpSftp(sftp, "/userdata/roms/movies/media/images");
+    await fastPutSftp(sftp, iconPath, "/userdata/roms/movies/media/images/movies.png");
+    await fastPutSftp(sftp, logoPath, "/userdata/roms/movies/media/images/movies-logo.png");
+  });
+  await execSsh(device, moviesInstallCommand(), 30000);
+  await installNintendoPicturePresentation(device, ["movies"]);
+  return getMoviesStatus(device);
 }
 
 async function getPiKaraokeStatus(device) {
@@ -2547,18 +2671,47 @@ async function installPiKaraoke(device) {
 }
 
 const sftpSessionCache = new Map();
+const activeLibraryRequests = new Map();
+// Browsing and ROM copies used to compete for separate SSH handshakes on the
+// same Batocera host. Some Dropbear builds accept the TCP socket but never send
+// an SSH banner while the cached library channel is open. During a dedicated
+// upload, defer inventory SFTP and give the copy exclusive use of that host.
+const activeDedicatedSshHosts = new Map();
+function beginDedicatedSshHost(host) {
+  closeSftpSession(host);
+  activeDedicatedSshHosts.set(host, Number(activeDedicatedSshHosts.get(host) || 0) + 1);
+}
+function endDedicatedSshHost(host) {
+  const remaining = Number(activeDedicatedSshHosts.get(host) || 0) - 1;
+  if (remaining > 0) activeDedicatedSshHosts.set(host, remaining);
+  else activeDedicatedSshHosts.delete(host);
+}
 // Multiple ROMs can copy at once. The former 64 writes per file starved the UI,
 // but one write per file throttled large disc images. Keep the combined number
 // of in-flight writes bounded while allowing large files to fill the LAN link.
 function sftpTransferOptions(fileSize) {
-  return { concurrency: fileSize > 50 * 1024 * 1024 ? 8 : 3, chunkSize: 512 * 1024 };
+  // Four large ROMs may transfer together. Eight SFTP writes per ROM created
+  // a 32-request burst that could make Batocera/dropbear reset every new
+  // channel before GameCube transfers even left "Starting". Four pipelined
+  // writes per large file still fills the link while bounding the machine-wide
+  // pressure at sixteen writes under the established 4-file rule.
+  // ssh2 explicitly warns that non-default chunk sizes are not supported by
+  // every SFTP server. Batocera/Dropbear resets channels receiving RP1's old
+  // 512 KiB writes before the first byte is committed. Keep the standard
+  // 32 KiB packet and obtain throughput from bounded pipelining plus the
+  // scheduler's parallel-file pool.
+  return { concurrency: fileSize > 50 * 1024 * 1024 ? 4 : 3, chunkSize: 32 * 1024 };
 }
 
 function closeSftpSession(host) {
   const cached = sftpSessionCache.get(host);
   sftpSessionCache.delete(host);
   if (cached?.client) {
-    cached.client.end();
+    // end() waits for a graceful SSH shutdown, which a wedged SFTP channel
+    // may never complete. Inventory retries need the socket gone now so the
+    // next attempt cannot inherit the dead transport.
+    if (typeof cached.client.destroy === "function") cached.client.destroy();
+    else cached.client.end();
   }
 }
 
@@ -2615,14 +2768,35 @@ function isTransientSshError(error) {
   return /not connected|connection|ECONN|handshake|channel|socket|closed|timed?\s*out|reset/i.test(String(error?.message || error));
 }
 
-async function sftpWithDevice(device, work) {
+async function sftpWithDevice(device, work, operationTimeoutMs = 0) {
+  if (Number(activeDedicatedSshHosts.get(device.host) || 0) > 0) {
+    throw new Error("Machine library read deferred while ROM files are transferring.");
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const session = await getSftpSession(device);
-      const cached = sftpSessionCache.get(device.host);
-      if (cached) cached.lastUsed = Date.now();
-      return await work(session.sftp, session.client);
+      const operation = (async () => {
+        const session = await getSftpSession(device);
+        const cached = sftpSessionCache.get(device.host);
+        if (cached) cached.lastUsed = Date.now();
+        return work(session.sftp, session.client);
+      })();
+      if (!operationTimeoutMs) return await operation;
+      let timeout;
+      try {
+        return await Promise.race([
+          operation,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error(`SFTP operation timed out after ${operationTimeoutMs}ms.`)), operationTimeoutMs);
+          })
+        ]);
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error) {
+      // A timed-out directory read leaves ssh2's cached channel looking alive
+      // even though it will never invoke its callback. Destroy that session so
+      // the retry authenticates a clean channel instead of piling more reads
+      // onto the same dead connection.
       closeSftpSession(device.host);
       if (attempt === 0 && isTransientSshError(error)) {
         await new Promise(resolve => setTimeout(resolve, 350));
@@ -2633,62 +2807,71 @@ async function sftpWithDevice(device, work) {
   }
 }
 
-const idleUploadSftpSessions = new Map();
-
 function closeUploadSftpSession(entry) {
   if (entry.closed) return;
   entry.closed = true;
   clearTimeout(entry.timer);
-  if (idleUploadSftpSessions.get(entry.host) === entry) idleUploadSftpSessions.delete(entry.host);
   entry.client.end();
+}
+
+// Dropbear may reset a burst of simultaneous, not-yet-authenticated clients
+// even though it can carry several established SFTP streams. Serialize only
+// the authentication phase per host; release the gate as soon as SSH reports
+// ready so large transfers still run with the normal 4/10 concurrency.
+const sshAuthenticationTails = new Map();
+function queueSshAuthentication(host, begin) {
+  const previous = sshAuthenticationTails.get(host) || Promise.resolve();
+  let unlock = () => {};
+  const hold = new Promise(resolve => { unlock = resolve; });
+  const tail = previous.catch(() => {}).then(() => hold);
+  sshAuthenticationTails.set(host, tail);
+  previous.catch(() => {}).then(() => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      unlock();
+      tail.finally(() => {
+        if (sshAuthenticationTails.get(host) === tail) sshAuthenticationTails.delete(host);
+      });
+    };
+    begin(release);
+  });
 }
 
 function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
   return new Promise((resolve, reject) => {
-    let cached = idleUploadSftpSessions.get(device.host);
-    if (cached) {
-      idleUploadSftpSessions.delete(device.host);
-      clearTimeout(cached.timer);
-      if (cached.user !== device.user || cached.password !== device.password) {
-        closeUploadSftpSession(cached);
-        cached = null;
-      }
-    }
-    const entry = cached || {
+    // Uploads must begin on a newly authenticated channel. Reusing an idle
+    // upload session proved unreliable with Batocera/dropbear: the cached
+    // client could look open locally while its SFTP channel had already been
+    // retired remotely, causing every GameCube retry to remain at zero bytes.
+    // A ROM transfer lasts far longer than a fresh SSH handshake, so favor a
+    // deterministic connection over an unsafe micro-optimization.
+    const entry = {
       host: device.host, user: device.user, password: device.password,
       client: new Client(), sftp: null, timer: null, activeFail: null, closed: false
     };
     let settled = false;
+    let releaseAuthentication = () => {};
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
+      releaseAuthentication();
       entry.activeFail = null;
       if (error) {
         closeUploadSftpSession(entry);
         reject(error);
         return;
       }
-      // Keep one upload-only connection warm for the next ROM. Large uploads
-      // never share the browsing SFTP session, and concurrent uploads still
-      // receive separate connections.
-      const previous = idleUploadSftpSessions.get(device.host);
-      if (previous) closeUploadSftpSession(previous);
-      entry.timer = setTimeout(() => {
-        closeUploadSftpSession(entry);
-      }, 60000);
-      entry.timer.unref?.();
-      idleUploadSftpSessions.set(device.host, entry);
+      closeUploadSftpSession(entry);
       resolve(value);
     };
     entry.activeFail = finish;
     registerCancel?.(() => entry.activeFail?.(new Error("Transfer paused by user.")));
     const startWork = () => Promise.resolve().then(() => work(entry.sftp, entry.client)).then(value => finish(null, value), finish);
-    if (cached) {
-      startWork();
-      return;
-    }
     entry.client
       .on("ready", () => {
+        releaseAuthentication();
         entry.client.sftp((error, channel) => {
           if (error) return finish(error);
           entry.sftp = channel;
@@ -2703,32 +2886,101 @@ function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
         entry.activeFail?.(new Error("SSH upload connection closed."));
         closeUploadSftpSession(entry);
       })
-      .connect({
-        host: device.host,
-        username: device.user,
-        password: device.password,
-        readyTimeout: 8000,
-        keepaliveInterval: 10000,
-        keepaliveCountMax: 3,
-        tryKeyboard: false
-      });
+      ;
+    const connectUpload = release => {
+      releaseAuthentication = release;
+      if (settled) {
+        release();
+        return;
+      }
+      entry.client.connect({
+          host: device.host,
+          username: device.user,
+          password: device.password,
+          readyTimeout: 30000,
+          keepaliveInterval: 10000,
+          keepaliveCountMax: 3,
+          tryKeyboard: false
+        });
+    };
+    // A host saved in single-stream mode already has exclusive inventory
+    // access through activeDedicatedSshHosts. Putting its only upload behind
+    // the shared authentication tail can strand it behind a slow status SSH
+    // command even though Dropbear is ready. Connect that one stream directly.
+    const savedDevices = readDeviceSettings();
+    const savedTransferConfig = (device.name && savedDevices[device.name]) ||
+      Object.values(savedDevices).find(saved =>
+        saved && String(saved.host || saved.discoveredHost || "") === String(device.host || ""));
+    const singleStream = Number(savedTransferConfig?.sshTransferConcurrency || 0) === 1;
+    if (singleStream) connectUpload(() => {});
+    else queueSshAuthentication(device.host, connectUpload);
   });
 }
 
-async function sftpWithDedicatedDevice(device, work, registerCancel = null) {
+async function sftpWithDedicatedDevice(device, work, registerCancel = null, connectionProgress = null) {
   // Batocera can briefly reset a new SSH channel while EmulationStation and
   // Warehouse status checks are using the same machine. Give an upload a
   // longer, back-off protected startup window before declaring it stopped.
   const maxAttempts = 6;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  beginDedicatedSshHost(device.host);
+  try {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      connectionProgress?.(attempt === 0
+        ? "Connecting to machine"
+        : `Reconnecting to machine (attempt ${attempt + 1} of ${maxAttempts})`);
+      try {
+        return await sftpWithDedicatedDeviceOnce(device, work, registerCancel);
+      } catch (error) {
+        if (attempt < maxAttempts - 1 && isTransientSshError(error)) {
+          if (device.name) {
+            const settings = readDeviceSettings();
+            if (settings[device.name] && Number(settings[device.name].sshTransferConcurrency || 0) !== 1) {
+              settings[device.name] = { ...settings[device.name], sshTransferConcurrency: 1 };
+              writeDeviceSettings(settings);
+            }
+          }
+          connectionProgress?.(`Retrying connection: ${String(error?.message || error).slice(0, 180)}`);
+          // Multiple large ROMs deliberately upload together, but Dropbear can
+          // reject a synchronized burst of fresh authentication handshakes.
+          // Add jitter so retries do not remain locked into the same collision.
+          await new Promise(resolve => setTimeout(resolve,
+            750 * (attempt + 1) + 150 + Math.floor(Math.random() * 650)));
+          continue;
+        }
+        throw error;
+      }
+    }
+  } finally {
+    endDedicatedSshHost(device.host);
+  }
+}
+
+async function sftpWithInventoryDevice(device, work) {
+  // Inventory reads are short and user-facing. Never reuse their SFTP channel:
+  // Batocera/Dropbear can retire an idle channel without ssh2 noticing, which
+  // previously made the right pane and Remove All hang together.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let cancel = null;
+    let timer = null;
     try {
-      return await sftpWithDedicatedDeviceOnce(device, work, registerCancel);
+      const request = sftpWithDedicatedDeviceOnce(device, work, callback => { cancel = callback; });
+      return await Promise.race([
+        request,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            cancel?.();
+            reject(new Error("SFTP inventory read timed out."));
+          }, 6500);
+        })
+      ]);
     } catch (error) {
-      if (attempt < maxAttempts - 1 && isTransientSshError(error)) {
-        await new Promise(resolve => setTimeout(resolve, 750 * (attempt + 1)));
+      if (attempt === 0 && isTransientSshError(error)) {
+        await new Promise(resolve => setTimeout(resolve, 350));
         continue;
       }
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
@@ -3168,6 +3420,49 @@ function moonlightIsPaired() {
   } catch { return false; }
 }
 
+function moonlightHostIsPaired(_executable, host) {
+  if (process.platform !== "win32") return Promise.resolve(false);
+  try {
+    const output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"], {windowsHide:true, encoding:"utf8", timeout:5000});
+    const blocks = String(output).split(/(?=HKEY_CURRENT_USER\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts\\\d+\s*$)/mi);
+    const paired = blocks.some(block => {
+      const address = block.match(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+([^\r\n]*)/gmi) || [];
+      const addresses = address.map(line => line.replace(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+/i, "").trim());
+      return addresses.includes(host) && /BEGIN CERTIFICATE-----[\s\S]{20,}[A-Za-z0-9+/]{20,}/.test(block);
+    });
+    return Promise.resolve(paired);
+  } catch { return Promise.resolve(false); }
+}
+
+function remoteDisplayPairingIdentity(deviceName, host) {
+  const deviceSettings = readDeviceSettings()[deviceName] || {};
+  const installation = String(deviceSettings.installationResetToken || deviceSettings.installationId || "").trim();
+  return installation ? `${installation}|${host}` : "";
+}
+
+function remoteDisplayPairingVerified(deviceName, host) {
+  const identity = remoteDisplayPairingIdentity(deviceName, host);
+  if (!identity) return false;
+  const deviceSettings = readDeviceSettings()[deviceName] || {};
+  const record = deviceSettings.remoteDisplayPairings?.[host];
+  return record?.version === 2 && String(record.identity || "") === identity;
+}
+
+function markRemoteDisplayPairingVerified(deviceName, host) {
+  const identity = remoteDisplayPairingIdentity(deviceName, host);
+  if (!identity) throw new Error("RP1 could not identify this Batocera installation for display pairing.");
+  const settings = readDeviceSettings();
+  const current = settings[deviceName] || {};
+  settings[deviceName] = {
+    ...current,
+    remoteDisplayPairings: {
+      ...(current.remoteDisplayPairings || {}),
+      [host]:{version:2, identity, verifiedAt:new Date().toISOString()}
+    }
+  };
+  writeDeviceSettings(settings);
+}
+
 async function ensureLocalMoonlight() {
   const existing = findMoonlightExecutable();
   if (existing) return existing;
@@ -3272,7 +3567,7 @@ export HOME=/userdata/system
 export LD_LIBRARY_PATH=/userdata/system/sunshine-libs\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 app=/userdata/system/bin/rp1-sunshine.AppImage
 case "$1" in
-  start) mkdir -p /userdata/system/logs; DISPLAY=:0.0 "$app" --appimage-extract-and-run >>/userdata/system/logs/rp1-sunshine.log 2>&1 & ;;
+  start) mkdir -p /userdata/system/logs; : > /userdata/system/logs/rp1-sunshine.log; DISPLAY=:0.0 "$app" --appimage-extract-and-run >>/userdata/system/logs/rp1-sunshine.log 2>&1 & ;;
   stop) killall sunshine 2>/dev/null || true ;;
   restart|reload) "$0" stop; sleep 1; "$0" start ;;
   status) pgrep -x sunshine >/dev/null ;;
@@ -3280,15 +3575,26 @@ case "$1" in
 esac
 `;
   await sftpWithDevice(device, async (sftp, client) => {
-    await execOnSshClient(client, "mkdir -p /userdata/system/bin /userdata/system/services /userdata/system/logs /userdata/system/sunshine-libs", 10000);
+    await execOnSshClient(client, "mkdir -p /userdata/system/bin /userdata/system/services /userdata/system/logs /userdata/system/sunshine-libs /userdata/system/.config/sunshine", 10000);
     await fastPutSftp(sftp, sunshine, "/userdata/system/bin/rp1-sunshine.AppImage");
     await fastPutSftp(sftp, waylandLibrary, "/userdata/system/sunshine-libs/libwayland-client.so.0");
     await writeSftpFile(sftp, "/userdata/system/services/sunshine", service);
+    await writeSftpFile(sftp, "/userdata/system/.config/sunshine/sunshine.conf", "capture = x11\n");
     await execOnSshClient(client, "chmod 755 /userdata/system/bin/rp1-sunshine.AppImage /userdata/system/services/sunshine; rm -f /userdata/system/services/rp1-sunshine; batocera-services enable sunshine; /userdata/system/services/sunshine start; sleep 7; pgrep -x sunshine >/dev/null", 45000);
   });
   const status = await remoteDisplayStatus(device);
   if (!status.moonlightInstalled || !status.sunshineInstalled || !status.sunshineRunning) throw new Error("Streaming support did not verify after installation.");
   return { ...status, moonlight };
+}
+
+async function ensureRemoteDisplayEncoder(device) {
+  const command = `cfg=/userdata/system/.config/sunshine/sunshine.conf; mkdir -p "$(dirname "$cfg")"; touch "$cfg"; if grep -q '^capture[[:space:]]*=[[:space:]]*x11[[:space:]]*$' "$cfg"; then changed=0; else if grep -q '^capture[[:space:]]*=' "$cfg"; then sed -i 's/^capture[[:space:]]*=.*/capture = x11/' "$cfg"; else printf '\\ncapture = x11\\n' >> "$cfg"; fi; changed=1; fi; if test "$changed" = 1 || ! pgrep -x sunshine >/dev/null; then /userdata/system/services/sunshine restart >/dev/null 2>&1 || /userdata/system/services/sunshine start >/dev/null 2>&1; sleep 9; fi; grep -q 'Found H.264 encoder:' /userdata/system/logs/rp1-sunshine.log`;
+  try {
+    await execSsh(device, command, 20000);
+  } catch {
+    throw new Error("Sunshine could not initialize a working Batocera video encoder. RP1 set X11 capture, but encoder verification failed.");
+  }
+  return true;
 }
 
 function openRemoteDisplayWindow(device) {
@@ -3297,12 +3603,39 @@ function openRemoteDisplayWindow(device) {
   return { ready:true, executable:moonlight, host:device?.host || "" };
 }
 
-function moonlightPairingPin(executable, host) {
-  const script = `$ErrorActionPreference='Stop';$p=Start-Process -FilePath $env:RP1_MOONLIGHT -ArgumentList @('pair',$env:RP1_DISPLAY_HOST) -PassThru;Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;$pin='';for($i=0;$i -lt 40 -and -not $pin;$i++){Start-Sleep -Milliseconds 500;$root=[Windows.Automation.AutomationElement]::RootElement;$wins=$root.FindAll([Windows.Automation.TreeScope]::Children,[Windows.Automation.Condition]::TrueCondition);foreach($w in $wins){if($w.Current.ProcessId -ne $p.Id){continue};$items=$w.FindAll([Windows.Automation.TreeScope]::Subtree,[Windows.Automation.Condition]::TrueCondition);foreach($item in $items){$name=$item.Current.Name;if($name -match '(?<!\\d)(\\d{4})(?!\\d)'){$pin=$matches[1];break}}}};if(-not $pin){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue;throw 'Moonlight did not provide a pairing PIN.'};[pscustomobject]@{pin=$pin;pid=$p.Id}|ConvertTo-Json -Compress`;
-  return new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {windowsHide:true, timeout:30000, env:{...process.env, RP1_MOONLIGHT:executable, RP1_DISPLAY_HOST:host}}, (error, stdout, stderr) => {
-    if (error) return reject(new Error(String(stderr || error.message).trim()));
-    try { resolve(JSON.parse(String(stdout).trim())); } catch { reject(new Error("Moonlight pairing did not return a valid PIN.")); }
-  }));
+function startMoonlightPairing(executable, host, pin) {
+  // Moonlight Qt supports a predefined --pin. Supplying it is substantially
+  // more reliable than scraping a QML label with Windows UI Automation, and
+  // lets RP1 submit the exact same value to Sunshine programmatically.
+  try { execFileSync("taskkill.exe", ["/IM", "Moonlight.exe", "/F"], {windowsHide:true, timeout:5000, stdio:"ignore"}); } catch {}
+  const child = spawn(executable, ["pair", host, "--pin", pin], {windowsHide:true, stdio:["ignore", "pipe", "pipe"]});
+  child.pairingOutput = "";
+  child.stdout?.on("data", chunk => child.pairingOutput += String(chunk));
+  child.stderr?.on("data", chunk => child.pairingOutput += String(chunk));
+  child.on("error", () => {});
+  return child;
+}
+
+function waitForMoonlightPairing(child, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      error ? reject(error) : resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch {}
+      finish(new Error("Moonlight pairing did not finish within 30 seconds."));
+    }, timeoutMs);
+    child.once("error", error => finish(error));
+    child.once("close", code => {
+      const output = String(child.pairingOutput || "").trim();
+      if (code === 0) finish(null, output);
+      else finish(new Error(output || `Moonlight pairing failed with exit code ${code}.`));
+    });
+  });
 }
 
 function submitSunshinePin(host, password, pin) {
@@ -3312,13 +3645,38 @@ function submitSunshinePin(host, password, pin) {
       auth:`rp1:${password}`, headers:{"Content-Type":"application/json", "Content-Length":Buffer.byteLength(body)}}, response => {
       let text=""; response.on("data", chunk => text += chunk); response.on("end", () => {
         let parsed={}; try { parsed=JSON.parse(text || "{}"); } catch {}
-        if (response.statusCode >= 200 && response.statusCode < 300 && parsed.status !== false) resolve(parsed);
+        const accepted = parsed.status === true || String(parsed.status).toLowerCase() === "true";
+        if (response.statusCode >= 200 && response.statusCode < 300 && accepted) resolve(parsed);
         else reject(new Error(parsed.error || `Sunshine rejected pairing (HTTP ${response.statusCode}).`));
       });
     });
     request.setTimeout(30000, () => request.destroy(new Error("Sunshine pairing timed out.")));
     request.on("error", reject); request.end(body);
   });
+}
+
+function listSunshineClients(host, password) {
+  return new Promise((resolve, reject) => {
+    const request = https.request({hostname:host, port:47990, path:"/api/clients/list", method:"GET", rejectUnauthorized:false,
+      auth:`rp1:${password}`, headers:{Accept:"application/json"}}, response => {
+      let body = "";
+      response.on("data", chunk => body += chunk);
+      response.on("end", () => {
+        let parsed = null;
+        try { parsed = JSON.parse(body || "{}"); } catch {}
+        if (response.statusCode >= 200 && response.statusCode < 300 && parsed) resolve(parsed);
+        else reject(new Error(`Sunshine client verification failed (HTTP ${response.statusCode}).`));
+      });
+    });
+    request.setTimeout(10000, () => request.destroy(new Error("Sunshine client verification timed out.")));
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function sunshineHasRp1Client(clients) {
+  const entries = Array.isArray(clients?.named_certs) ? clients.named_certs : [];
+  return entries.some(client => String(client?.name || "").trim().toLowerCase() === "ready player one");
 }
 
 async function pairRemoteDisplay(deviceName, device) {
@@ -3333,34 +3691,64 @@ async function pairRemoteDisplay(deviceName, device) {
   await execSsh(device, `/userdata/system/services/sunshine stop >/dev/null 2>&1 || true; sleep 2; true`, 10000);
   await execSsh(device, `HOME=/userdata/system LD_LIBRARY_PATH=/userdata/system/sunshine-libs /userdata/system/bin/rp1-sunshine.AppImage --appimage-extract-and-run --creds rp1 ${quoted} >/userdata/system/logs/rp1-sunshine-creds.log 2>&1`, 30000);
   await execSsh(device, `/userdata/system/services/sunshine start >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null`, 15000);
-  const pairing = await moonlightPairingPin(moonlight, device.host);
+  const pin = String(crypto.randomInt(0, 10000)).padStart(4, "0");
+  const pairing = startMoonlightPairing(moonlight, device.host, pin);
   try {
-    await submitSunshinePin(device.host, password, pairing.pin);
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // Allow Moonlight to discover the host and begin its pairing request,
+    // then retry Sunshine's PIN endpoint during that bounded handshake.
+    let verified = false;
+    let submitError = null;
+    // Moonlight needs time to publish its pending request. Posting the PIN
+    // immediately can return a misleading string status without pairing.
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    for (let attempt = 0; attempt < 20 && !verified; attempt += 1) {
+      try {
+        await submitSunshinePin(device.host, password, pin);
+      } catch (error) { submitError = error; }
+      await new Promise(resolve => setTimeout(resolve, 750));
+      try {
+        verified = sunshineHasRp1Client(await listSunshineClients(device.host, password));
+      } catch (error) { submitError ||= error; }
+    }
+    if (!verified) throw submitError || new Error("Sunshine did not add this Moonlight client after the PIN exchange.");
+    // Sunshine's trusted-client list is authoritative. Moonlight Qt may keep
+    // its GUI process alive after a successful CLI pairing, so process exit
+    // must not be used as the completion signal.
+    markRemoteDisplayPairingVerified(deviceName, device.host);
   } finally {
-    if (pairing.pid) try { process.kill(Number(pairing.pid)); } catch {}
+    if (pairing?.pid) try { process.kill(Number(pairing.pid)); } catch {}
   }
   await new Promise(resolve => setTimeout(resolve, 1500));
   return {paired:true, host:device.host};
 }
 
 function firstWiredWindowsAdapter() {
-  const script = `Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Up' -and $_.Name -notmatch 'Wi-?Fi|Wireless'} | Sort-Object @{Expression={if($_.InterfaceDescription -match 'USB|Type-C|Realtek'){0}else{1}}} | Select-Object -First 1 Name,InterfaceDescription,LinkSpeed | ConvertTo-Json -Compress`;
+  const script = `$items=Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Up' -and $_.Name -notmatch 'Wi-?Fi|Wireless'} | ForEach-Object {$cfg=Get-NetIPConfiguration -InterfaceIndex $_.ifIndex -ErrorAction SilentlyContinue;[pscustomobject]@{Name=$_.Name;InterfaceDescription=$_.InterfaceDescription;LinkSpeed=$_.LinkSpeed;InterfaceIndex=$_.ifIndex;DirectAddress=[bool](Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1');HasGateway=[bool]$cfg.IPv4DefaultGateway;Usb=[bool]($_.InterfaceDescription -match 'USB|Type-C')}};$items | Sort-Object @{Expression='DirectAddress';Descending=$true},@{Expression='HasGateway';Descending=$false},@{Expression='Usb';Descending=$true} | Select-Object -First 1 Name,InterfaceDescription,LinkSpeed,InterfaceIndex,DirectAddress,HasGateway | ConvertTo-Json -Compress`;
   try {
     const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:10000}).trim();
     return output ? JSON.parse(output) : null;
   } catch { return null; }
 }
-function windowsAdapterHasDirectAddress(alias) {
+function configureWindowsDirectAdapter(alias) {
+  const elevated = `$ErrorActionPreference='Stop';$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;if($adapter.Status -ne 'Up'){throw 'The selected Ethernet adapter has no active cable link.'};Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -eq '10.77.0.1' -and $_.InterfaceIndex -ne $adapter.ifIndex} | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue;& netsh.exe interface ipv4 set address name=$env:RP1_ADAPTER static 10.77.0.1 255.255.255.0 none | Out-Null;Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction SilentlyContinue;$address=Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop | Where-Object IPAddress -eq '10.77.0.1';$route=Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue;if(-not $address -or -not $route){throw 'Windows did not create the direct-link address and route.'}`;
+  const encoded = Buffer.from(elevated, "utf16le").toString("base64");
+  const launcher = `$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-EncodedCommand',$env:RP1_DIRECT_CONFIG);exit $p.ExitCode`;
+  return new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", launcher], {
+    windowsHide:true, timeout:120000,
+    env:{...process.env, RP1_ADAPTER:alias, RP1_DIRECT_CONFIG:encoded}
+  }, error => error ? reject(new Error("Windows could not configure the direct Ethernet adapter and route. Approve the administrator prompt and try again.")) : resolve()));
+}
+function windowsAdapterHasDirectRoute(alias) {
   try {
-    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", `(Get-NetIPAddress -InterfaceAlias $env:RP1_ADAPTER -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1').Count`], {windowsHide:true, encoding:"utf8", timeout:5000, env:{...process.env,RP1_ADAPTER:alias}}).trim();
-    return Number(output) > 0;
+    const script = `$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;$address=[bool](Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1');$correct=[bool](Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue);$conflict=[bool](Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex);[pscustomobject]@{ready=($address -and $correct -and -not $conflict);address=$address;route=$correct;conflict=$conflict}|ConvertTo-Json -Compress`;
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:8000, env:{...process.env,RP1_ADAPTER:alias}}).trim();
+    return Boolean(output && JSON.parse(output).ready);
   } catch { return false; }
 }
-async function waitForDirectPort(host, port, totalMs = 20000) {
+async function waitForDirectPort(host, port, totalMs = 20000, localAddress = "10.77.0.1") {
   const deadline = Date.now() + totalMs;
   do {
-    if (await isTcpPortOpen(host, port, 1200)) return true;
+    if (await isTcpPortOpen(host, port, 1200, localAddress)) return true;
     await new Promise(resolve => setTimeout(resolve, 500));
   } while (Date.now() < deadline);
   return false;
@@ -3368,13 +3756,38 @@ async function waitForDirectPort(host, port, totalMs = 20000) {
 
 async function prepareAdHocDisplay(deviceName, device) {
   if (!device?.host || device.access !== "ssh") throw new Error("The selected Batocera machine must be online on the normal network while the direct link is prepared.");
+  // A clean Batocera image may have no Sunshine service even though this PC's
+  // Moonlight registry still contains a pairing for an older installation or
+  // its Wi-Fi address. Ad hoc Display must be self-contained: install/start
+  // the host before changing routes, while the normal machine address is
+  // known to work.
+  let displayStatus = await remoteDisplayStatus(device);
+  if (!displayStatus.sunshineInstalled || !displayStatus.sunshineRunning) {
+    displayStatus = await installRemoteDisplay(device);
+  }
+  await ensureRemoteDisplayEncoder(device);
   const adapter = firstWiredWindowsAdapter();
   if (!adapter?.Name) throw new Error("No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
-  if (!windowsAdapterHasDirectAddress(adapter.Name)) {
-    const adminScript = `$p=Start-Process netsh.exe -Verb RunAs -Wait -PassThru -ArgumentList @('interface','ipv4','set','address','name='+$env:RP1_ADAPTER,'static','10.77.0.1','255.255.255.0','none');exit $p.ExitCode`;
-    await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", adminScript], {windowsHide:true, timeout:120000, env:{...process.env,RP1_ADAPTER:adapter.Name}}, error => error ? reject(new Error("Windows could not configure the direct Ethernet adapter. Approve the administrator prompt and try again.")) : resolve()));
+  // Reuse a valid direct-link configuration. Elevation is only necessary
+  // when the address/route is missing or another adapter owns the subnet.
+  // Forcing a repair on every launch made an already-working adapter fail at
+  // the administrator step even though Batocera was the side needing repair.
+  if (!windowsAdapterHasDirectRoute(adapter.Name)) {
+    await configureWindowsDirectAdapter(adapter.Name);
+    // Windows can take a moment to publish the on-link route after netsh
+    // returns. Verify the complete address+route state instead of using
+    // `.Count` on a single PowerShell object (which returns an empty value on
+    // Windows PowerShell and caused a false "did not retain" error).
+    for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
   }
-  const command = `svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; sleep 3`;
+  if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
+  // The direct cable is a display-only path. Keep the existing Wi-Fi service
+  // connected and prevent ConnMan's new wired service from becoming the
+  // default route; otherwise Batocera loses its normal LAN address and RP1
+  // briefly discovers the machine before it disappears.
+  const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; test -n "$wifi_svc" && connmanctl connect "$wifi_svc" >/dev/null 2>&1 & sleep 5; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; sleep 3`;
   try {
     await execSsh(device, command, 20000);
   } catch (error) {
@@ -3389,8 +3802,37 @@ async function prepareAdHocDisplay(deviceName, device) {
     throw new Error(`The cable is connected, but Batocera did not become reachable at 10.77.0.2.${diagnostics ? ` ${diagnostics.trim()}` : ""}`);
   }
   const directDevice = {...device, host:"10.77.0.2"};
-  if (!moonlightIsPaired()) await pairRemoteDisplay(deviceName, directDevice);
-  return {ready:true, host:"10.77.0.2", adapter, executable:findMoonlightExecutable()};
+  // SSH being live proves the cable, but Moonlight cannot stream until
+  // Sunshine's control port is listening on this interface. Restart through
+  // the direct connection so the verification reflects the exact route the
+  // viewer will use.
+  if (!await waitForDirectPort("10.77.0.2", 47990, 3000)) {
+    await execSsh(directDevice, "/userdata/system/services/sunshine restart >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null", 15000);
+  }
+  if (!await waitForDirectPort("10.77.0.2", 47990, 12000)) {
+    throw new Error("The direct Ethernet link is ready, but Sunshine did not open its streaming service on Batocera.");
+  }
+  const executable = findMoonlightExecutable();
+  if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
+    const settings = readDeviceSettings();
+    const password = settings[deviceName]?.remoteDisplayPassword;
+    const sunshineTrustsRp1 = password && sunshineHasRp1Client(
+      await listSunshineClients("10.77.0.2", password).catch(() => null)
+    );
+    // Both sides must agree. A local certificate alone can be stale after a
+    // Batocera reinstall, while a server client alone can belong to another
+    // Moonlight installation.
+    if (sunshineTrustsRp1 && await moonlightHostIsPaired(executable, "10.77.0.2")) {
+      markRemoteDisplayPairingVerified(deviceName, "10.77.0.2");
+    }
+  }
+  if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
+    await pairRemoteDisplay(deviceName, directDevice);
+  }
+  if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
+    throw new Error("Sunshine is running, but RP1 did not complete pairing for this Batocera installation at 10.77.0.2.");
+  }
+  return {ready:true, host:"10.77.0.2", adapter, executable};
 }
 
 function wait(ms) {
@@ -3650,7 +4092,8 @@ function fetchTheGamesDbIpv4(url, signal, redirects = 0) {
 
 async function fetchWithLimit(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutError = new Error(`${new URL(url).hostname} did not respond within ${Math.ceil(timeoutMs / 1000)} seconds.`);
+  const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
   try {
     const host = new URL(url).hostname;
     const response = (host === 'thegamesdb.net' || host.endsWith('.thegamesdb.net')) && (!options.method || options.method === 'GET')
@@ -3668,6 +4111,7 @@ async function fetchWithLimit(url, options = {}, timeoutMs = 15000) {
     }
     return response;
   } catch (error) {
+    if (controller.signal.aborted) throw timeoutError;
     const cause = error.cause;
     const codes = [cause?.code, ...(cause?.errors || []).map(item => item.code)].filter(Boolean);
     if (codes.length) throw new Error(`${new URL(url).hostname}: ${error.message} (${[...new Set(codes)].join(', ')})`);
@@ -3770,6 +4214,26 @@ function localCoverKey(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function movieDisplayTitle(value) {
+  const base = path.basename(String(value || ""), path.extname(String(value || "")))
+    .replace(/[._]+/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const year = base.match(/\b(?:19|20)\d{2}\b/);
+  if (!year) return cleanRomName(value);
+  const title = base.slice(0, year.index).replace(/[\s.()_-]+$/g, "").trim();
+  return title ? `${title} (${year[0]})` : cleanRomName(value);
+}
+
+function movieCoverTitleKeys(value) {
+  const display = movieDisplayTitle(value);
+  const keys = new Set([localCoverKey(display)]);
+  const year = display.match(/\((?:19|20)\d{2}\)/)?.[0] || "";
+  if (year) keys.add(localCoverKey(`${display.replace(year, "").trim()} ${year.slice(1, -1)}`));
+  return keys;
+}
+
 // These systems have a deliberately closed artwork pipeline. Their game art
 // may come only from covers/<system>; a missing match must use RP1's generated
 // default. Keeping this policy in one place prevents a newly-added transfer
@@ -3779,7 +4243,7 @@ const localOnlyArtworkSystems = new Set([
   "gb", "gbc", "nds", "3ds", "gamecube", "wii", "wiiu", "switch", "mastersystem",
   "gamegear", "segacd", "saturn", "dreamcast", "psp", "psvita", "xbox", "xbox360",
   "neogeo", "atari2600", "atari5200", "atari7800", "atarilynx", "xegs", "jaguar", "jaguarcd",
-  "atari800", "atarist", "pcengine", "dos"
+  "atari800", "atarist", "pcengine", "dos", "movies"
 ]);
 const styledFallbackArtworkSystems = new Set([
   "nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"
@@ -3833,7 +4297,9 @@ async function findLocalConsoleCover(system, fileName) {
   const systemDir = (await fs.promises.readdir(coversRoot, { withFileTypes: true }))
     .find(entry => entry.isDirectory() && systemKeys.includes(localCoverKey(entry.name)));
   if (!systemDir) return "";
-  const gameKeys = localCoverTitleKeys(system === "wii" ? displayGameTitle(system, fileName) : fileName);
+  const gameKeys = system === "movies"
+    ? movieCoverTitleKeys(fileName)
+    : localCoverTitleKeys(system === "wii" ? displayGameTitle(system, fileName) : fileName);
   const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
   const coverDirectory = path.join(coversRoot, systemDir.name);
   const cacheKey = `${system}\u0000${coverDirectory}`;
@@ -3858,7 +4324,10 @@ async function findLocalConsoleCover(system, fileName) {
       return legacyDescriptor ? 0 : 1;
     };
     return preferred(a) - preferred(b) || a.name.localeCompare(b.name);
-  }).map(entry => ({ ...entry, titleKeys: [...localCoverTitleKeys(entry.baseName)] }));
+  }).map(entry => ({
+    ...entry,
+    titleKeys: [...(system === "movies" ? movieCoverTitleKeys(entry.baseName) : localCoverTitleKeys(entry.baseName))]
+  }));
   if (!cachedIndex || Date.now() - cachedIndex.at >= 600000) {
     localCoverIndexCache.set(cacheKey, { at: Date.now(), files: orderedFiles });
   }
@@ -3913,7 +4382,7 @@ async function installNintendoPicturePresentation(device, systems) {
   // Per-game art must remain inside the game grid; keep the system carousel
   // on the theme's centered console-hardware artwork.
   await restoreLegacyRp1SystemCarousel(device);
-  for (const system of systems.filter(value => ["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(value))) {
+  for (const system of systems.filter(value => ["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame", "movies"].includes(value))) {
     const folder = systemFolders[system] || system;
     await uploadNintendoPictureSelector(device, system);
     const factory = system === "nes" ? require("./nes-cartridge-theme")
@@ -3957,18 +4426,18 @@ PY`;
     await execSsh(device, command, 30000);
     const installed = await execSsh(device, `cat /userdata/roms/${folder}/theme.xml`, 15000);
     if (!installed.includes("<autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>") ||
-        !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : system === "wiiu" || system === "mame" ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
+        !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
-        !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
+        !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu", "movies"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
-        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
         !installed.includes(`rp1-${system}-selector.png`) ||
         !installed.includes(`<gameImage>/userdata/roms/${folder}/media/rp1-${system}-blank.png</gameImage>`) ||
         !installed.includes('<animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime>') ||
-        installed.includes('{game:image}') || installed.includes('<itemTemplate>')) {
+        installed.includes('{game:image}') || (system !== "movies" && installed.includes('<itemTemplate>'))) {
       throw new Error(`Ready Player One could not verify the ${system.toUpperCase()} picture layout on ${device.host}.`);
     }
   }
@@ -4018,7 +4487,7 @@ async function uploadNintendoPictureSelector(device, system) {
   const width = 512;
   // NES artwork is a portrait cartridge (roughly 0.9:1), not a square tile.
   // Keeping that aspect ratio preserves the shell and its lower feet.
-  const height = system === "nes" ? 568 : 512;
+  const height = system === "nes" ? 568 : system === "movies" ? 652 : 512;
   const selectorPath = path.join(root, "scraper-cache", system, `rp1-${system}-selector.png`);
   const transparentBlankPath = path.join(root, "scraper-cache", system, `rp1-${system}-transparent.png`);
   fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
@@ -4033,13 +4502,16 @@ async function uploadNintendoPictureSelector(device, system) {
   // cartridge feet. This intentionally is not a rounded square.
   const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,507),[System.Drawing.Point]::new(488,507),[System.Drawing.Point]::new(488,552),[System.Drawing.Point]::new(24,552),[System.Drawing.Point]::new(24,507),[System.Drawing.Point]::new(12,507),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
   const ps4Shape = "$path.StartFigure();$path.AddArc(24,24,8,8,180,90);$path.AddLine(28,24,484,24);$path.AddArc(480,24,8,8,270,90);$path.AddLine(488,28,488,484);$path.AddArc(480,480,8,8,0,90);$path.AddLine(484,488,28,488);$path.AddArc(24,480,8,8,90,90);$path.AddLine(24,484,24,28);$path.CloseFigure()";
+  // Standard Blu-ray keep case proportions: 135 mm × 171.5 mm. The selector
+  // stays portrait while using MAME's dense 6×2 grid and image scale.
+  const moviesShape = "$path.StartFigure();$path.AddArc(24,24,8,8,180,90);$path.AddLine(28,24,484,24);$path.AddArc(480,24,8,8,270,90);$path.AddLine(488,28,488,624);$path.AddArc(480,620,8,8,0,90);$path.AddLine(484,628,28,628);$path.AddArc(24,620,8,8,90,90);$path.AddLine(24,624,24,28);$path.CloseFigure()";
   // Match the N64 cartridge silhouette: rounded shoulders rise into the broad
   // curved crown instead of drawing a generic rectangular top edge.
   const n64Shape = "$path.StartFigure();$path.AddArc(24,24,464,100,180,180);$path.AddLine(488,74,488,472);$path.AddArc(456,456,32,32,0,90);$path.AddLine(472,488,40,488);$path.AddArc(24,456,32,32,90,90);$path.AddLine(24,472,24,74);$path.CloseFigure()";
   // Keep the widest glow comfortably inside the PNG. Batocera otherwise
   // clips the outermost pixels, most visibly across the top of disc artwork.
   const wiiShape = "$path.StartFigure();$path.AddEllipse(36,36,440,440);$path.CloseFigure()";
-  const shape = system === "nes" ? nesShape : system === "snes" ? snesShape : system === "gba" ? gbaShape : system === "n64" ? n64Shape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
+  const shape = system === "nes" ? nesShape : system === "snes" ? snesShape : system === "gba" ? gbaShape : system === "n64" ? n64Shape : system === "movies" ? moviesShape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
   const penWidths = system === "nes" ? [20, 12, 5] : [44, 26, 8];
   const script = [
     "Add-Type -AssemblyName System.Drawing",
@@ -4077,8 +4549,14 @@ async function uploadNintendoPictureSelector(device, system) {
       // generated fallback in gamelist.xml. A visible grid-level fallback sits
       // behind transparent disc PNGs and creates a second white-disc overlay.
       await fastPutSftp(sftp, transparentBlankPath, `/userdata/roms/${folder}/media/rp1-${system}-blank.png`);
+    } else if (system === "movies") {
+      // The same RP1 film-reel asset is both the Movies console picture and
+      // the missing-cover placeholder; never synthesize a game-console shell.
+      const moviesIcon = path.join(uiRoot, "system-art", "movies.png");
+      if (!fs.existsSync(moviesIcon)) throw new Error("Ready Player One's built-in Movies icon is missing.");
+      await fastPutSftp(sftp, moviesIcon, `/userdata/roms/${folder}/media/rp1-${system}-blank.png`);
     } else {
-      const generated = await cacheNintendoFallbackArtwork(system, system === "n64" ? "Nintendo 64" : system === "gamecube" ? "GameCube" : system === "gba" ? "Game Boy Advance" : system === "ps4" ? "PlayStation 4" : system === "wiiu" ? "Wii U" : system === "mame" ? "Arcade" : "Wii");
+      const generated = await cacheNintendoFallbackArtwork(system, system === "n64" ? "Nintendo 64" : system === "gamecube" ? "GameCube" : system === "gba" ? "Game Boy Advance" : system === "ps4" ? "PlayStation 4" : system === "wiiu" ? "Wii U" : system === "mame" ? "Arcade" : system === "movies" ? "Movies" : "Wii");
       await fastPutSftp(sftp, generated.localPath, `/userdata/roms/${folder}/media/rp1-${system}-blank.png`);
     }
   });
@@ -4563,8 +5041,14 @@ const artworkPublishLocks = new Map();
 const verifiedArtworkPresentations = new Set();
 
 async function ensureArtworkPresentation(device, system) {
-  if (!["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"].includes(system)) return;
-  const key = `${device.host || device.name || "machine"}\u0000${system}`;
+  if (!["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame", "movies"].includes(system)) return;
+  // An IP address identifies a network endpoint, not a Batocera installation.
+  // A clean install can return at the same address with its stock rectangular
+  // theme.  Include RP1's installation reset token so the replacement must be
+  // verified and receive the correct cartridge/disc presentation again.
+  const machineSettings = device.name ? (readDeviceSettings()[device.name] || {}) : {};
+  const installationIdentity = String(machineSettings.installationResetToken || machineSettings.installationId || "unverified");
+  const key = `${device.host || device.name || "machine"}\u0000${installationIdentity}\u0000${system}`;
   if (verifiedArtworkPresentations.has(key)) return;
   await installNintendoPicturePresentation(device, [system]);
   verifiedArtworkPresentations.add(key);
@@ -4943,6 +5427,7 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
   const localXboxArtwork = system === "xbox";
   const localXbox360Artwork = system === "xbox360";
   const localMameArtwork = system === "mame";
+  const localMoviesArtwork = system === "movies";
   if (!usesLocalOnlyArtwork(system) && !localNesArtwork && !localSnesArtwork && !localGbaArtwork && !localN64Artwork && !localGameCubeArtwork && !localWiiArtwork && !localWiiUArtwork && !localPs1Artwork && !localPs2Artwork && !localPs3Artwork && !localPs4Artwork && !localXboxArtwork && !localXbox360Artwork && !localMameArtwork && (!settings.provider || (settings.provider === "ArcadeDB" && system !== "mame"))) {
     return { status: "not-configured", matched: false, artwork: false };
   }
@@ -4976,7 +5461,7 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
       image = await cacheNesPictureArtwork(metadata.localImagePath, fileName);
     } else if (localSnesArtwork) {
       image = await cacheSnesPictureArtwork(metadata.localImagePath, fileName);
-    } else if (localGbaArtwork || localN64Artwork || localGameCubeArtwork || localWiiArtwork || localWiiUArtwork || localPs1Artwork || localPs2Artwork || localPs3Artwork || localPs4Artwork || localXboxArtwork || localXbox360Artwork || localMameArtwork) {
+    } else if (localGbaArtwork || localN64Artwork || localGameCubeArtwork || localWiiArtwork || localWiiUArtwork || localPs1Artwork || localPs2Artwork || localPs3Artwork || localPs4Artwork || localXboxArtwork || localXbox360Artwork || localMameArtwork || localMoviesArtwork) {
       image = await cacheNesPictureArtwork(metadata.localImagePath, fileName, system);
     } else {
       if (system === "snes") background = cacheLocalConsoleBackground(metadata.localImagePath, system, fileName);
@@ -5325,14 +5810,11 @@ async function resumablePutSftp(sftp, localPath, remotePath, onBytes, client = n
     onBytes?.(0, 0, false);
     return { bytes: 0, resumedFrom: 0, skipped: false };
   }
-  // A fresh large image should use fastPut's pipelined writes. The ordered
-  // SSH stream is only needed to append to an existing partial image; using
-  // it for every new image throttles transfers on some Batocera SSH servers.
-  if (client && localSize > 50 * 1024 * 1024 && remoteSize > 0 && remoteSize < localSize) {
-    onBytes?.(remoteSize, localSize, false);
-    await streamRomOverSsh(client, localPath, remotePath, remoteSize, localSize, onBytes);
-    return { bytes: localSize, resumedFrom: remoteSize, skipped: false };
-  }
+  // Fresh and resumed disc images stay on SFTP. The experimental continuous
+  // SSH stream could fill Dropbear's channel window at exactly 10 MiB when the
+  // established four-large-file pool was active, leaving every GameCube job
+  // marked running with no remote progress. fastPut handles fresh files; the
+  // verified positional writer below resumes an existing .bw-part safely.
   if (remoteSize <= 0 || remoteSize > localSize) {
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -5658,7 +6140,9 @@ function medicineDownloadFiles() {
       else if (entry.isFile()) files.push({ name: entry.name, path: fullPath, size: fs.statSync(fullPath).size });
     }
   };
-  visit(path.join(path.dirname(root), 'RP1 Medicine', 'roms'));
+  const medicineRoots = ['Ready Player One Medicine', 'RP1 Medicine']
+    .map(name => path.join(path.dirname(root), name, 'roms'));
+  medicineRoots.forEach(folder => visit(folder));
   visit(downloads);
   return { downloads, files };
 }
@@ -6140,13 +6624,36 @@ function listLocalLibrary() {
 // megabyte of JSON. The UI polls for changes, so never repeat that synchronous
 // disk walk for every poll. A short TTL still notices files added outside RP1
 // quickly while keeping startup and the event loop responsive during transfers.
-let localLibraryCache = { at: 0, value: null };
+let localLibraryCache = { at: 0, value: null, signature: "", revision: "" };
+function localLibraryFingerprint() {
+  // Console folders contain the selectable top-level games. Directory mtimes
+  // change when a game is added, removed, or renamed, so a few cheap stat calls
+  // can tell us whether the expensive all-console walk is actually necessary.
+  // Missing folders are part of the signature as well so creating one is seen.
+  return Object.entries(localFolders).map(([system, folder]) => {
+    try {
+      const stats = fs.statSync(path.join(root, folder));
+      return `${system}:${stats.mtimeMs}:${stats.size}`;
+    } catch {
+      return `${system}:missing`;
+    }
+  }).join("|");
+}
 function cachedLocalLibrary({ fresh = false } = {}) {
-  if (!fresh && localLibraryCache.value && Date.now() - localLibraryCache.at < 10000) {
+  const signature = localLibraryFingerprint();
+  if (!fresh && localLibraryCache.value && signature === localLibraryCache.signature) {
     return localLibraryCache.value;
   }
   const value = listLocalLibrary();
-  localLibraryCache = { at: Date.now(), value };
+  // listLocalLibrary can create/update playlists. Capture the post-scan state
+  // so that those RP1-owned writes do not trigger a redundant second scan.
+  const postScanSignature = localLibraryFingerprint();
+  localLibraryCache = {
+    at: Date.now(),
+    value,
+    signature: postScanSignature,
+    revision: crypto.createHash("sha256").update(postScanSignature).digest("hex").slice(0, 16)
+  };
   return value;
 }
 
@@ -6310,7 +6817,7 @@ async function listRemoteRoms(device, system) {
   }
 
   const remoteDir = device.platform === 'lakka' ? await resolveLakkaRomDir(device, system) : remoteDirFor(system,device);
-  return sftpWithDevice(device, sftp => new Promise((resolve, reject) => {
+  return sftpWithInventoryDevice(device, sftp => new Promise((resolve, reject) => {
     if (system === "music") {
       listRemoteMusicFiles(sftp, remoteDir)
         .then(items => resolve(musicFolderRows(items, remoteDir)))
@@ -6360,17 +6867,10 @@ async function listRemoteRoms(device, system) {
           if (isDirectory) return ["ps3", "ps4", "xbox360", "ports", "pygame", "windows"].includes(system);
           return allowedExtensions.size > 0 && allowedExtensions.has(path.extname(entry.filename).toLowerCase());
         })
-        .filter(entry => {
-          const isDirectory = Boolean(entry.longname?.startsWith("d"));
-          if (isDirectory || !entry.attrs || typeof entry.attrs.size !== "number") return true;
-          try {
-            const localPath = safeLocalRomPath(system, entry.filename);
-            return !fs.existsSync(localPath) || !fs.statSync(localPath).isFile()
-              || fs.statSync(localPath).size === Number(entry.attrs.size);
-          } catch {
-            return true;
-          }
-        })
+        // This endpoint describes what is physically on the machine. Do not
+        // hide a remote ROM merely because its local source is absent or has a
+        // different size: the right pane and Remove All must see every valid
+        // installed game, including files copied outside RP1.
         .map(entry => entry.filename)
         .filter(name => !isLibraryMetadataName(name))
         .filter(name => {
@@ -6848,6 +7348,18 @@ async function prepareXbox360Profile(device, gamerTags = []) {
   if (missing.length) throw new Error(`Xenia did not verify these GamerTags after upload: ${missing.join(', ')}.`);
   if (status.xuid !== xuid) throw new Error(`Xenia did not sign ${gamerTags[0]} into Slot 0.`);
   return { ...status, gamerTags, created, actionRequired: false };
+}
+
+async function restoreSavedXbox360Profiles(deviceName, device) {
+  const saved = readDeviceSettings()[deviceName] || {};
+  const gamerTags = [...new Set((Array.isArray(saved.xbox360GamerTags) ? saved.xbox360GamerTags : [])
+    .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 4);
+  if (!gamerTags.length) return { restored: false, gamerTags: [] };
+  const status = await getXbox360ProfileStatus(device);
+  const installed = new Set(status.profiles.map(profile => profile.gamertag.toLocaleLowerCase()));
+  const missing = gamerTags.filter(name => !installed.has(name.toLocaleLowerCase()));
+  if (status.configured && !missing.length) return { ...status, restored: false, gamerTags };
+  return { ...(await prepareXbox360Profile(device, gamerTags)), restored: true };
 }
 
 async function getWindowsWineStatus(device) {
@@ -7396,7 +7908,12 @@ async function uploadRom(device, system, fileName, progress = null, registerCanc
     }
 
     return [fileName, system === "music" ? path.posix.dirname(remotePath) : remoteDir, system === "music" ? path.extname(fileName).slice(1).toUpperCase() : system.toUpperCase()];
-  }, registerCancel);
+  }, registerCancel, current => progress?.({
+    current,
+    ...(/^Retrying connection:/i.test(String(current || ""))
+      ? { error: String(current).replace(/^Retrying connection:\s*/i, "") }
+      : {})
+  }));
   if (system === 'windows') {
     await execSsh(device, '[ ! -x /userdata/system/ready-player-one/windows-menu-sync.sh ] || /userdata/system/ready-player-one/windows-menu-sync.sh', 15000);
   }
@@ -7770,6 +8287,10 @@ if os.path.exists(p):
     commands.push("pkill -x pikaraoke 2>/dev/null || true");
     commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_pikaraoke.cfg /userdata/system/scripts/pikaraoke-launch.sh /userdata/system/ready-player-one/pikaraoke/launch.sh");
     commands.push("rm -rf -- /userdata/system/ready-player-one/pikaraoke");
+  }
+  if (system === "movies") {
+    commands.push("pkill -x vlc 2>/dev/null || true; pkill -x cvlc 2>/dev/null || true");
+    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_movies.cfg /userdata/system/scripts/rp1-movies-vlc.sh");
   }
   if (system === "windows" && (!device.platform || device.platform === "batocera")) {
     const cleanup = Buffer.from(`import os, xml.etree.ElementTree as ET
@@ -9472,7 +9993,17 @@ const server = http.createServer(async (req, res) => {
       const system = url.searchParams.get("system") || "mame";
       let items;
       try {
-        items = await listRemoteRoms(device, system);
+        const libraryRequestKey = `${device.host}\u0000${system}`;
+        let libraryRequest = activeLibraryRequests.get(libraryRequestKey);
+        if (!libraryRequest) {
+          libraryRequest = listRemoteRoms(device, system)
+            .finally(() => activeLibraryRequests.delete(libraryRequestKey));
+          activeLibraryRequests.set(libraryRequestKey, libraryRequest);
+        }
+        // The pane refresh, checkbox reconciliation, and Remove All can ask
+        // for the same console together. Share one bounded read instead of
+        // opening competing SFTP operations against Batocera/Dropbear.
+        items = await libraryRequest;
       } catch (error) {
         const machineId=url.searchParams.get('device') || 'Batocera';
         const reachable=device.access==='usb' || await isTcpPortOpen(device.host,device.access==='smb'?445:22,2000);
@@ -9506,9 +10037,21 @@ const server = http.createServer(async (req, res) => {
       if (['lakka','recalbox'].includes(device.platform)) {
         systems.push(...await listLakkaSystems(device));
       } else if (device.access === "ssh") {
-        const output = await execSsh(device, "curl --max-time 10 -fsS http://127.0.0.1:1234/systems", 15000);
-        const listed = JSON.parse(output);
-        if (!Array.isArray(listed)) throw new Error("Cannot read this machine's systems yet.");
+        let listed;
+        try {
+          const output = await execSsh(device, "curl --max-time 10 -fsS http://127.0.0.1:1234/systems", 15000);
+          listed = JSON.parse(output);
+          if (!Array.isArray(listed)) throw new Error("Batocera returned an invalid systems list.");
+        } catch (error) {
+          // EmulationStation's local API disappears briefly during startup and
+          // Soft Reset. Fall back to the durable ROM directories instead of
+          // surfacing curl's connection-refused text in RP1.
+          console.warn(`Batocera systems API unavailable for ${deviceName}; using ROM folders: ${error.message}`);
+          const output = await execSsh(device,
+            "find /userdata/roms -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true",
+            20000);
+          listed = String(output || "").split(/\r?\n/).map(name => name.trim()).filter(Boolean).map(name => ({ name }));
+        }
         const names = new Set(listed.map(item => item.name));
         // Steam can be installed before its first game shortcut is created.
         if (!names.has('steam') && (!device.platform || device.platform === 'batocera')) {
@@ -9522,10 +10065,15 @@ p='/userdata/system/configs/emulationstation/es_settings.cfg'
 if os.path.exists(p):
  root=ET.parse(p).getroot()
  node=next((x for x in root.findall('string') if x.get('name')=='CollectionSystemsAuto'),None)
- print(node.get('value') if node is not None else '')
+else:
+ node=None
+print(node.get('value') if node is not None else '__RP1_DEFAULT__')
 `, 'utf8').toString('base64');
           const settings = await execSsh(device, `printf '%s' '${settingsReader}' | base64 -d | python3`, 15000);
-          const enabledCollections = new Set(String(settings).trim().split(',').map(value => value.trim()).filter(Boolean));
+          const collectionSetting = String(settings).trim();
+          const enabledCollections = collectionSetting === '__RP1_DEFAULT__'
+            ? new Set(['all', 'favorites'])
+            : new Set(collectionSetting.split(',').map(value => value.trim()).filter(Boolean));
           if (enabledCollections.has('all')) systems.push('all');
           if (enabledCollections.has('favorites')) systems.push('favorites');
         }
@@ -9538,7 +10086,21 @@ if os.path.exists(p):
       const installationVerified = !devices[deviceName] ||
         (deviceSettings.installationId && verifiedInstallationIds.get(deviceName) === deviceSettings.installationId);
       const savedVisibleSystems = installationVerified ? deviceSettings.visibleSystems : null;
-      sendJson(res, 200, {ok:true, systems, visibleSystems:Array.isArray(savedVisibleSystems) ? savedVisibleSystems : null, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
+      let reconciledVisibleSystems = Array.isArray(savedVisibleSystems) ? savedVisibleSystems : null;
+      if (reconciledVisibleSystems && (!device.platform || device.platform === 'batocera')) {
+        // These entries describe live Batocera features rather than ordinary
+        // ROM folders. Always reconcile them from the machine so a saved list
+        // cannot hide installed Steam or Batocera's active auto collections.
+        const liveSpecialSystems = new Set(systems.filter(system => ['steam', 'all', 'favorites'].includes(system)));
+        reconciledVisibleSystems = reconciledVisibleSystems.filter(system => !['steam', 'all', 'favorites'].includes(system));
+        for (const system of ['all', 'favorites', 'steam']) if (liveSpecialSystems.has(system)) reconciledVisibleSystems.push(system);
+        if (JSON.stringify(reconciledVisibleSystems) !== JSON.stringify(savedVisibleSystems)) {
+          const currentSettings = readDeviceSettings();
+          currentSettings[deviceName] = {...(currentSettings[deviceName] || {}), visibleSystems:reconciledVisibleSystems};
+          writeDeviceSettings(currentSettings);
+        }
+      }
+      sendJson(res, 200, {ok:true, systems, visibleSystems:reconciledVisibleSystems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
       return;
     }
 
@@ -9670,13 +10232,15 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
 
     if (req.method === "POST" && url.pathname === "/api/xbox360-xenia/setup") {
       const body = JSON.parse((await readBody(req)) || "{}");
-      const device = await getRuntimeDevice(body.device || "Batocera");
+      const deviceName = body.device || "Batocera";
+      const device = await getRuntimeDevice(deviceName);
       if (!device) {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
       const result = await prepareXbox360XeniaRuntime(device);
-      sendJson(res, 200, { ok: true, ...result, note:"Batocera's internal Xenia Wine/Proton runtime is ready. The separate Wine console was not installed." });
+      const profile = await restoreSavedXbox360Profiles(deviceName, device);
+      sendJson(res, 200, { ok: true, ...result, profile, note:"Batocera's internal Xenia Wine/Proton runtime is ready. The separate Wine console was not installed." });
       return;
     }
 
@@ -9708,9 +10272,14 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
 
     if (req.method === "POST" && url.pathname === "/api/xenia-profile/prepare") {
       const body = JSON.parse((await readBody(req)) || "{}");
-      const device = await getRuntimeDevice(body.device || "Batocera");
+      const deviceName = body.device || "Batocera";
+      const device = await getRuntimeDevice(deviceName);
       if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
-      sendJson(res, 200, {ok:true, ...await prepareXbox360Profile(device, body.gamerTags)});
+      const prepared = await prepareXbox360Profile(device, body.gamerTags);
+      const settings = readDeviceSettings();
+      settings[deviceName] = {...(settings[deviceName] || {}), xbox360GamerTags:prepared.gamerTags};
+      writeDeviceSettings(settings);
+      sendJson(res, 200, {ok:true, ...prepared});
       return;
     }
 
@@ -9730,7 +10299,14 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
     }
 
     if (req.method === "GET" && url.pathname === "/api/library") {
-      sendJson(res, 200, { ok: true, library: cachedLocalLibrary() });
+      const library = cachedLocalLibrary();
+      const revision = localLibraryCache.revision;
+      const knownRevision = String(url.searchParams.get("revision") || "");
+      if (knownRevision && knownRevision === revision) {
+        sendJson(res, 200, { ok: true, unchanged: true, revision });
+      } else {
+        sendJson(res, 200, { ok: true, library, revision });
+      }
       return;
     }
 
@@ -9963,6 +10539,7 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
         if (systems.wiiu) systems.wiiu = await wiiUCemuSupportInstalled(sftp, client);
       });
       systems.karaoke = (await getKaraokeStatus(device)).installed;
+      systems.movies = (await getMoviesStatus(device)).installed;
       systems.pikaraoke = (await getPiKaraokeStatus(device)).installed;
       systems.xbox360 = (await getXbox360XeniaStatus(device)).installed;
       systems.windows = (await getWindowsWineStatus(device)).installed;
@@ -10067,6 +10644,21 @@ ${check}
 
       const status = await installKaraoke(device);
       sendJson(res, 200, { ok: true, ...status });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/movies/status") {
+      const device = await getRuntimeDevice(url.searchParams.get("device") || "Batocera");
+      if (!device) { sendJson(res, 404, { ok: false, error: "Device is not configured." }); return; }
+      sendJson(res, 200, { ok: true, ...await getMoviesStatus(device) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/movies/install") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device) { sendJson(res, 404, { ok: false, error: "Device is not configured." }); return; }
+      sendJson(res, 200, { ok: true, ...await installMovies(device) });
       return;
     }
 
@@ -10237,10 +10829,15 @@ ${check}
       }
       await ensureCurrentBatoceraInstallation(body.device, device);
       const system = String(body.system || "");
+      cancelledTransferScopes.delete(transferScopeKey(body.device, system));
       const names = [...new Set(Array.isArray(body.fileNames) ? body.fileNames.map(String) : [])]
-        .filter(fileName => !isExcludedLibraryGame(system, fileName));
+        .filter(fileName => !isExcludedLibraryGame(system, fileName))
+        .sort((left, right) => compareNaturalGameTitles(
+          displayGameTitle(system, left), displayGameTitle(system, right)
+        ));
+      const queuedAt = new Date().toISOString();
       let queued = 0;
-      for (const fileName of names) {
+      for (const [queueOrder, fileName] of names.entries()) {
         const transferKey = JSON.stringify([body.device, system, fileName]);
         const existing = transferJobs.get(transferKey);
         // The caller submits the machine's currently missing titles.  A past
@@ -10248,6 +10845,10 @@ ${check}
         // been removed.  Never let that stale history suppress a new Upload
         // All request.
         if (existing?.running) continue;
+        // Replacing an existing Map value does not change its insertion
+        // position. Remove it first so a new Upload All cannot inherit stale
+        // ordering from an earlier completed/cancelled transfer.
+        transferJobs.delete(transferKey);
         const size = localTransferSize(system, fileName);
         transferJobs.set(transferKey, {
           device: body.device, transport: device.access, system, fileName,
@@ -10258,17 +10859,27 @@ ${check}
           totalBytes: Number(size.totalBytes || 0), transferredBytes: 0,
           skippedFiles: 0, percent: 0, current: "Queued", error: "",
           cancelRequested: false, cancelled: false, autoQueued: true,
-          queuedAt: new Date().toISOString(), nextAttemptAt: 0
+          queuedAt, queueOrder, nextAttemptAt: 0
         });
         queued += 1;
       }
       scheduleTransferPersistence(true);
+      // Wake the durable dispatcher immediately for a newly submitted queue.
+      // The periodic watchdog remains the recovery path, but a healthy first
+      // GameCube transfer should not wait for the next polling interval.
+      setImmediate(() => dispatchPersistedTransferQueue().catch(error =>
+        console.error("Queued transfer wake-up failed:", error)));
       sendJson(res, 200, { ok: true, queued, total: names.length });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/roms/add") {
       const body = JSON.parse((await readBody(req)) || "{}");
+      const cancelledAt = Number(cancelledTransferScopes.get(transferScopeKey(body.device, body.system)) || 0);
+      if (cancelledAt && Date.now() - cancelledAt < 45000) {
+        sendJson(res, 409, { ok: false, cancelled: true, error: "This console transfer queue was cancelled." });
+        return;
+      }
       // The upload's SSH session verifies reachability itself. A separate port
       // probe can add a noticeable pause before the first transfer byte.
       const device = await getRuntimeDevice(body.device, { skipConnectionProbe: true });
@@ -10277,6 +10888,7 @@ ${check}
         return;
       }
       await ensureCurrentBatoceraInstallation(body.device, device);
+      if (body.system === "xbox360") await restoreSavedXbox360Profiles(body.device, device);
       // Re-run Xbox presentation initialization when a game is saved.  A clean
       // Xemu install may not create its EEPROM until after console setup; this
       // second idempotent checkpoint applies widescreen as soon as the EEPROM
@@ -10289,6 +10901,7 @@ ${check}
         sendJson(res, 409, { ok: false, error: "That transfer is already running.", job: existingJob });
         return;
       }
+      const initialSize = localTransferSize(body.system, body.fileName);
       const job = {
         device: body.device,
         queueVersion: 2,
@@ -10299,9 +10912,9 @@ ${check}
         fileName: body.fileName,
         running: true,
         completed: false,
-        totalFiles: 0,
+        totalFiles: Number(initialSize.totalFiles || 1),
         completedFiles: 0,
-        totalBytes: 0,
+        totalBytes: Number(initialSize.totalBytes || existingJob?.totalBytes || 0),
         transferredBytes: 0,
         skippedFiles: 0,
         percent: 0,
@@ -10328,7 +10941,16 @@ ${check}
       const jobWatchdog = setInterval(() => {
         if (!job.running || job.completed || job.cancelRequested) return;
         const lastActivity = Date.parse(job.lastActivityAt || job.startedAt || 0);
-        if (lastActivity && Date.now() - lastActivity > 150000) {
+        // Opening SSH/SFTP should produce the first file-size/progress update
+        // quickly.  Do not leave every other console looking stopped for the
+        // full large-file idle allowance when a connection never starts.
+        // Once bytes/file metadata exist, retain the longer window because a
+        // large disc image may legitimately be quiet while SFTP flushes.
+        const waitingForFirstProgress = job.phase === "rom"
+          && Number(job.transferredBytes || 0) === 0
+          && Number(job.completedFiles || 0) === 0;
+        const idleLimitMs = waitingForFirstProgress ? 30000 : 150000;
+        if (lastActivity && Date.now() - lastActivity > idleLimitMs) {
           job.current = "Transfer stalled; reconnecting";
           job.error = "Transfer stopped making progress and will resume automatically.";
           job.lastActivityAt = new Date().toISOString();
@@ -10396,6 +11018,19 @@ ${check}
         scheduleTransferPersistence(true);
         sendJson(res, 200, { ok: true, item, artwork, presentation, job });
       } catch (error) {
+        if (job.cancelRequested && job.cancelSystemRequested) {
+          try {
+            const localPath = safeLocalRomPath(body.system, body.fileName);
+            const remotePath = `${remoteDirFor(body.system,device)}/${body.fileName}`;
+            const partialPath = fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()
+              ? remotePath : `${remotePath}.bw-part`;
+            await sftpWithDevice(device, sftp => removeRemotePath(sftp, partialPath));
+            job.partialDeleted = true;
+          } catch (cleanupError) {
+            job.partialCleanupError = cleanupError.message || String(cleanupError);
+            console.warn(`Could not remove cancelled ${body.system} partial ${body.fileName}:`, cleanupError.message);
+          }
+        }
         Object.assign(job, {
           running: false,
           completed: false,
@@ -10433,11 +11068,13 @@ ${check}
           sendJson(res, 200, { ok: true, jobs, resetNeeded: isSoftResetNeeded(requestedDevice) });
           return;
         }
-        // Running jobs must never disappear merely because their saved map entry
-        // is older than the 50-row activity-history window.
-        const running = matching.filter(item => item.running).reverse();
-        const recent = matching.filter(item => !item.running).slice(-50).reverse();
-        const jobs = [...running, ...recent];
+        // Every unfinished job is current queue state, not activity history.
+        // Keep the complete queue visible even when Copy All contains hundreds
+        // of titles; only completed/cancelled history is capped.
+        const unfinished = matching.filter(item => !item.completed && !item.partialDeleted);
+        const recent = matching.filter(item => item.completed || item.cancelled || item.partialDeleted)
+          .slice(-50).reverse();
+        const jobs = [...unfinished, ...recent];
         sendJson(res, 200, { ok: true, jobs, resetNeeded: isSoftResetNeeded(requestedDevice) });
         return;
       }
@@ -10451,6 +11088,84 @@ ${check}
         ) || null;
       }
       sendJson(res, 200, { ok: true, job });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/transfers/cancel-system") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = String(body.device || "");
+      const system = String(body.system || "");
+      if (!deviceName || !system) {
+        sendJson(res, 400, { ok:false, error:"Choose a machine and console queue to cancel." });
+        return;
+      }
+      let running = 0;
+      let queued = 0;
+      const fileNames = [];
+      const queuedPartialCleanup = [];
+      const deletePartials = body.deletePartials !== false;
+      const deleteAllPartials = body.deleteAllPartials === true;
+      cancelledTransferScopes.set(transferScopeKey(deviceName, system), Date.now());
+      for (const [key, job] of [...transferJobs.entries()]) {
+        if (job.device !== deviceName || job.system !== system || job.completed || job.partialDeleted) continue;
+        fileNames.push(job.fileName);
+        job.autoQueued = false;
+        job.nextAttemptAt = 0;
+        if (job.running) {
+          running += 1;
+          job.cancelRequested = true;
+          job.cancelSystemRequested = true;
+          job.current = "Stopping";
+          activeUploadCancels.get(key)?.();
+        } else {
+          // Dispatch timers and retry reservations have not begun writing.
+          // Remove them immediately; the dispatch-time identity guard makes
+          // any already-scheduled callback a no-op.
+          queued += 1;
+          if (deletePartials && !deleteAllPartials) queuedPartialCleanup.push(job);
+          transferJobs.delete(key);
+        }
+      }
+      activeQueuedTransferSystem.delete(deviceName);
+      let cleanupErrors = [];
+      if (queuedPartialCleanup.length) {
+        const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+        if (device) {
+          const partialPaths = queuedPartialCleanup.map(job => {
+            const localPath = safeLocalRomPath(job.system, job.fileName);
+            const remotePath = `${remoteDirFor(job.system, device)}/${job.fileName}`;
+            return fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()
+              ? remotePath : `${remotePath}.bw-part`;
+          });
+          // Reuse one SFTP channel and remove sequentially. A cancelled
+          // all-console queue may contain hundreds of entries; opening one SSH
+          // connection per possible partial would recreate the overload that
+          // cancellation is supposed to stop.
+          try {
+            await sftpWithDevice(device, async sftp => {
+              for (const partialPath of partialPaths) await removeRemotePath(sftp, partialPath);
+            });
+          } catch (error) {
+            cleanupErrors = [error.message || String(error)];
+          }
+        }
+      }
+      if (deleteAllPartials) {
+        const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+        if (device?.access === "ssh") {
+          const remoteDir = remoteDirFor(system, device);
+          try {
+            await execSsh(device,
+              `find ${shellSingleQuoted(remoteDir)} -mindepth 1 -maxdepth 1 -name '*.bw-part' -exec rm -rf -- {} + 2>/dev/null; sync`,
+              20000);
+          } catch (error) {
+            cleanupErrors.push(error.message || String(error));
+          }
+        }
+      }
+      scheduleTransferPersistence(true);
+      sendJson(res, 200, { ok:true, device:deviceName, system, running, queued, fileNames,
+        deletePartials, deleteAllPartials, cleanupErrors });
       return;
     }
 
@@ -10605,6 +11320,18 @@ ${check}
         return;
       }
       const removal = await removeSystem(device, body.system, {deferReset:Boolean(body.deferReset)});
+      // Commit machine inventory and RP1 visibility together.  Previously the
+      // frontend saved "unchecked" before this request, so an interrupted
+      // operation could leave Steam installed; discovery then correctly added
+      // it back.  A successful physical removal is now authoritative even if
+      // the webview closes before processing the response.
+      const settings = readDeviceSettings();
+      const current = settings[body.device] || {};
+      if (Array.isArray(current.visibleSystems)) {
+        current.visibleSystems = current.visibleSystems.filter(system => system !== body.system);
+        settings[body.device] = current;
+        writeDeviceSettings(settings);
+      }
       sendJson(res, 200, {ok:true, system:body.system, resetApplied:Boolean(removal?.resetApplied), removedRoots:removal?.removedRoots || []});
       return;
     }
@@ -10847,10 +11574,16 @@ function requestQueuedTransfer(job) {
       // active copy for a stalled transfer.
       timeout: 24 * 60 * 60 * 1000
     }, response => {
-      response.resume();
+      let responseBody = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { if (responseBody.length < 8192) responseBody += chunk; });
       response.on("end", () => {
         if (response.statusCode >= 200 && response.statusCode < 300) resolve();
-        else reject(new Error(`Queued transfer returned HTTP ${response.statusCode}.`));
+        else {
+          let detail = "";
+          try { detail = String(JSON.parse(responseBody)?.error || "").trim(); } catch {}
+          reject(new Error(detail || `Queued transfer returned HTTP ${response.statusCode}.`));
+        }
       });
     });
     request.on("timeout", () => request.destroy(new Error("Queued transfer request timed out.")));
@@ -10860,17 +11593,32 @@ function requestQueuedTransfer(job) {
 }
 
 let queuedTransferDispatchRunning = false;
-const lastDispatchedTransferSystem = new Map();
+// Once a console reaches the front of a machine's queue, drain that console
+// before starting another. This keeps one predictable transfer stream and
+// makes every other selected console visibly queued instead of competing.
+const activeQueuedTransferSystem = new Map();
 const backendStartedAt = Date.now();
 async function dispatchPersistedTransferQueue() {
   // Let the UI, library, and saved-machine cards become usable before an old
   // bulk queue opens up to ten encrypted transfer streams. The watchdog below
   // will resume the same durable jobs after this short grace period.
-  if (Date.now() - backendStartedAt < 8000) return;
+  if (Date.now() - backendStartedAt < 1500) return;
   if (queuedTransferDispatchRunning) return;
   queuedTransferDispatchRunning = true;
   try {
     const now = Date.now();
+    // A failed connection keeps its visible row and owns its concurrency slot
+    // during retry backoff. Once due, release only the dispatch marker so the
+    // same file is retried. Without this reservation GameCube cycled through
+    // later titles after every failed handshake, making the right pane jump
+    // while no file ever accumulated bytes.
+    for (const job of transferJobs.values()) {
+      if (!job?.retryWaiting || job.running || job.completed || job.cancelled || job.cancelRequested) continue;
+      if (Number(job.nextAttemptAt || 0) > now) continue;
+      job.retryWaiting = false;
+      job.dispatching = false;
+      job.current = "Queued for retry";
+    }
     const candidates = [...transferJobs.values()].filter(job => {
       if (!job || job.running || job.dispatching || job.completed || job.cancelled || job.cancelRequested || job.partialDeleted) return false;
       if (/^Batocera(?: \d+)?$/i.test(String(job.device || "")) && !devices[job.device]) return false;
@@ -10888,7 +11636,12 @@ async function dispatchPersistedTransferQueue() {
       } catch {
         return false;
       }
-    });
+    }).sort((left, right) =>
+      String(left.queuedAt || "").localeCompare(String(right.queuedAt || "")) ||
+      Number(left.queueOrder || 0) - Number(right.queueOrder || 0) ||
+      displayGameTitle(left.system, left.fileName).localeCompare(
+        displayGameTitle(right.system, right.fileName), undefined, { numeric: true, sensitivity: "base" }
+      ));
 
     const deviceNames = [...new Set(candidates.map(job => job.device))];
     for (const deviceName of deviceNames) {
@@ -10900,37 +11653,113 @@ async function dispatchPersistedTransferQueue() {
       const activeSlots = [...transferJobs.values()].filter(job =>
         job.device === deviceName && (job.running || job.dispatching));
       const queued = candidates.filter(job => job.device === deviceName);
-      const smallQueued = queued.filter(job => Number(job.totalBytes || localTransferSize(job.system, job.fileName).totalBytes || 0) <= 50 * 1024 * 1024);
-      const selectedPool = smallQueued.length ? smallQueued : queued;
-      // SFTP encryption and progress callbacks execute in this same Node
-      // process as the desktop UI. More sessions made the window and artwork
-      // requests wait 8-30 seconds. Keep useful parallelism without starving
-      // the application itself.
-      const concurrency = 1;
-      const available = Math.max(0, concurrency - activeSlots.length);
-      // Rotate consoles instead of draining one enormous Upload All batch
-      // before another console gets a turn.  The per-device connection limit
-      // remains one, preserving UI/network responsiveness, while a newly
-      // selected N64 (or any other console) can no longer sit behind hundreds
-      // of SNES/NES entries and look permanently stalled.
-      const lastSystem = lastDispatchedTransferSystem.get(deviceName) || "";
-      const nextJob = selectedPool.find(job => job.system !== lastSystem) || selectedPool[0];
-      const dispatchBatch = available > 0 && nextJob ? [nextJob] : [];
-      for (const job of dispatchBatch) {
+      const runningSystem = activeSlots.find(job => job.running || job.dispatching)?.system || "";
+      let selectedSystem = runningSystem || activeQueuedTransferSystem.get(deviceName) || "";
+      if (selectedSystem && !activeSlots.some(job => job.system === selectedSystem)
+          && !queued.some(job => job.system === selectedSystem)) {
+        activeQueuedTransferSystem.delete(deviceName);
+        selectedSystem = "";
+      }
+      if (!selectedSystem && queued.length) {
+        // Map insertion order is the durable request order. The first console
+        // requested owns the machine until all of its queued files finish.
+        selectedSystem = queued[0].system;
+        activeQueuedTransferSystem.set(deviceName, selectedSystem);
+      }
+      const consoleQueue = queued
+        .filter(job => job.system === selectedSystem)
+        .sort((left, right) => compareNaturalGameTitles(
+          displayGameTitle(left.system, left.fileName),
+          displayGameTitle(right.system, right.fileName)
+        ));
+      const activeConsoleSlots = activeSlots.filter(job => job.system === selectedSystem);
+      const transferSize = job => Number(job.totalBytes || localTransferSize(job.system, job.fileName).totalBytes || 0);
+      // Preserve the established 4/10 rule inside the console that owns the
+      // machine: ten small ROMs or four large ROMs may copy together. Other
+      // consoles remain queued until this console drains. Never combine the
+      // size classes into fourteen simultaneous transfers.
+      const activeHasSmall = activeConsoleSlots.some(job => transferSize(job) <= 50 * 1024 * 1024);
+      const activeHasLarge = activeConsoleSlots.some(job => transferSize(job) > 50 * 1024 * 1024);
+      // Honor the visible top-to-bottom queue. When no batch is active, the
+      // first waiting title chooses the 10-small or 4-large pool; never skip
+      // farther down the alphabet merely to find a small file.
+      const firstQueuedIsSmall = consoleQueue.length
+        ? transferSize(consoleQueue[0]) <= 50 * 1024 * 1024
+        : true;
+      const useSmallPool = activeHasSmall || (!activeHasLarge && firstQueuedIsSmall);
+      const selectedPool = [];
+      for (const job of consoleQueue) {
+        const jobIsSmall = transferSize(job) <= 50 * 1024 * 1024;
+        if (jobIsSmall !== useSmallPool) break;
+        selectedPool.push(job);
+      }
+      // Authentication is serialized per host above. Machines that still
+      // reset an established upload handshake are automatically remembered as
+      // single-stream SSH; USB/SMB and healthy SSH machines retain 10/4.
+      const requestedConcurrency = useSmallPool ? 10 : 4;
+      const queueTransport = String(activeConsoleSlots[0]?.transport || consoleQueue[0]?.transport || "ssh").toLowerCase();
+      const configuredSshConcurrency = Number(readDeviceSettings()[deviceName]?.sshTransferConcurrency || 0);
+      const concurrency = queueTransport === "ssh" && configuredSshConcurrency === 1
+        ? 1
+        : requestedConcurrency;
+      // Retain the 4/10 pool after one connection proves that the machine is
+      // accepting and acknowledging this console's uploads.
+      const establishedTransfer = activeConsoleSlots.some(job =>
+        Number(job.transferredBytes || 0) > 0 || Number(job.completedFiles || 0) > 0 || Number(job.percent || 0) > 0);
+      // Bootstrap each console queue with one real byte-moving connection.
+      // As soon as it reports progress the next watchdog pass fills the rest
+      // of the normal 10/4 pool. Launching four zero-byte disc handshakes at
+      // once made Dropbear reset the complete GameCube batch repeatedly.
+      const available = activeConsoleSlots.length === 0
+        ? 1
+        : establishedTransfer
+          ? Math.max(0, concurrency - activeConsoleSlots.length)
+          : 0;
+      const dispatchBatch = selectedPool.slice(0, available);
+      for (const [batchIndex, job] of dispatchBatch.entries()) {
         job.dispatching = true;
-        job.current = "Restarting";
-        lastDispatchedTransferSystem.set(deviceName, job.system);
+        job.current = batchIndex ? "Waiting for transfer connection" : "Connecting to machine";
+        activeQueuedTransferSystem.set(deviceName, job.system);
         scheduleTransferPersistence();
-        requestQueuedTransfer(job).catch(error => {
-          const current = transferJobs.get(JSON.stringify([job.device, job.system, job.fileName]));
-          if (!current || current.running || current.completed || current.cancelled) return;
-          current.running = false;
-          current.dispatching = false;
-          current.autoQueued = true;
-          current.nextAttemptAt = Date.now() + 10000;
-          current.error = error.message || String(error);
-          scheduleTransferPersistence(true);
-        });
+        // Start the first file immediately, then space only the SSH handshakes.
+        // Once authenticated, all four large files continue concurrently.
+        setTimeout(() => {
+          const transferKey = JSON.stringify([job.device, job.system, job.fileName]);
+          const currentBeforeDispatch = transferJobs.get(transferKey);
+          const cancelledAt = Number(cancelledTransferScopes.get(
+            transferScopeKey(job.device, job.system)
+          ) || 0);
+          const queuedAt = Date.parse(String(currentBeforeDispatch?.queuedAt || job.queuedAt || "")) || 0;
+          // Remove All may run after this timer was scheduled but before its
+          // loopback upload request begins. Re-read the durable job and the
+          // console cancellation fence here so that a cancelled waiting file
+          // can never recreate itself as a new running transfer.
+          if (!currentBeforeDispatch || currentBeforeDispatch !== job ||
+              currentBeforeDispatch.cancelRequested || currentBeforeDispatch.cancelled ||
+              currentBeforeDispatch.completed || currentBeforeDispatch.partialDeleted ||
+              (cancelledAt && (!queuedAt || cancelledAt >= queuedAt))) {
+            if (currentBeforeDispatch === job) {
+              currentBeforeDispatch.dispatching = false;
+              scheduleTransferPersistence(true);
+            }
+            return;
+          }
+          requestQueuedTransfer(job).catch(error => {
+            const current = transferJobs.get(JSON.stringify([job.device, job.system, job.fileName]));
+            if (!current || current.running || current.completed || current.cancelled) return;
+            current.running = false;
+            // Reserve this exact slot while backing off. The dispatcher sees
+            // it as active, so later alphabetical rows cannot rotate into the
+            // right pane before this title is retried.
+            current.dispatching = true;
+            current.retryWaiting = true;
+            current.autoQueued = true;
+            current.nextAttemptAt = Date.now() + 10000 + Math.floor(Math.random() * 1500);
+            current.current = "Waiting to retry connection";
+            current.error = error.message || String(error);
+            scheduleTransferPersistence(true);
+          });
+        }, batchIndex * 700);
       }
     }
   } finally {
@@ -10951,5 +11780,5 @@ server.listen(port, () => {
 
 const automaticTransferResume = setInterval(() => {
   dispatchPersistedTransferQueue().catch(error => console.error("Queued transfer restart failed:", error));
-}, 1500);
+}, 1000);
 automaticTransferResume.unref();
