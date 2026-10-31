@@ -19,6 +19,8 @@ const removalFunction = html.match(/async function removeFromSelectedDevice\(fil
 assert.ok(removalFunction, 'removeFromSelectedDevice must be present');
 assert.doesNotMatch(removalFunction, /if \(!targetOnline\)/u,
   'A stale discovery flag must never silently cancel a requested removal');
-assert.match(removalFunction, /fetch\(`\$\{apiBase\}\/api\/roms\/remove`/u,
+assert.match(removalFunction, /requestRomRemoval\(targetDevice, targetSystem, fileName\)/u,
   'The backend removal endpoint is the authoritative connectivity check');
+assert.match(html, /async function requestRomRemoval[\s\S]*?fetch\(`\$\{apiBase\}\/api\/roms\/remove`/u,
+  'The removal retry helper must call the authoritative backend endpoint');
 console.log('Right-pane uncheck remains immediate and stable across inventory refreshes.');

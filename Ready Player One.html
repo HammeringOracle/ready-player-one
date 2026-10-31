@@ -376,7 +376,14 @@
 
     .device-card.selected {
       border-color: rgba(38, 168, 255, 0.88);
-      box-shadow: 0 0 0 4px rgba(38, 168, 255, 0.25), 0 0 34px rgba(38, 168, 255, 0.42);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.18),
+        inset 0 -1px 0 rgba(0,0,0,.34),
+        0 3px 8px rgba(0,0,0,.42),
+        0 0 0 1px rgba(93,190,255,.34),
+        0 0 8px 2px rgba(38,168,255,.26),
+        0 0 20px 6px rgba(38,168,255,.13),
+        0 0 34px 12px rgba(38,168,255,.045);
       opacity: 1;
     }
 
@@ -388,22 +395,22 @@
 
     .device-card.offline.selected {
       border-color: rgba(255, 63, 63, 0.78);
-      box-shadow: 0 0 0 3px rgba(255, 63, 63, 0.16), 0 0 28px rgba(255, 63, 63, 0.22);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.15), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,92,92,.3), 0 0 8px 2px rgba(255,63,63,.2), 0 0 20px 6px rgba(255,63,63,.1), 0 0 34px 12px rgba(255,63,63,.035);
     }
 
     .device-card.reachable.selected {
       border-color: rgba(250, 204, 21, 0.82);
-      box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18), 0 0 28px rgba(250, 204, 21, 0.24);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,224,98,.32), 0 0 8px 2px rgba(250,204,21,.22), 0 0 20px 6px rgba(250,190,20,.11), 0 0 34px 12px rgba(245,166,12,.04);
     }
 
     .device-card.searching.selected {
       border-color: rgba(250, 204, 21, 0.82);
-      box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18), 0 0 28px rgba(250, 204, 21, 0.24);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,224,98,.32), 0 0 8px 2px rgba(250,204,21,.22), 0 0 20px 6px rgba(250,190,20,.11), 0 0 34px 12px rgba(245,166,12,.04);
     }
 
     .device-card.ad-hoc-display {
       border-color: rgba(255, 48, 210, 0.96) !important;
-      box-shadow: 0 0 0 3px rgba(255, 48, 210, 0.22), 0 0 28px rgba(255, 48, 210, 0.48) !important;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,118,226,.4), 0 0 8px 2px rgba(255,48,210,.3), 0 0 20px 6px rgba(255,48,210,.16), 0 0 36px 13px rgba(255,48,210,.055) !important;
       opacity: 1;
     }
 
@@ -705,9 +712,14 @@
     }
 
     .advanced-toggle .chevron {
-      font-size: 13px;
-      line-height: 1;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 8px solid #fff;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.75));
       transition: transform 0.16s ease;
+      transform-origin: 50% 44%;
     }
 
     .advanced-features.open .advanced-toggle .chevron {
@@ -849,7 +861,7 @@
       width: auto;
       min-width: 180px;
       max-width: 360px;
-      height: 30px;
+      height: 25px;
       margin-left: 20px;
       margin-right: 20px;
       padding: 0 12px;
@@ -896,11 +908,11 @@
       overflow: hidden;
       display: grid;
       grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1fr);
-      grid-template-rows: 30px minmax(0, 1fr);
+      grid-template-rows: 25px minmax(0, 1fr);
       column-gap: 12px;
-      row-gap: 12px;
+      row-gap: 6px;
       /* Match the outer gutters to the gaps between all three panes. */
-      padding: 12px 12px 6px;
+      padding: 6px 12px 6px;
     }
 
     body.machine-unselected .main {
@@ -1308,8 +1320,12 @@
     .main > aside.panel > .panel-title { flex-shrink: 0; }
     .systems-list {
       flex: 1;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       min-height: 0;
       overflow-y: auto;
+      overflow-x: hidden;
       align-content: start;
       display: grid;
       gap: 4px;
@@ -1335,6 +1351,9 @@
 
     .systems-list .row {
       display: flex;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
       gap: 6px;
       padding-inline: 4px;
     }
@@ -2371,6 +2390,102 @@
       justify-content: flex-end;
       gap: 10px;
       padding: 0 18px 18px;
+    }
+
+    /* Compact advanced-feature dialogs with the shared glass-button finish. */
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-modal {
+      width: min(500px, 92vw) !important;
+      height: max-content;
+      min-height: 0;
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .modal-head {
+      min-height: 40px;
+      padding: 5px 10px;
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-body {
+      gap: 6px;
+      padding: 10px 12px 8px;
+      line-height: 1.3;
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-device { font-size: 16px; }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-note { margin: 0; }
+    :is(#backupRestoreModal, #snapshotsModal) .wifi-field { gap: 4px; }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions {
+      gap: 7px;
+      padding: 4px 12px 10px;
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions button {
+      --dialog-glass-border: rgba(115,174,255,.88);
+      --dialog-glass-mid: rgba(48,111,190,.68);
+      --dialog-glass-bottom: rgba(18,48,91,.92);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--dialog-glass-border);
+      color: #f8fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.25) 0%, var(--dialog-glass-mid) 43%, var(--dialog-glass-bottom) 100%);
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.48), inset 0 -1px 0 rgba(0,0,0,.42), 0 4px 9px rgba(0,0,0,.5);
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions button.setup {
+      --dialog-glass-border: rgba(255,127,118,.86);
+      --dialog-glass-mid: rgba(181,58,53,.68);
+      --dialog-glass-bottom: rgba(83,20,22,.92);
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions button::before {
+      content: '';
+      position: absolute;
+      inset: 1px 4px auto;
+      height: 43%;
+      border-radius: 6px 6px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions button:hover {
+      filter: brightness(1.13);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.56), inset 0 -1px 0 rgba(0,0,0,.42), 0 5px 11px rgba(0,0,0,.55);
+    }
+    :is(#backupRestoreModal, #snapshotsModal) .confirm-actions button:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.36);
+    }
+    #backupRestoreCategories { gap: 5px !important; }
+    #backupRestoreCategories > label { min-height: 24px; }
+    #snapshotConsoleOptions > label { min-height: 24px; }
+    #snapshotsSystems {
+      gap: 4px 10px !important;
+      max-height: 210px !important;
+      padding: 4px 2px !important;
+    }
+    :is(#musicScraperModal, #remapperModal) .confirm-actions button {
+      --dialog-glass-border: rgba(115,174,255,.88);
+      --dialog-glass-mid: rgba(48,111,190,.68);
+      --dialog-glass-bottom: rgba(18,48,91,.92);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--dialog-glass-border);
+      color: #f8fbff;
+      background: linear-gradient(180deg,rgba(255,255,255,.25),var(--dialog-glass-mid) 43%,var(--dialog-glass-bottom));
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.48),inset 0 -1px 0 rgba(0,0,0,.42),0 4px 9px rgba(0,0,0,.5);
+    }
+    :is(#musicScraperModal, #remapperModal) .confirm-actions button.setup {
+      --dialog-glass-border: rgba(255,127,118,.86);
+      --dialog-glass-mid: rgba(181,58,53,.68);
+      --dialog-glass-bottom: rgba(83,20,22,.92);
+    }
+    :is(#musicScraperModal, #remapperModal) .confirm-actions button::before {
+      content: '';
+      position: absolute;
+      inset: 1px 4px auto;
+      height: 43%;
+      border-radius: 6px 6px 50% 50%;
+      background: linear-gradient(180deg,rgba(255,255,255,.36),rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    :is(#musicScraperModal, #remapperModal) .confirm-actions button:hover { filter: brightness(1.13); }
+    :is(#musicScraperModal, #remapperModal) .confirm-actions button:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,.55),0 1px 2px rgba(0,0,0,.36);
     }
 
     #xboxBiosDialog .confirm-body,
@@ -3454,7 +3569,7 @@
     @media (prefers-reduced-motion: reduce) { .reconnecting-dots span { animation:none; } }
     @keyframes snapshotSweep { from { transform:translateX(-15%); } to { transform:translateX(210%); } }
   </style>
-  <link rel="stylesheet" href="ui/appearance.css?v=1.0.25">
+  <link rel="stylesheet" href="ui/appearance.css?v=1.0.26">
   <link rel="stylesheet" href="ui/tour.css">
   <script src="ui/appearance.js"></script>
 </head>
@@ -3488,13 +3603,12 @@
       </div>
       <div class="advanced-features" id="advancedFeatures">
         <button class="advanced-toggle" id="advancedToggle" type="button" aria-expanded="false">
-          Advanced Features <span class="chevron">v</span>
+          Advanced Features <span class="chevron" aria-hidden="true"></span>
         </button>
         <div class="advanced-menu" id="advancedMenu">
           <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
           <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
           <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
-          <button class="advanced-item" id="openPygameCE" type="button">Pygame CE</button>
           <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
           <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
           <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
@@ -3549,7 +3663,7 @@
           <div class="row" data-system="xbox360"><span class="icon">X3</span><span>Xbox 360</span><button class="gamertag-console-button" type="button" title="Add or manage Xbox 360 GamerTags" aria-label="Add or manage Xbox 360 GamerTags"><span class="gamertag-console-icon" aria-hidden="true"></span></button><span class="count">0</span></div>
           <div class="row" data-system="neogeo"><span class="icon">NG</span><span>Neo Geo</span><span class="count">0</span></div>
           <div class="row" data-system="ports"><span class="icon">PT</span><span>Ports</span><span class="count">0</span></div>
-          <div class="row" data-system="pygame"><span class="icon">PY</span><span>Pygame</span><span class="count">0</span></div>
+          <div class="row" data-system="pygame"><span class="icon">PY</span><span>Pygame (CE)</span><span class="count">0</span></div>
           <div class="row" data-system="windows"><span class="icon">WIN</span><span>Windows (Wine)</span><span class="count">0</span></div>
           <div class="row" data-system="atari2600"><span class="icon">26</span><span>Atari 2600</span><span class="count">0</span></div>
           <div class="row" data-system="atari5200"><span class="icon">52</span><span>Atari 5200</span><span class="count">0</span></div>
@@ -3795,7 +3909,7 @@
             <select id="backupRestoreSet"></select>
           </label>
           <div class="confirm-note">Choose exactly what to protect or restore.</div>
-          <div id="backupRestoreCategories" style="display:grid;gap:10px">
+          <div id="backupRestoreCategories" style="display:grid;gap:5px">
             <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="configuration" style="width:18px;height:18px"> Configuration <span data-backup-size="configuration" style="margin-left:auto;opacity:.72">Calculating…</span></label>
             <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="covers" style="width:18px;height:18px"> Covers <span data-backup-size="covers" style="margin-left:auto;opacity:.72">Calculating…</span></label>
             <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="games" style="width:18px;height:18px"> Games <span data-backup-size="games" style="margin-left:auto;opacity:.72">Calculating…</span></label>
@@ -3840,7 +3954,7 @@
     </div>
 
     <div class="modal-backdrop" id="snapshotsModal" role="dialog" aria-modal="true" aria-labelledby="snapshotsTitle">
-      <section class="confirm-modal" style="width:min(560px,92vw)">
+      <section class="confirm-modal" style="width:min(500px,92vw)">
         <div class="modal-head">
           <span id="snapshotsTitle">Console Snapshots</span>
           <button class="modal-close" id="closeSnapshotsTop" aria-label="Close Snapshots">X</button>
@@ -3859,7 +3973,7 @@
           </label>
           <div id="snapshotConsoleOptions">
             <label style="display:flex;align-items:center;gap:10px;font-weight:900"><input id="snapshotsAll" type="checkbox" style="width:18px;height:18px"> Select All</label>
-            <div id="snapshotsSystems" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px;max-height:300px;overflow:auto;padding:8px 2px"></div>
+            <div id="snapshotsSystems" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;max-height:210px;overflow:auto;padding:4px 2px"></div>
           </div>
           <div style="height:10px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden" aria-label="Snapshot progress">
             <div id="snapshotsProgress" style="height:100%;width:0;background:linear-gradient(90deg,#f0c83e,#73dbff);transition:width .25s ease"></div>
@@ -4787,6 +4901,10 @@
     const virtualCollectionSystems = new Set(["all", "favorites"]);
     const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music", "movies", ...virtualCollectionSystems]);
     const systemVisibilityKey = "batoceraWarehouse.visibleSystems";
+    // Repair the exact catalog block written by the former discovery-union
+    // bug. Only a large cache containing nearly the whole signature qualifies;
+    // normal user selections (including any individual system below) remain.
+    const legacyAutoMergedSystems = new Set(["windows","sega","ps4","gb","gbc","nds","mastersystem","gamegear","saturn","dreamcast","psp","psvita","neogeo","atari2600","atari5200","atari7800","atarilynx","xegs","jaguar","jaguarcd","atarist","dos"]);
     const systemRequirementWarning = document.querySelector('#systemRequirementWarning');
     let selectTopSystemOnNextVisibleList = true;
 
@@ -4805,7 +4923,14 @@
           saved = JSON.parse(localStorage.getItem(systemVisibilityKey) || "null");
           if (Array.isArray(saved)) localStorage.setItem(visibilityStorageKey(device), JSON.stringify(saved));
         }
-        if (Array.isArray(saved)) return new Set(saved);
+        if (Array.isArray(saved)) {
+          const mergedSignatureCount = saved.filter(system => legacyAutoMergedSystems.has(system)).length;
+          if (saved.length >= 30 && mergedSignatureCount >= 18) {
+            saved = saved.filter(system => !legacyAutoMergedSystems.has(system));
+            localStorage.setItem(visibilityStorageKey(device), JSON.stringify(saved));
+          }
+          return new Set(saved);
+        }
       } catch {}
       return new Set();
     }
@@ -5094,6 +5219,7 @@
         windows: 'Verify Batocera Wine and prepare Windows game, installer, and dependency folders',
         wiiu: 'Install cached Cemu keys', karaoke: 'Install Karaoke launcher and refresh machine game list',
         movies: 'Install the VLC Movies launcher and refresh the machine movie list',
+        pygame: 'Install and verify the Pygame CE runtime automatically',
         pikaraoke: 'Check existing PiKaraoke, browser, and dependencies; install only missing components',
         '3dsen': 'Install the 3dSen launcher only after Windows (Wine) has been selected and configured'
       };
@@ -5165,6 +5291,7 @@
       } finally { saveSystemPicker.disabled = false; }
       const approval = showXboxBiosDialog({title: 'Confirm System Setup', cancellable: true,
         device: visibilityDevice, confirmLabel: 'Apply Changes', cancelLabel: 'Cancel',
+        glassyActions: true,
         message: machines.length ? '' : 'Machine setup is unavailable. Only its Systems pane will be saved; no machine files will be installed or deleted.'});
       for (const device of machines.length ? machines : ['Systems pane']) {
         if (machines.length > 1) {
@@ -5294,12 +5421,17 @@
             if (removedSystem.resetApplied) setSoftResetNeeded(false, removal.device);
             results.push(`${resultPrefix(removal.device)}${names.find(item => item.system === removal.system)?.label || removal.system.replace(/^./, letter => letter.toUpperCase())}: System and machine-side games permanently removed; local PC originals kept.${removedSystem.resetApplied ? ' Batocera refreshed automatically.' : ''}`);
           } catch (error) {
-            if (removal.system === 'steam') {
-              const restored = readVisibleSystems(removal.device);
-              restored.add('steam');
-              localStorage.setItem(visibilityStorageKey(removal.device), JSON.stringify([...restored]));
-              if (removal.device === selectedDevice) applyVisibleSystems(restored);
-            }
+            // Saving the checkbox list happens before physical removal. If
+            // that removal fails, restore every ordinary console—not only
+            // Steam—so RP1 never hides files that still exist on Batocera.
+            const restored = readVisibleSystems(removal.device);
+            restored.add(removal.system);
+            localStorage.setItem(visibilityStorageKey(removal.device), JSON.stringify([...restored]));
+            if (removal.device === selectedDevice) applyVisibleSystems(restored);
+            fetch(`${apiBase}/api/ui/visible-systems`, {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({device:removal.device, systems:[...restored]})
+            }).catch(() => {});
             results.push(`${resultPrefix(removal.device)}${names.find(item => item.system === removal.system)?.label || removal.system.replace(/^./, letter => letter.toUpperCase())}: NOT removed — ${error.message}`);
           } finally { advanceSetupProgress(); }
         }
@@ -5325,7 +5457,7 @@
               results.push(`${resultPrefix(device)}${label}: Added, but automatic cartridge artwork FAILED — ${error.message}`);
             }
           }
-          if (installedByMachine[device]?.[system] && system !== 'windows') {
+          if (installedByMachine[device]?.[system] && !['windows', 'pygame'].includes(system)) {
             if (contributesToProgress) advanceSetupProgress();
             continue;
           }
@@ -5350,6 +5482,10 @@
             } else if (system === 'movies') {
               const status = await request(`/api/movies/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/movies/install', {device});
+            } else if (system === 'pygame') {
+              let status = await request(`/api/pygame-ce?device=${encodeURIComponent(device)}`, null, 'GET');
+              if (!status.installed) status = await request(`/api/pygame-ce?device=${encodeURIComponent(device)}`, null, 'POST');
+              if (!status.installed || !status.version) throw new Error('Pygame CE installation could not be verified.');
             } else if (system === 'pikaraoke') {
               const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/pikaraoke/setup', {device});
@@ -8507,34 +8643,19 @@
           removeReconnectRetry(targetDevice, targetSystem, name);
           const transferKey = transferSelectionKey(targetDevice, targetSystem, name);
           if (transferIsPending(name, targetSystem, targetDevice)) {
-            const running = runningTransfer(name, targetSystem, targetDevice);
             dismissedTransferKeys.add(transferKey);
             pendingTransferKeys.delete(transferKey);
             trackedTransferKeys.delete(transferKey);
             optimisticUploadingSystems.delete(consoleTransferKey(targetDevice, targetSystem));
             if (targetDevice === selectedDevice) setLayoutSelection(targetSystem, name, false);
             if (targetDevice === selectedDevice && targetSystem === selectedSystem) markWarehouseChecks();
-            let stopped = Boolean(running);
-            let response = await fetch(`${apiBase}/api/transfers/stop`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ device: targetDevice, system: targetSystem, fileName: name })
-            });
-            let result = await response.json();
-            if (response.status === 404) {
-              stopped = false;
-              response = await fetch(`${apiBase}/api/transfers/dismiss`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ device: targetDevice, system: targetSystem, fileName: name })
-              });
-              result = await response.json();
-            } else {
-              stopped = true;
-            }
-            if (!response.ok || !result.ok) throw new Error(result.error || `Could not ${stopped ? "stop" : "dismiss"} transfer.`);
-            syncStatus.textContent = stopped ? `Stopping transfer: ${name}` : `Removed ${name} from transfer activity`;
-            completeFooterRemoval(targetDevice, targetSystem);
+            // Use one authoritative operation for every uncheck. The removal
+            // endpoint cancels an exact active/waiting transfer, waits for its
+            // writer to close, and removes both partial and completed files.
+            // Merely stopping/dismissing here could leave an already-installed
+            // movie or ROM visible in the machine inventory.
+            await removeFromSelectedDevice(name, { device: targetDevice, system: targetSystem });
+            syncStatus.textContent = `Stopped and removed ${name}`;
             refreshTransferActivity();
             return true;
           }
@@ -10798,7 +10919,7 @@
       dialog.showModal();form.elements.username.focus();
     }
 
-    async function chooseSupportedBatoceraMachines({title='Install Pygame CE', confirmLabel='Install', message='Select one machine, or hold Ctrl while clicking to select more than one. Internet access is required.'}={}) {
+    async function chooseSupportedBatoceraMachines({title='Choose Batocera Machines', confirmLabel='Continue', message='Select one machine, or hold Ctrl while clicking to select more than one.'}={}) {
       const response = await fetchStatusWithTimeout(`${apiBase}/api/devices/status`, 30000);
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || 'Could not read attached machines.');
@@ -10856,42 +10977,6 @@
       confirmXboxBiosDialog.disabled = false;
       return accepted ? choices.filter(choice => choice.selected).map(choice => choice.id) : [];
     }
-
-    document.querySelector('#openPygameCE').addEventListener('click', async event => {
-      const button = event.currentTarget;
-      closeAdvancedMenu();
-      button.disabled = true;
-      try {
-        const devices = await chooseSupportedBatoceraMachines();
-        if (!devices.length) return;
-        const results = [];
-        for (const device of devices) {
-          const endpoint = `${apiBase}/api/pygame-ce?device=${encodeURIComponent(device)}`;
-          const request = async method => {
-            const response = await fetch(endpoint, {method});
-            const result = await response.json();
-            if (!response.ok || !result.ok) throw new Error(result.error || 'Pygame CE setup failed.');
-            return result;
-          };
-          try {
-            syncStatus.textContent = `Checking Pygame CE on ${machineDisplayName(device)}...`;
-            let status = await request('GET');
-            if (!status.installed) {
-              syncStatus.textContent = `Installing Pygame CE on ${machineDisplayName(device)}...`;
-              status = await request('POST');
-            }
-            results.push(`${machineDisplayName(device)}: Pygame CE ${status.version} verified\n${status.python}`);
-          } catch (error) {
-            results.push(`${machineDisplayName(device)}: FAILED — ${error.message}`);
-          }
-        }
-        syncStatus.textContent = `Pygame CE setup finished for ${devices.length} machine${devices.length === 1 ? '' : 's'}`;
-        await showXboxBiosDialog({title:'Pygame CE Setup', device:`${devices.length} selected`, confirmLabel:'OK', message:results.join('\n\n')});
-      } catch (error) {
-        syncStatus.textContent = error.message;
-        await showXboxBiosDialog({title:'Pygame CE Setup Failed', device:'Pygame CE', message:error.message, confirmLabel:'OK'});
-      } finally { button.disabled = false; }
-    });
 
     document.querySelector('#openUsbController').addEventListener('click', async event => {
       const button = event.currentTarget;

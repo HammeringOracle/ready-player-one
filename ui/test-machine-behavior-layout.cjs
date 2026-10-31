@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const css = fs.readFileSync(path.join(__dirname, 'appearance.css'), 'utf8');
+assert.match(css, /\.machine-behavior-dialog \{ width:min\(860px/u, 'Machine Behavior must be wide enough for two columns');
+assert.match(css, /\.machine-behavior-form \{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/u, 'Machine Behavior must use two columns');
+assert.match(css, /\.machine-behavior-title,\.machine-behavior-note,\.machine-behavior-actions \{ grid-column:1 \/ -1/u, 'header and actions must span both columns');
+assert.match(css, /\.machine-behavior-dialog button \{[^}]*linear-gradient[^}]*box-shadow/u, 'every Machine Behavior button must use glass depth');
+assert.match(css, /\.machine-behavior-dialog button::after/u, 'every Machine Behavior button must have a glass highlight');
+assert.ok(css.includes('.machine-behavior-form {grid-template-columns:1fr;}'), 'narrow screens must safely collapse to one column');
+console.log('PASS: Machine Behavior uses a responsive two-column grid and glassy 3D buttons.');

@@ -98,6 +98,25 @@
     #remapperProfileSave input{box-sizing:border-box;width:100%;height:42px;padding:8px 11px;border:1px solid #65748b;border-radius:9px;background:#151a22;color:inherit;font:14px inherit}
     #remapperProfileSave footer{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
     #remapperProfileSave button{min-height:34px;padding:8px 16px;border:1px solid #719ae5;border-radius:10px;background:#294c85;color:white}
+    #keypadDialog .kp-action,
+    #mechanicalSelect button,
+    #remapperListen :is(.remapper-start,.remapper-cancel,.remapper-device-tag),
+    #remapperProfileSave :is(.kp-profile-cancel,.kp-profile-confirm){position:relative;overflow:hidden;border-color:rgba(115,174,255,.88);color:#f8fbff;background:linear-gradient(180deg,rgba(255,255,255,.26),rgba(48,111,190,.7) 43%,rgba(18,48,91,.94));text-shadow:0 1px 1px rgba(0,0,0,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.42),0 4px 9px rgba(0,0,0,.5)}
+    #keypadDialog .kp-action::before,
+    #mechanicalSelect button::before,
+    #remapperListen :is(.remapper-start,.remapper-cancel,.remapper-device-tag)::before,
+    #remapperProfileSave :is(.kp-profile-cancel,.kp-profile-confirm)::before{content:"";position:absolute;inset:1px 4px auto;height:43%;border-radius:6px 6px 50% 50%;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,.03));pointer-events:none}
+    #keypadDialog .kp-action:hover,
+    #mechanicalSelect button:hover,
+    #remapperListen :is(.remapper-start,.remapper-cancel,.remapper-device-tag):hover,
+    #remapperProfileSave :is(.kp-profile-cancel,.kp-profile-confirm):hover{filter:brightness(1.13)}
+    #keypadDialog .kp-action:active,
+    #mechanicalSelect button:active,
+    #remapperListen :is(.remapper-start,.remapper-cancel,.remapper-device-tag):active,
+    #remapperProfileSave :is(.kp-profile-cancel,.kp-profile-confirm):active{transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.55),0 1px 2px rgba(0,0,0,.36)}
+    #keypadDialog .kp-next,
+    #remapperListen .remapper-start,
+    #remapperProfileSave .kp-profile-confirm{border-color:rgba(255,127,118,.86);background:linear-gradient(180deg,rgba(255,255,255,.25),rgba(181,58,53,.68) 43%,rgba(83,20,22,.94))}
     @keyframes remapperPulse{70%{box-shadow:0 0 0 18px #76d59c00}100%{box-shadow:0 0 0 0 #76d59c00}}
     #keypadDialog .kp-keyboard-open{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;height:34px;padding:4px 9px;border:1px solid #76d59c;border-radius:8px;background:#20352e;color:#c3f5d5}
     #keypadDialog .kp-keyboard-open svg{width:24px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}

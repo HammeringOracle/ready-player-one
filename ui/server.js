@@ -101,7 +101,7 @@ const snapshotSystemLabels = {
   gamecube:"Nintendo GameCube", wii:"Nintendo Wii", wiiu:"Nintendo Wii U", switch:"Nintendo Switch",
   mastersystem:"Sega Master System", gamegear:"Sega Game Gear", segacd:"Sega CD", saturn:"Sega Saturn",
   dreamcast:"Sega Dreamcast", psp:"PSP", psvita:"PS Vita", xbox:"Xbox", xbox360:"Xbox 360",
-  neogeo:"Neo Geo", ports:"Ports", pygame:"Pygame", windows:"Windows", atari2600:"Atari 2600",
+  neogeo:"Neo Geo", ports:"Ports", pygame:"Pygame (CE)", windows:"Windows", atari2600:"Atari 2600",
   atari5200:"Atari 5200", atari7800:"Atari 7800", atarilynx:"Atari Lynx", xegs:"Atari XEGS",
   jaguar:"Atari Jaguar", jaguarcd:"Atari Jaguar CD", atari800:"Atari 400-800-XL-XE", atarist:"Atari ST",
   pcengine:"PC Engine", dos:"DOS", "3dsen":"3D NEC", steam:"Steam"
@@ -594,7 +594,7 @@ for (const system of Object.keys(localFolders)) {
 const systemLabels = {
   c64: "Commodore 64",
   steam: "Steam",
-  ports: "Ports", pygame: "Pygame", windows: "Windows (Wine)",
+  ports: "Ports", pygame: "Pygame (CE)", windows: "Windows (Wine)",
   mame: "MAME",
   nes: "NES",
   "3dsen": "3dSen",
@@ -2374,6 +2374,7 @@ async function getMoviesStatus(device) {
     "missing='';",
     "test -f /userdata/system/configs/emulationstation/es_systems_movies.cfg || missing=\"$missing system\";",
     "test -x /userdata/system/scripts/rp1-movies-vlc.sh || missing=\"$missing launcher\";",
+    "grep -Fq \"xcb_(window|vout display).*X server failure\" /userdata/system/scripts/rp1-movies-vlc.sh 2>/dev/null || missing=\"$missing launcher_cleanup\";",
     "test -d /userdata/roms/movies || missing=\"$missing folder\";",
     "test -f /userdata/roms/movies/media/images/movies.png || missing=\"$missing icon\";",
     "command -v cvlc >/dev/null 2>&1 || missing=\"$missing vlc\";",
@@ -2436,7 +2437,29 @@ if [ ! -f "$rom" ]; then
   exit 1
 fi
 killall vlc cvlc 2>/dev/null || true
-exec /usr/bin/cvlc -I dummy --vout xcb_x11 --fullscreen --play-and-exit --no-video-title-show "$rom" >> "$log" 2>&1
+run_log="/tmp/rp1-movies-vlc.$$.log"
+/usr/bin/cvlc -I dummy --vout xcb_x11 --fullscreen --play-and-exit --no-video-title-show "$rom" > "$run_log" 2>&1 &
+vlc_pid=$!
+cleanup_movie() {
+  kill -TERM "$vlc_pid" 2>/dev/null || true
+  wait "$vlc_pid" 2>/dev/null || true
+  if [ -f "$run_log" ]; then cat "$run_log" >> "$log"; rm -f "$run_log"; fi
+}
+trap cleanup_movie EXIT INT TERM HUP
+# With VLC's dummy interface, Alt+F4 closes only the X11 video window and VLC
+# reports that loss in its run log while continuing audio. Treat that verified
+# X-server loss as the user's request to terminate the whole player.
+while kill -0 "$vlc_pid" 2>/dev/null; do
+  if grep -Eq 'xcb_(window|vout display).*X server failure' "$run_log" 2>/dev/null; then
+    kill -TERM "$vlc_pid" 2>/dev/null || true
+    break
+  fi
+  sleep 0.1
+done
+wait "$vlc_pid" 2>/dev/null || true
+cat "$run_log" >> "$log" 2>/dev/null || true
+rm -f "$run_log"
+trap - EXIT INT TERM HUP
 EOF
 chmod 644 /userdata/system/configs/emulationstation/es_systems_movies.cfg
 chmod 755 /userdata/system/scripts/rp1-movies-vlc.sh
@@ -3197,14 +3220,49 @@ async function supportedXbox720Mode(client) {
   return mode;
 }
 
+async function getMachineAudio(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") {
+    return { supported: false, reason: "Audio output control requires a live Batocera machine with SSH." };
+  }
+  {
+    const output = await execSsh(device, "default=$(pactl get-default-sink 2>/dev/null || true); printf 'DEFAULT=%s\\n' \"$default\"; pactl list short sinks 2>/dev/null | cut -f2; printf 'VOLUME='; pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | sed -n 's/.* \\([0-9][0-9]*\\)%.*/\\1/p' | head -n1", 10000);
+    const lines = String(output).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const defaultSink = (lines.find(line => line.startsWith("DEFAULT=")) || "").slice(8);
+    const volume = Math.max(0, Math.min(100, Number((lines.find(line => line.startsWith("VOLUME=")) || "VOLUME=0").slice(7)) || 0));
+    const sinks = lines.filter(line => !/^(DEFAULT|VOLUME)=/.test(line));
+    const hasHdmi = sinks.some(sink => /hdmi/i.test(sink));
+    const hasAnalog = sinks.some(sink => /analog/i.test(sink) && !/hdmi/i.test(sink));
+    return { supported: true, output: /analog/i.test(defaultSink) && !/hdmi/i.test(defaultSink) ? "analog" : "hdmi", volume, hasHdmi, hasAnalog };
+  }
+}
+
+async function setMachineAudio(device, values) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") throw new Error("Audio output control requires a live Batocera machine with SSH.");
+  const requestedOutput = String(values.output || "").toLowerCase();
+  const volume = Math.max(0, Math.min(100, Math.round(Number(values.volume))));
+  if (!new Set(["hdmi", "analog"]).has(requestedOutput)) throw new Error("Choose HDMI or 3.5 mm audio.");
+  if (!Number.isFinite(volume)) throw new Error("Choose a valid audio level.");
+  {
+    const sinksOutput = await execSsh(device, "pactl list short sinks 2>/dev/null | cut -f2", 10000);
+    const sinks = String(sinksOutput).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const sink = requestedOutput === "analog"
+      ? sinks.find(name => /analog/i.test(name) && !/hdmi/i.test(name))
+      : sinks.find(name => /hdmi/i.test(name));
+    if (!sink) throw new Error(requestedOutput === "analog" ? "Batocera did not report a 3.5 mm analog output." : "Batocera did not report an HDMI audio output.");
+    const quotedSink = shellSingleQuoted(sink);
+    await execSsh(device, `pactl set-default-sink ${quotedSink}; pactl set-sink-volume ${quotedSink} ${volume}%; for input in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do pactl move-sink-input "$input" ${quotedSink} 2>/dev/null || true; done; batocera-settings-set audio.device ${quotedSink}; batocera-settings-set audio.volume ${volume}; sync`, 15000);
+    return { supported: true, output: requestedOutput, volume, sink };
+  }
+}
+
 async function getMachineBehavior(device) {
   const spec = machineBehaviorSpec(device);
   if (spec.kind === "unsupported" || device?.access !== "ssh") return { supported: false, platform: spec.platform, reason: "This machine does not expose remote behavior controls through RP1." };
-  return sftpWithDevice(device, async (sftp, client) => {
+  {
     const [content, batoceraConfig, wifiPowerState] = await Promise.all([
-      readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : ""),
-      spec.platform === "batocera" ? readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : Promise.resolve(""),
-      spec.platform === "batocera" ? execOnSshClient(client, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : Promise.resolve("")
+      execSsh(device, `cat ${shellSingleQuoted(spec.path)} 2>/dev/null || true`, 10000).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : ""),
+      spec.platform === "batocera" ? execSsh(device, "cat /userdata/system/batocera.conf 2>/dev/null || true", 10000).catch(() => "") : Promise.resolve(""),
+      spec.platform === "batocera" ? execSsh(device, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : Promise.resolve("")
     ]);
     if (spec.kind === "retroarch") {
       const timeout = Number(retroarchSetting(content, "menu_screensaver_timeout") || 0);
@@ -3221,7 +3279,7 @@ async function getMachineBehavior(device) {
       wifiPowerSaver: /power save:\s*on/i.test(wifiPowerState),
       capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera" }
     };
-  });
+  }
 }
 
 async function applyMachineBehavior(deviceName, device, values, restore = false) {
@@ -4577,6 +4635,7 @@ PY`;
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu", "movies"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
+        (system === "movies" && (installed.match(/<fontSize>0\.030<\/fontSize>/g) || []).length !== 2) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
         !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
@@ -10298,20 +10357,12 @@ print(node.get('value') if node is not None else '__RP1_DEFAULT__')
       const installationVerified = !devices[deviceName] ||
         (deviceSettings.installationId && verifiedInstallationIds.get(deviceName) === deviceSettings.installationId);
       const savedVisibleSystems = installationVerified ? deviceSettings.visibleSystems : null;
-      let reconciledVisibleSystems = Array.isArray(savedVisibleSystems) ? savedVisibleSystems : null;
-      if (reconciledVisibleSystems && (!device.platform || device.platform === 'batocera')) {
-        // These entries describe live Batocera features rather than ordinary
-        // ROM folders. Always reconcile them from the machine so a saved list
-        // cannot hide installed Steam or Batocera's active auto collections.
-        const liveSpecialSystems = new Set(systems.filter(system => ['steam', 'all', 'favorites'].includes(system)));
-        reconciledVisibleSystems = reconciledVisibleSystems.filter(system => !['steam', 'all', 'favorites'].includes(system));
-        for (const system of ['all', 'favorites', 'steam']) if (liveSpecialSystems.has(system)) reconciledVisibleSystems.push(system);
-        if (JSON.stringify(reconciledVisibleSystems) !== JSON.stringify(savedVisibleSystems)) {
-          const currentSettings = readDeviceSettings();
-          currentSettings[deviceName] = {...(currentSettings[deviceName] || {}), visibleSystems:reconciledVisibleSystems};
-          writeDeviceSettings(currentSettings);
-        }
-      }
+      // Once RP1 has a saved Systems selection, it is authoritative. Batocera
+      // exposes built-in and empty system folders that the user never added;
+      // merging every discovered folder here repopulates the left pane. A
+      // removal that actually fails is restored immediately by the frontend,
+      // while successful removals are committed atomically by /api/systems/remove.
+      const reconciledVisibleSystems = Array.isArray(savedVisibleSystems) ? [...savedVisibleSystems] : null;
       sendJson(res, 200, {ok:true, systems, visibleSystems:reconciledVisibleSystems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
       return;
     }
@@ -10527,6 +10578,23 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
       const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
       if (!device) { sendJson(res, 404, { ok: false, error: "Machine is not configured." }); return; }
       sendJson(res, 200, { ok: true, device: deviceName, displayName: device.displayName || deviceName, online: Boolean(device.host), ...await getMachineBehavior(device) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/machine-audio") {
+      const deviceName = url.searchParams.get("device") || "Batocera";
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await getMachineAudio(device)});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/machine-audio") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const deviceName = String(body.device || "Batocera");
+      const device = await getRuntimeDevice(deviceName);
+      if (!device) { sendJson(res, 404, {ok:false, error:"Machine is not configured."}); return; }
+      sendJson(res, 200, {ok:true, device:deviceName, ...await setMachineAudio(device, body)});
       return;
     }
 

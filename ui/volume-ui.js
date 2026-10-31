@@ -1,21 +1,27 @@
 (() => {
   const style=document.createElement('style');style.textContent=`
-    #volumeDialog{box-sizing:border-box;width:min(480px,94vw);max-height:90vh;overflow:auto;border:1px solid #65748b;border-radius:20px;padding:22px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
+    #volumeDialog{box-sizing:border-box;width:min(460px,94vw);max-height:90vh;overflow:auto;border:1px solid #65748b;border-radius:16px;padding:12px 14px;background:var(--panel,#1c2028);color:var(--text,#f0f3fa)}
     #volumeDialog::backdrop{background:#0009} #volumeDialog header,#volumeDialog footer{display:flex;justify-content:space-between;align-items:center;gap:12px}
-    #volumeDialog h2{margin:0;font-size:24px} #volumeDialog p,#volumeDialog label{font-size:14px;line-height:1.5}
-    #volumeDialog .vu-explanation{margin:14px 0 12px;padding-left:22px;font-size:14px;line-height:1.55}
-    #volumeDialog .vu-explanation li+li{margin-top:8px}
+    #volumeDialog h2{margin:0;font-size:22px} #volumeDialog p,#volumeDialog label{margin:6px 0;font-size:13px;line-height:1.35}
+    #volumeDialog .vu-explanation{margin:8px 0;padding-left:20px;font-size:13px;line-height:1.4}
+    #volumeDialog .vu-explanation li+li{margin-top:4px}
     #volumeDialog .music-path{display:inline-block;padding:1px 6px;border-radius:5px;color:#ffd66b;background:rgba(224,171,48,.13);font-weight:800;text-shadow:0 0 8px rgba(255,196,65,.18)}
-    #volumeDialog .vu-machines{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
-    #volumeDialog button.vu-machine{box-sizing:border-box;width:180px;height:54px;display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center;gap:8px;position:relative;padding:5px 24px 5px 9px;text-align:left;font:inherit;color:var(--text,#f0f3fa);border:1px solid rgba(255,255,255,.18);border-radius:12px;background:linear-gradient(135deg,rgba(38,168,255,.18),transparent 54%),linear-gradient(180deg,rgba(34,44,58,.96),rgba(10,15,22,.96));box-shadow:none;opacity:.76}
+    #volumeDialog .vu-machines{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+    #volumeDialog button.vu-machine{box-sizing:border-box;width:180px;height:48px;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:7px;position:relative;padding:4px 24px 4px 8px;text-align:left;font:inherit;color:var(--text,#f0f3fa);border:1px solid rgba(126,174,245,.42);border-radius:10px;background:linear-gradient(180deg,rgba(255,255,255,.17),rgba(55,94,151,.2) 42%,rgba(10,15,22,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 3px 7px rgba(0,0,0,.4);opacity:.8}
     #volumeDialog button.vu-machine.selected{border-color:rgba(38,168,255,.88);box-shadow:0 0 0 4px rgba(38,168,255,.25),0 0 34px rgba(38,168,255,.42);opacity:1}
     #volumeDialog .vu-machine::after{content:"";position:absolute;top:7px;right:8px;width:10px;height:10px;border-radius:50%;background:var(--green,#65ce73);box-shadow:0 0 16px var(--green,#65ce73)}
     #volumeDialog .vu-machine .device-name{font-size:14px;font-weight:900;line-height:1} #volumeDialog .vu-machine .device-meta{margin-top:5px;font-size:10px;opacity:.75}
-    #volumeDialog button{padding:8px 14px;border-radius:10px;border:1px solid #719ae5;background:#294c85;color:white;font:12px/1.2 sans-serif;cursor:pointer}
+    #volumeDialog button{padding:7px 13px;border-radius:9px;border:1px solid #719ae5;background:#294c85;color:white;font:12px/1.2 sans-serif;cursor:pointer}
+    #volumeDialog footer{margin-top:8px}
+    #volumeDialog :is(.vu-install,.vu-disable){position:relative;overflow:hidden;border-color:rgba(115,174,255,.88);background:linear-gradient(180deg,rgba(255,255,255,.27),rgba(48,111,190,.7) 43%,rgba(18,48,91,.94));text-shadow:0 1px 1px rgba(0,0,0,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.42),0 4px 9px rgba(0,0,0,.5)}
+    #volumeDialog :is(.vu-install,.vu-disable)::before{content:"";position:absolute;inset:1px 4px auto;height:43%;border-radius:6px 6px 50% 50%;background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,255,255,.03));pointer-events:none}
+    #volumeDialog .vu-disable{border-color:rgba(255,127,118,.86);background:linear-gradient(180deg,rgba(255,255,255,.25),rgba(181,58,53,.68) 43%,rgba(83,20,22,.94))}
+    #volumeDialog :is(.vu-install,.vu-disable):hover{filter:brightness(1.13)}
+    #volumeDialog :is(.vu-install,.vu-disable):active{transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.55),0 1px 2px rgba(0,0,0,.36)}
     #volumeDialog button:disabled{opacity:.5;cursor:default} #volumeDialog .vu-status{white-space:pre-wrap}
   `;document.head.append(style);
   const dialog=document.createElement('dialog');dialog.id='volumeDialog';dialog.setAttribute('aria-labelledby','volumeTitle');
-  dialog.innerHTML='<header><h2 id="volumeTitle">Music over Games</h2><button class="vu-close" aria-label="Close">×</button></header><div class="vu-machines" role="radiogroup" aria-label="Batocera machine"></div><input class="vu-device" type="hidden"><ul class="vu-explanation"><li><strong>Music folder:</strong> Songs are stored in <span class="music-path">/userdata/music</span>.</li><li><strong>Music over Games:</strong> Keeps those songs playing while your games are playing.</li></ul><p>Games that bypass Batocera’s audio mixer are not supported.</p><input type="checkbox" class="vu-music" checked hidden><p>Plays from <span class="music-path">/userdata/music</span></p><p class="vu-status" role="status"></p><footer><button class="vu-disable" hidden>Disable feature</button><button class="vu-install">Install</button></footer>';
+  dialog.innerHTML='<header><h2 id="volumeTitle">Music over Games</h2><button class="vu-close" aria-label="Close">×</button></header><div class="vu-machines" role="radiogroup" aria-label="Batocera machine"></div><input class="vu-device" type="hidden"><ul class="vu-explanation"><li><strong>Music folder:</strong> Songs are stored in <span class="music-path">/userdata/music</span>.</li><li><strong>Music over Games:</strong> Keeps those songs playing while your games are playing.</li><li>Games that bypass Batocera’s audio mixer are not supported.</li></ul><input type="checkbox" class="vu-music" checked hidden><p class="vu-status" role="status"></p><footer><button class="vu-disable" hidden>Disable feature</button><button class="vu-install">Install</button></footer>';
   document.body.append(dialog);
   const machines=dialog.querySelector('.vu-machines'),device=dialog.querySelector('.vu-device'),status=dialog.querySelector('.vu-status'),music=dialog.querySelector('.vu-music'),install=dialog.querySelector('.vu-install'),disable=dialog.querySelector('.vu-disable');
   let busy=false,checkId=0;

@@ -44,8 +44,8 @@ module.exports = function localMediaTheme(base, system) {
     </image>
     ${system === 'wiiu' ? `<text name="gridtile"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>
     <text name="gridtile:selected"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>` : ''}
-    ${isMovies ? `<text name="gridtile"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.034</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>F5F7FAFF</color></text>
-    <text name="gridtile:selected"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.034</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>FFFFFFFF</color></text>` : ''}
+    ${isMovies ? `<text name="gridtile"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.030</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>F5F7FAFF</color></text>
+    <text name="gridtile:selected"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.030</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>FFFFFFFF</color></text>` : ''}
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/${folder}/media/rp1-${system}-selector.png</path>
       <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding><color>4FA9FFFF</color>

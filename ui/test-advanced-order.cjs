@@ -12,7 +12,6 @@ assert.deepEqual(labels, [
   'Ready Player Two',
   'Back Up & Restore',
   'Music over Games',
-  'Pygame CE',
   'Remapper',
   'Scraper (Music)',
   'Console Snapshots',

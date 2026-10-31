@@ -1,0 +1,22 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const ui = fs.readFileSync(path.join(__dirname, 'appearance.js'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, 'appearance.css'), 'utf8');
+const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+assert.match(ui, /Audio output[\s\S]*?HDMI[\s\S]*?3\.5 mm/u);
+assert.match(ui, /machine-audio-down[\s\S]*?machine-audio-up/u);
+assert.match(ui, /Math\.max\(0,machineAudioVolume-5\)/u);
+assert.match(ui, /Math\.min\(100,machineAudioVolume\+5\)/u);
+assert.match(server, /GET" && url\.pathname === "\/api\/machine-audio"/u);
+assert.match(server, /POST" && url\.pathname === "\/api\/machine-audio"/u);
+assert.match(server, /pactl set-default-sink/u);
+assert.match(server, /pactl move-sink-input/u);
+assert.match(server, /batocera-settings-set audio\.device/u);
+assert.match(server, /batocera-settings-set audio\.volume/u);
+assert.match(server, /async function getMachineAudio[\s\S]*?execSsh\(device/u, 'audio status must remain readable during ROM transfers');
+assert.doesNotMatch(server.match(/async function getMachineAudio[\s\S]*?\n\}/u)?.[0] || '', /sftpWithDevice/u, 'audio status must not use the transfer-locked library channel');
+assert.match(server, /async function getMachineBehavior[\s\S]*?execSsh\(device/u, 'Machine Behavior options must remain readable during ROM transfers');
+assert.match(css, /\.machine-audio-level/u);
+console.log('PASS: Machine Behavior provides persistent live audio output and level controls.');

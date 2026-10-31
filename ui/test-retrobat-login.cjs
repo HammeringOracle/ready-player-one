@@ -9,7 +9,7 @@ const {chromium}=require('C:/Users/EF/.cache/codex-runtimes/codex-primary-runtim
  for(const m of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g))await page.addStyleTag({content:m[1]});
  await page.addStyleTag({content:fs.readFileSync('ui/appearance.css','utf8')});
  const start=html.indexOf('    async function openRetroBatMachineCredentials');
- const end=html.indexOf("    document.querySelector('#openPygameCE')",start);
+ const end=html.indexOf('    async function chooseSupportedBatoceraMachines',start);
  await page.evaluate(()=>{window.closeAdvancedMenu=()=>{};window.machineDisplayName=()=> 'TEST-PC';window.apiBase='';window.syncStatus={};window.refreshDeviceStatuses=()=>{};window.fetch=async(u,opts)=>{window.sent=JSON.parse(opts.body);return {ok:true,json:async()=>({ok:true,remembered:true})};};});
  await page.addScriptTag({content:html.slice(start,end)});
  await page.evaluate(()=>openRetroBatMachineCredentials(document.querySelector('article')));

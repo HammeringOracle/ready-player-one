@@ -85,6 +85,7 @@
             <label data-control="xboxRenderer"><span>Xbox renderer<small>Batocera setting: <code class="machine-behavior-xbox-setting">xbox.xemu_api (not set)</code></small></span><select name="xboxRenderer"><option value="AUTO">Automatic</option><option value="VULKAN">VULKAN</option><option value="OPENGL">OPENGL</option></select></label>
             <label data-control="xboxVideoMode"><span>Xbox display resolution<small>Applies to Xbox only; separate from internal rendering scale.</small></span><select name="xboxVideoMode"><option value="AUTO">Automatic</option><option value="1280x720">720p (1280×720)</option></select></label>
             <label data-control="wifiPowerSaver"><span>Wi-Fi Power Saver<small>Turn this off if Batocera's wireless connection drops while the machine is running.</small></span><select name="wifiPowerSaver"><option value="off">Off</option><option value="on">On</option></select></label>
+            <label data-control="audioOutput" class="machine-behavior-audio"><span>Audio output<small>Switch live audio between HDMI and the 3.5 mm jack.</small></span><span class="machine-audio-controls"><select name="audioOutput"><option value="hdmi">HDMI</option><option value="analog">3.5 mm</option></select><span class="machine-audio-level"><button type="button" class="machine-audio-down" aria-label="Volume down">−</button><output>0%</output><button type="button" class="machine-audio-up" aria-label="Volume up">+</button></span></span></label>
             <p class="machine-behavior-note"></p>
             <div class="machine-behavior-actions"><button type="button" class="machine-behavior-restore">Restore Previous</button><button type="submit" class="appearance-done machine-behavior-save">Apply Settings</button></div>
           </form>
@@ -101,6 +102,9 @@
     const behaviorStatus = behavior.querySelector('.machine-behavior-status');
     const xboxRendererSelect = behaviorForm.elements.xboxRenderer;
     const xboxSetting = behaviorForm.querySelector('.machine-behavior-xbox-setting');
+    const audioOutput = behaviorForm.elements.audioOutput;
+    const audioLevel = behaviorForm.querySelector('.machine-audio-level output');
+    let machineAudioVolume = 0;
     const updateXboxSetting = () => {
       xboxSetting.textContent = xboxRendererSelect.value === 'AUTO'
         ? 'xbox.xemu_api (not set)'
@@ -114,6 +118,25 @@
       behaviorForm.querySelectorAll('select,button').forEach(control => { control.disabled = busy; });
       behavior.classList.toggle('busy',busy);
     };
+    const applyMachineAudio = async (output = audioOutput.value, volume = machineAudioVolume) => {
+      if (!behaviorDevice) return;
+      behaviorStatus.textContent = 'Applying audio…';
+      behaviorForm.querySelectorAll('.machine-behavior-audio select,.machine-behavior-audio button').forEach(control => { control.disabled = true; });
+      try {
+        const response = await fetch('/api/machine-audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:behaviorDevice,output,volume})});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not change machine audio.');
+        audioOutput.value = result.output;
+        machineAudioVolume = Number(result.volume);
+        audioLevel.value = `${machineAudioVolume}%`;
+        audioLevel.textContent = `${machineAudioVolume}%`;
+        behaviorStatus.textContent = `Audio: ${result.output === 'analog' ? '3.5 mm' : 'HDMI'} · ${machineAudioVolume}%`;
+      } catch (error) { behaviorStatus.textContent = error.message; }
+      finally { behaviorForm.querySelectorAll('.machine-behavior-audio select,.machine-behavior-audio button').forEach(control => { control.disabled = false; }); }
+    };
+    audioOutput.addEventListener('change',() => applyMachineAudio());
+    behaviorForm.querySelector('.machine-audio-down').addEventListener('click',() => applyMachineAudio(audioOutput.value,Math.max(0,machineAudioVolume-5)));
+    behaviorForm.querySelector('.machine-audio-up').addEventListener('click',() => applyMachineAudio(audioOutput.value,Math.min(100,machineAudioVolume+5)));
     const showBehaviorMachine = async id => {
       behaviorDevice = id;
       [...behaviorMachines.querySelectorAll('button')].forEach(button => button.setAttribute('aria-pressed',String(button.dataset.device === id)));
@@ -141,6 +164,18 @@
         behaviorForm.elements.behavior.value = result.behavior || 'dim';
         behaviorForm.elements.powerSaver.value = result.powerSaver || 'default';
         behaviorForm.elements.wifiPowerSaver.value = result.wifiPowerSaver ? 'on' : 'off';
+        const audioResponse = await fetch(`/api/machine-audio?device=${encodeURIComponent(id)}`,{cache:'no-store'});
+        const audio = await audioResponse.json();
+        const audioControl = behaviorForm.querySelector('[data-control="audioOutput"]');
+        audioControl.hidden = !audioResponse.ok || !audio.supported;
+        if (!audioControl.hidden) {
+          audioOutput.value = audio.output || 'hdmi';
+          audioOutput.querySelector('option[value="hdmi"]').disabled = audio.hasHdmi === false;
+          audioOutput.querySelector('option[value="analog"]').disabled = audio.hasAnalog === false;
+          machineAudioVolume = Number(audio.volume) || 0;
+          audioLevel.value = `${machineAudioVolume}%`;
+          audioLevel.textContent = `${machineAudioVolume}%`;
+        }
         xboxRendererSelect.value = result.xboxRenderer || 'AUTO';
         behaviorForm.elements.xboxVideoMode.value = result.xboxVideoMode || 'AUTO';
         updateXboxSetting();
