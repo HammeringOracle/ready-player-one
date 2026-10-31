@@ -401,6 +401,12 @@
       box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18), 0 0 28px rgba(250, 204, 21, 0.24);
     }
 
+    .device-card.ad-hoc-display {
+      border-color: rgba(255, 48, 210, 0.96) !important;
+      box-shadow: 0 0 0 3px rgba(255, 48, 210, 0.22), 0 0 28px rgba(255, 48, 210, 0.48) !important;
+      opacity: 1;
+    }
+
     .mini-pc {
       width: 38px;
       height: 28px;
@@ -4566,6 +4572,10 @@
     // Direct references avoid thousands of querySelector calls during the
     // frequent transfer-status poll. Rebuilt whenever the middle pane renders.
     const warehouseGameControls = new Map();
+    // Keep the blue row selector on the ROM the user most recently chose.
+    // Library and transfer polling rebuilds the middle pane frequently, so a
+    // DOM-only active class would otherwise fall back to the first row.
+    const activeWarehouseGameByScope = new Map();
     const optimisticUploadingSystems = new Set();
     const dismissedTransferKeys = new Set();
     const optimisticActiveRemovals = new Set();
@@ -6267,6 +6277,8 @@
       const tracks = Array.isArray(item[5]) ? item[5] : [];
       const discSet = multiDiscInfo(item);
       const sizeLabel = formatFileSize(item[7]);
+      const rememberedActiveGame = activeWarehouseGameByScope.get(pendingResetScope(selectedDevice, selectedSystem));
+      const rowIsActive = rememberedActiveGame ? rememberedActiveGame === item[0] : index === 0;
       const displayMeta = isMusicFolder
         ? `${tracks.length} song${tracks.length === 1 ? "" : "s"}${sizeLabel ? ` • ${sizeLabel}` : ""}`
         : `${item[1]}${sizeLabel ? ` • ${sizeLabel}` : ""}`;
@@ -6285,7 +6297,7 @@
           }).join("")}</div>`
         : "";
       return `
-        <div class="game${index === 0 ? " active" : ""}${isBad ? " bad-rom" : ""}" data-system="${selectedSystem}" data-name="${item[0]}" data-meta="${item[1]}" data-type="${item[2]}" data-valid="${item[3] || "OK"}" data-kind="${item[4] || "file"}" data-size="${Number(item[7] || 0)}">
+        <div class="game${rowIsActive ? " active" : ""}${isBad ? " bad-rom" : ""}" data-system="${selectedSystem}" data-name="${item[0]}" data-meta="${item[1]}" data-type="${item[2]}" data-valid="${item[3] || "OK"}" data-kind="${item[4] || "file"}" data-size="${Number(item[7] || 0)}">
           <div class="game-head">
             ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${activeNames.has(item[0]) || transferIsPending(item[0]) || optimisticallyChecked ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
             <div class="cover ${iconClass(item, selectedSystem)}" title="${isFolder ? "Open folder — " : ""}${iconTitle(item, selectedSystem)}" ${isFolder ? 'data-expandable="true"' : ""}></div>
@@ -8171,6 +8183,7 @@
         const previous = warehouseList.querySelector('.game.active');
         if (previous && previous !== game) previous.classList.remove('active');
         game.classList.add('active');
+        activeWarehouseGameByScope.set(pendingResetScope(selectedDevice, selectedSystem), game.dataset.name);
       };
       warehouseGameControls.clear();
       warehouseList.querySelectorAll(".game").forEach((game) => {
@@ -9074,13 +9087,14 @@
         // as yellow through its retry grace period.
         card.hidden = !['true'].some(value =>
           card.dataset.online === value || card.dataset.reachable === value ||
-          card.dataset.searching === value || card.dataset.communicating === value);
+          card.dataset.searching === value || card.dataset.communicating === value ||
+          card.dataset.adHocDisplay === value);
       });
       // Confirmed machines first, initial communication next, saved/offline
       // placeholders last. Keep the existing order within each group.
       [...deviceCards].sort((a, b) => {
         const rank = card => card.dataset.online === "true" ? 0
-          : card.dataset.reachable === "true" ? 1 : 2;
+          : card.dataset.reachable === "true" || card.dataset.adHocDisplay === "true" ? 1 : 2;
         return rank(a) - rank(b);
       }).forEach(card => machineList.insertBefore(card, addMachine));
       deviceCards = machineList.querySelectorAll(".device-card");
@@ -9198,6 +9212,7 @@
       card.dataset.reachable = String(reachable);
       card.dataset.searching = String(searching);
       card.dataset.communicating = String(communicating);
+      card.dataset.adHocDisplay = String(Boolean(status?.adHocDisplay));
       card.dataset.host = host;
       if (status?.mac) card.dataset.mac = String(status.mac).toLowerCase();
       card.dataset.platform = status?.platform || card.dataset.platform || "batocera";
@@ -9212,8 +9227,9 @@
       card.classList.toggle("reachable", reachable && !online && !communicating);
       card.classList.toggle("searching", searching && !online && !reachable);
       card.classList.toggle("communicating", communicating);
+      card.classList.toggle("ad-hoc-display", Boolean(status?.adHocDisplay));
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
-      card.hidden = !(online || reachable || searching || communicating);
+      card.hidden = !(online || reachable || searching || communicating || status?.adHocDisplay);
 
       const meta = card.querySelector(".device-meta");
       if (meta) {
@@ -10149,26 +10165,47 @@
     }
     async function openMachineAdHocDisplay(card) {
       const device = card.dataset.device;
+      let adHocStage = 'confirming the direct-link setup';
+      const adHocFailureText = error => {
+        if (typeof error === 'string' && error.trim()) return error.trim();
+        if (error?.message && String(error.message).trim()) return String(error.message).trim();
+        if (error?.error && String(error.error).trim()) return String(error.error).trim();
+        try {
+          const serialized = JSON.stringify(error);
+          if (serialized && serialized !== '{}') return serialized;
+        } catch {}
+        return 'No diagnostic text was returned. RP1 recorded the failed stage so this message is never blank.';
+      };
       try {
         const approved = await showXboxBiosDialog({
-          title:'Ad hoc Display', device, cancellable:true, confirmLabel:'Configure Direct Link', cancelLabel:'Cancel',
-          message:'Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine. RP1 will assign a private gigabit link (10.77.0.1 ↔ 10.77.0.2) and use it only for Display. Windows may request administrator approval.\n\nThis can show Batocera after it boots. It cannot show BIOS, rEFInd, or the Windows/Batocera boot menu; that requires HDMI capture.'
+          title:'Ad hoc Display', device, cancellable:true, confirmLabel:'Configure Direct Link', cancelLabel:'Cancel', glassyActions:true,
+          message:'• Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine.\n\n• RP1 will assign a private gigabit link (10.77.0.1 ↔ 10.77.0.2) and use it only for Display.\n\n• Windows may request administrator approval.'
         });
         if (!approved) return;
-        showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working'});
+        adHocStage = 'configuring the Windows and Batocera direct Ethernet link';
+        showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working', glassyActions:true});
         confirmXboxBiosDialog.disabled = true;
         xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
         const response = await fetch('/api/remote-display/ad-hoc', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
-        const result = await response.json();
+        const responseText = await response.text();
+        let result;
+        try { result = responseText ? JSON.parse(responseText) : null; }
+        catch { throw new Error(`RP1 returned HTTP ${response.status} with unreadable diagnostic text: ${responseText.slice(0, 240) || '(empty response)'}`); }
         xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
-        if (!response.ok || !result.ok) throw new Error(result.error || 'Could not prepare the direct Display link.');
+        if (!response.ok || !result?.ok) throw new Error(result?.error || `Direct-link preparation returned HTTP ${response.status} without an error description.`);
+        adHocStage = 'opening the Moonlight viewer window';
         const invoke = window.__TAURI__?.core?.invoke;
         if (!invoke) throw new Error('Ad hoc Display must be opened from the RP1 desktop application.');
-        await invoke('open_embedded_display', {executable:result.executable, host:result.host});
+        const opened = await invoke('open_embedded_display', {executable:result.executable, host:result.host});
+        if (!opened?.opened) throw new Error('The RP1 desktop did not confirm that the Moonlight viewer opened.');
         syncStatus.textContent = `Ad hoc Display opened through ${result.adapter?.Name || 'Ethernet'}.`;
       } catch (error) {
         xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact');
-        await showXboxBiosDialog({title:'Ad hoc Display', device, message:error.message, confirmLabel:'OK'});
+        const detail = adHocFailureText(error);
+        const message = /^Ad Hoc Display stopped while /i.test(detail)
+          ? detail
+          : `Ad Hoc Display stopped while ${adHocStage}: ${detail}`;
+        await showXboxBiosDialog({title:'Ad hoc Display', device, message, confirmLabel:'OK', glassyActions:true});
       }
     }
     function showRetroBatMachineMenu(card, x, y) {

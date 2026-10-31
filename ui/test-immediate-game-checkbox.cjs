@@ -6,6 +6,11 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'Ready Player One.html')
 if (!/checkbox\.addEventListener\("click", event => \{[\s\S]*?optimisticWarehouseSelections\.set\(selectionKey, checkbox\.checked\)[\s\S]*?scheduleWarehouseSelectionSync\(game\)/.test(html)) {
   throw new Error('Game checkboxes must capture the browser-native click state and queue exactly once.');
 }
+if (!/const activeWarehouseGameByScope = new Map\(\)/.test(html)
+    || !/activeWarehouseGameByScope\.set\(pendingResetScope\(selectedDevice, selectedSystem\), game\.dataset\.name\)/.test(html)
+    || !/const rowIsActive = rememberedActiveGame \? rememberedActiveGame === item\[0\] : index === 0/.test(html)) {
+  throw new Error('The blue selector must remain on the most recently clicked ROM through middle-pane rerenders.');
+}
 if (/pointerDesiredChecked|pointerOriginalChecked|checkbox\.addEventListener\("pointerdown"|event\.preventDefault\(\)[\s\S]{0,240}scheduleWarehouseSelectionSync\(game\)/.test(html)) {
   throw new Error('Game checkboxes must not use the old competing pointer-down/native-click toggle path.');
 }

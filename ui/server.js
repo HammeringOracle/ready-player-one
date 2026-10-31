@@ -2903,17 +2903,10 @@ function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
           tryKeyboard: false
         });
     };
-    // A host saved in single-stream mode already has exclusive inventory
-    // access through activeDedicatedSshHosts. Putting its only upload behind
-    // the shared authentication tail can strand it behind a slow status SSH
-    // command even though Dropbear is ready. Connect that one stream directly.
-    const savedDevices = readDeviceSettings();
-    const savedTransferConfig = (device.name && savedDevices[device.name]) ||
-      Object.values(savedDevices).find(saved =>
-        saved && String(saved.host || saved.discoveredHost || "") === String(device.host || ""));
-    const singleStream = Number(savedTransferConfig?.sshTransferConcurrency || 0) === 1;
-    if (singleStream) connectUpload(() => {});
-    else queueSshAuthentication(device.host, connectUpload);
+    // Serialize authentication per host, then let authenticated uploads use
+    // the normal 10-small/4-large pool. A transient failure must never
+    // permanently downgrade this machine to one transfer.
+    queueSshAuthentication(device.host, connectUpload);
   });
 }
 
@@ -2932,13 +2925,6 @@ async function sftpWithDedicatedDevice(device, work, registerCancel = null, conn
         return await sftpWithDedicatedDeviceOnce(device, work, registerCancel);
       } catch (error) {
         if (attempt < maxAttempts - 1 && isTransientSshError(error)) {
-          if (device.name) {
-            const settings = readDeviceSettings();
-            if (settings[device.name] && Number(settings[device.name].sshTransferConcurrency || 0) !== 1) {
-              settings[device.name] = { ...settings[device.name], sshTransferConcurrency: 1 };
-              writeDeviceSettings(settings);
-            }
-          }
           connectionProgress?.(`Retrying connection: ${String(error?.message || error).slice(0, 180)}`);
           // Multiple large ROMs deliberately upload together, but Dropbear can
           // reject a synchronized burst of fresh authentication handshakes.
@@ -3412,11 +3398,32 @@ function findMoonlightExecutable() {
     .map(name => path.join(remoteDisplayToolsPath, name))
     .find(file => /^moonlight\.exe$/i.test(path.basename(file))) || "";
 }
+function moonlightBlockHasCertificate(block) {
+  const match = String(block).match(/BEGIN CERTIFICATE-----\s*([\s\S]*?)\s*-----END CERTIFICATE/);
+  return Boolean(match && match[1].replace(/\s/g, "").length > 100);
+}
+function moonlightRegistryBlocks(output) {
+  const prefix = "HKEY_CURRENT_USER\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts\\";
+  const blocks = [];
+  let current = [];
+  for (const line of String(output).split(/\r?\n/)) {
+    const directHostKey = line.toLowerCase().startsWith(prefix.toLowerCase()) &&
+      /^\d+$/.test(line.slice(prefix.length));
+    if (directHostKey) {
+      if (current.length) blocks.push(current.join("\n"));
+      current = [line];
+    } else if (current.length) {
+      current.push(line);
+    }
+  }
+  if (current.length) blocks.push(current.join("\n"));
+  return blocks;
+}
 function moonlightIsPaired() {
   if (process.platform !== "win32") return false;
   try {
     const output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"], {windowsHide:true, encoding:"utf8", timeout:3000});
-    return /srvcert[\s\S]{0,300}BEGIN CERTIFICATE-----\s*\r?\n\s*[A-Za-z0-9+/]{20,}/.test(output);
+    return moonlightRegistryBlocks(output).some(moonlightBlockHasCertificate);
   } catch { return false; }
 }
 
@@ -3424,14 +3431,60 @@ function moonlightHostIsPaired(_executable, host) {
   if (process.platform !== "win32") return Promise.resolve(false);
   try {
     const output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"], {windowsHide:true, encoding:"utf8", timeout:5000});
-    const blocks = String(output).split(/(?=HKEY_CURRENT_USER\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts\\\d+\s*$)/mi);
+    const blocks = moonlightRegistryBlocks(output);
     const paired = blocks.some(block => {
       const address = block.match(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+([^\r\n]*)/gmi) || [];
       const addresses = address.map(line => line.replace(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+/i, "").trim());
-      return addresses.includes(host) && /BEGIN CERTIFICATE-----[\s\S]{20,}[A-Za-z0-9+/]{20,}/.test(block);
+      return addresses.includes(host) && moonlightBlockHasCertificate(block);
     });
     return Promise.resolve(paired);
   } catch { return Promise.resolve(false); }
+}
+
+function removeMoonlightHostEntries(host, unpairedOnly = true) {
+  if (process.platform !== "win32" || !host) return 0;
+  let output = "";
+  try {
+    output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"],
+      {windowsHide:true, encoding:"utf8", timeout:5000});
+  } catch { return 0; }
+  const blocks = moonlightRegistryBlocks(output);
+  let removed = 0;
+  for (const block of blocks) {
+    const key = block.match(/^(HKEY_CURRENT_USER\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts\\\d+)\s*$/mi)?.[1];
+    if (!key) continue;
+    const addresses = (block.match(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+([^\r\n]*)/gmi) || [])
+      .map(line => line.replace(/^\s*(?:manualaddress|localaddress)\s+REG_SZ\s+/i, "").trim());
+    const hasCertificate = moonlightBlockHasCertificate(block);
+    if (!addresses.includes(host) || (unpairedOnly && hasCertificate)) continue;
+    try {
+      execFileSync("reg.exe", ["delete", key, "/f"], {windowsHide:true, timeout:5000, stdio:"ignore"});
+      removed += 1;
+    } catch {}
+  }
+  return removed;
+}
+
+function removeUnpairedMoonlightHostEntries() {
+  if (process.platform !== "win32") return 0;
+  let output = "";
+  try {
+    output = execFileSync("reg.exe", ["query", "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts", "/s"],
+      {windowsHide:true, encoding:"utf8", timeout:5000});
+  } catch { return 0; }
+  const blocks = moonlightRegistryBlocks(output);
+  let removed = 0;
+  for (const block of blocks) {
+    const key = block.match(/^(HKEY_CURRENT_USER\\Software\\Moonlight Game Streaming Project\\Moonlight\\hosts\\\d+)\s*$/mi)?.[1];
+    if (!key) continue;
+    const hasCertificate = moonlightBlockHasCertificate(block);
+    if (hasCertificate) continue;
+    try {
+      execFileSync("reg.exe", ["delete", key, "/f"], {windowsHide:true, timeout:5000, stdio:"ignore"});
+      removed += 1;
+    } catch {}
+  }
+  return removed;
 }
 
 function remoteDisplayPairingIdentity(deviceName, host) {
@@ -3446,6 +3499,37 @@ function remoteDisplayPairingVerified(deviceName, host) {
   const deviceSettings = readDeviceSettings()[deviceName] || {};
   const record = deviceSettings.remoteDisplayPairings?.[host];
   return record?.version === 2 && String(record.identity || "") === identity;
+}
+
+function anyRemoteDisplayPairingVerified(host) {
+  const settings = readDeviceSettings();
+  return Object.values(settings).some(deviceSettings => {
+    const installation = String(deviceSettings?.installationResetToken || deviceSettings?.installationId || "").trim();
+    if (!installation) return false;
+    const record = deviceSettings?.remoteDisplayPairings?.[host];
+    return record?.version === 2 && String(record.identity || "") === `${installation}|${host}`;
+  });
+}
+
+function verifiedRemoteDisplayDevice(host) {
+  const settings = readDeviceSettings();
+  return Object.entries(settings).find(([, deviceSettings]) => {
+    const installation = String(deviceSettings?.installationResetToken || deviceSettings?.installationId || "").trim();
+    const record = deviceSettings?.remoteDisplayPairings?.[host];
+    return installation && record?.version === 2 && String(record.identity || "") === `${installation}|${host}`;
+  })?.[0] || "";
+}
+
+async function decorateAdHocDisplayPresence(statuses) {
+  const result = Object.fromEntries(Object.entries(statuses || {}).map(([name, status]) => [name, {...status}]));
+  const deviceName = verifiedRemoteDisplayDevice("10.77.0.2");
+  if (!deviceName || !await isTcpPortOpen("10.77.0.2", 22, 900, "10.77.0.1")) return result;
+  result[deviceName] = {
+    ...(result[deviceName] || {}),
+    adHocDisplay: true,
+    adHocDisplayHost: "10.77.0.2"
+  };
+  return result;
 }
 
 function markRemoteDisplayPairingVerified(deviceName, host) {
@@ -3679,7 +3763,7 @@ function sunshineHasRp1Client(clients) {
   return entries.some(client => String(client?.name || "").trim().toLowerCase() === "ready player one");
 }
 
-async function pairRemoteDisplay(deviceName, device) {
+async function pairRemoteDisplay(deviceName, device, { sunshineReady = false } = {}) {
   if (!device?.host || device.access !== "ssh") throw new Error("Select a live Batocera machine with SSH access.");
   const moonlight = findMoonlightExecutable();
   if (!moonlight) throw new Error("Moonlight is not installed.");
@@ -3688,9 +3772,11 @@ async function pairRemoteDisplay(deviceName, device) {
   settings[deviceName] = {...(settings[deviceName] || {}), remoteDisplayPassword:password};
   writeDeviceSettings(settings);
   const quoted = shellSingleQuoted(password);
-  await execSsh(device, `/userdata/system/services/sunshine stop >/dev/null 2>&1 || true; sleep 2; true`, 10000);
-  await execSsh(device, `HOME=/userdata/system LD_LIBRARY_PATH=/userdata/system/sunshine-libs /userdata/system/bin/rp1-sunshine.AppImage --appimage-extract-and-run --creds rp1 ${quoted} >/userdata/system/logs/rp1-sunshine-creds.log 2>&1`, 30000);
-  await execSsh(device, `/userdata/system/services/sunshine start >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null`, 15000);
+  if (!sunshineReady) {
+    await execSsh(device, `/userdata/system/services/sunshine stop >/dev/null 2>&1 || true; sleep 2; true`, 10000);
+    await execSsh(device, `HOME=/userdata/system LD_LIBRARY_PATH=/userdata/system/sunshine-libs /userdata/system/bin/rp1-sunshine.AppImage --appimage-extract-and-run --creds rp1 ${quoted} >/userdata/system/logs/rp1-sunshine-creds.log 2>&1`, 30000);
+    await execSsh(device, `/userdata/system/services/sunshine start >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null`, 15000);
+  }
   const pin = String(crypto.randomInt(0, 10000)).padStart(4, "0");
   const pairing = startMoonlightPairing(moonlight, device.host, pin);
   try {
@@ -3711,12 +3797,34 @@ async function pairRemoteDisplay(deviceName, device) {
       } catch (error) { submitError ||= error; }
     }
     if (!verified) throw submitError || new Error("Sunshine did not add this Moonlight client after the PIN exchange.");
+    let localCertificateSaved = false;
+    for (let attempt = 0; attempt < 20 && !localCertificateSaved; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      localCertificateSaved = await moonlightHostIsPaired(moonlight, device.host);
+    }
+    if (!localCertificateSaved) {
+      throw new Error("Sunshine accepted the pairing, but Moonlight did not save the host certificate.");
+    }
+    if (pairing.exitCode === null) {
+      await new Promise(resolve => {
+        const timeout = setTimeout(resolve, 10000);
+        pairing.once("close", () => { clearTimeout(timeout); resolve(); });
+      });
+    }
     // Sunshine's trusted-client list is authoritative. Moonlight Qt may keep
     // its GUI process alive after a successful CLI pairing, so process exit
     // must not be used as the completion signal.
     markRemoteDisplayPairingVerified(deviceName, device.host);
   } finally {
-    if (pairing?.pid) try { process.kill(Number(pairing.pid)); } catch {}
+    if (pairing?.pid && pairing.exitCode === null) {
+      try {
+        const closeScript = `$p=Get-Process -Id ${Number(pairing.pid)} -ErrorAction SilentlyContinue;if($p){$null=$p.CloseMainWindow();$p.WaitForExit(5000)|Out-Null}`;
+        execFileSync("powershell.exe", ["-NoProfile", "-Command", closeScript], {windowsHide:true, timeout:7000, stdio:"ignore"});
+      } catch {}
+      if (pairing.exitCode === null) {
+        try { execFileSync("taskkill.exe", ["/PID", String(pairing.pid), "/F"], {windowsHide:true, timeout:5000, stdio:"ignore"}); } catch {}
+      }
+    }
   }
   await new Promise(resolve => setTimeout(resolve, 1500));
   return {paired:true, host:device.host};
@@ -3754,85 +3862,134 @@ async function waitForDirectPort(host, port, totalMs = 20000, localAddress = "10
   return false;
 }
 
+function usefulFailureMessage(error, fallback = "The operation failed without returning diagnostic details.") {
+  if (typeof error === "string" && error.trim()) return error.trim();
+  if (error?.message && String(error.message).trim()) return String(error.message).trim();
+  if (error?.error && String(error.error).trim()) return String(error.error).trim();
+  if (error && typeof error === "object") {
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== "{}") return serialized;
+    } catch {}
+  }
+  return fallback;
+}
+
 async function prepareAdHocDisplay(deviceName, device) {
-  if (!device?.host || device.access !== "ssh") throw new Error("The selected Batocera machine must be online on the normal network while the direct link is prepared.");
+  let stage = "validating the selected Batocera machine";
+  try {
+  stage = "detecting the connected Windows Ethernet adapter";
+  const adapter = firstWiredWindowsAdapter();
+  if (!adapter?.Name) throw new Error("No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
+  if (!windowsAdapterHasDirectRoute(adapter.Name)) {
+    stage = `configuring Windows adapter ${adapter.Name} as 10.77.0.1`;
+    await configureWindowsDirectAdapter(adapter.Name);
+    for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  }
+  stage = `verifying Windows adapter ${adapter.Name} and its direct route`;
+  if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
+  // Prefer the cable before touching the saved Wi-Fi address. Once Batocera
+  // owns 10.77.0.2, Ad Hoc Display must work with Wi-Fi completely disabled.
+  const directLinkReady = await waitForDirectPort("10.77.0.2", 22, 3000);
+  if (!directLinkReady && (!device?.host || device.access !== "ssh")) {
+    throw new Error("The direct Ethernet address is not ready. Connect Batocera to Wi-Fi once for the initial direct-link setup, then Wi-Fi can remain off.");
+  }
+  const directDevice = {...device, host:"10.77.0.2", access:"ssh"};
+  const setupDevice = directLinkReady ? directDevice : device;
+  const executable = findMoonlightExecutable();
+  // Offline fast path: the cable, Sunshine control port, and installation-
+  // scoped pairing receipt are sufficient. Do not repeat installation or
+  // Wi-Fi-oriented setup when Batocera's Wi-Fi radio is intentionally off.
+  const directPairingReceipt = executable && anyRemoteDisplayPairingVerified("10.77.0.2");
+  const directMoonlightCertificate = executable && await moonlightHostIsPaired(executable, "10.77.0.2");
+  const directSunshineReady = directLinkReady && await waitForDirectPort("10.77.0.2", 47990, 3000);
+  if (directLinkReady && directPairingReceipt && directMoonlightCertificate && directSunshineReady) {
+    removeUnpairedMoonlightHostEntries();
+    removeMoonlightHostEntries("10.77.0.2", true);
+    return {ready:true, host:"10.77.0.2", adapter, executable};
+  }
+  if (directLinkReady && directSunshineReady && !directMoonlightCertificate) {
+    stage = "repairing Moonlight pairing over the direct Ethernet link";
+    removeMoonlightHostEntries("10.77.0.2", false);
+    await pairRemoteDisplay(deviceName, directDevice, {sunshineReady:true});
+    return {ready:true, host:"10.77.0.2", adapter, executable};
+  }
   // A clean Batocera image may have no Sunshine service even though this PC's
   // Moonlight registry still contains a pairing for an older installation or
   // its Wi-Fi address. Ad hoc Display must be self-contained: install/start
   // the host before changing routes, while the normal machine address is
   // known to work.
-  let displayStatus = await remoteDisplayStatus(device);
+  stage = "checking Sunshine and Moonlight";
+  let displayStatus = await remoteDisplayStatus(setupDevice);
   if (!displayStatus.sunshineInstalled || !displayStatus.sunshineRunning) {
-    displayStatus = await installRemoteDisplay(device);
+    stage = "installing or starting Sunshine";
+    displayStatus = await installRemoteDisplay(setupDevice);
   }
-  await ensureRemoteDisplayEncoder(device);
-  const adapter = firstWiredWindowsAdapter();
-  if (!adapter?.Name) throw new Error("No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
-  // Reuse a valid direct-link configuration. Elevation is only necessary
-  // when the address/route is missing or another adapter owns the subnet.
-  // Forcing a repair on every launch made an already-working adapter fail at
-  // the administrator step even though Batocera was the side needing repair.
-  if (!windowsAdapterHasDirectRoute(adapter.Name)) {
-    await configureWindowsDirectAdapter(adapter.Name);
-    // Windows can take a moment to publish the on-link route after netsh
-    // returns. Verify the complete address+route state instead of using
-    // `.Count` on a single PowerShell object (which returns an empty value on
-    // Windows PowerShell and caused a false "did not retain" error).
-    for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-  }
-  if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
+  stage = "verifying the Batocera video encoder";
+  await ensureRemoteDisplayEncoder(setupDevice);
   // The direct cable is a display-only path. Keep the existing Wi-Fi service
   // connected and prevent ConnMan's new wired service from becoming the
   // default route; otherwise Batocera loses its normal LAN address and RP1
   // briefly discovers the machine before it disappears.
   const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; test -n "$wifi_svc" && connmanctl connect "$wifi_svc" >/dev/null 2>&1 & sleep 5; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; sleep 3`;
-  try {
-    await execSsh(device, command, 20000);
-  } catch (error) {
+  if (!directLinkReady) {
+    stage = "configuring Batocera Ethernet as 10.77.0.2";
+    try {
+      await execSsh(device, command, 20000);
+    } catch (error) {
     // ConnMan can rebuild its routes as soon as the wired address is applied,
     // which closes the original Wi-Fi SSH channel before it reports success.
     // Treat that disconnect as successful only when the new direct SSH route
     // is already live; real configuration failures still surface normally.
-    if (!await waitForDirectPort("10.77.0.2", 22)) throw error;
+      if (!await waitForDirectPort("10.77.0.2", 22)) throw error;
+    }
   }
+  stage = "reaching Batocera at 10.77.0.2";
   if (!await waitForDirectPort("10.77.0.2", 22)) {
     const diagnostics = await execSsh(device, `printf 'LINKS='; for p in /sys/class/net/*; do n=\${p##*/}; printf '%s:%s ' "$n" "$(cat "$p/carrier" 2>/dev/null)"; done; printf '\\nADDR='; ip -br -4 addr; printf '\\nLISTEN='; ss -lnt 2>/dev/null | grep -E ':(22|47990) ' || true; printf '\\nFILTER='; iptables -S INPUT 2>/dev/null | head -12 || true`, 10000).catch(() => "");
     throw new Error(`The cable is connected, but Batocera did not become reachable at 10.77.0.2.${diagnostics ? ` ${diagnostics.trim()}` : ""}`);
   }
-  const directDevice = {...device, host:"10.77.0.2"};
   // SSH being live proves the cable, but Moonlight cannot stream until
   // Sunshine's control port is listening on this interface. Restart through
   // the direct connection so the verification reflects the exact route the
   // viewer will use.
   if (!await waitForDirectPort("10.77.0.2", 47990, 3000)) {
-    await execSsh(directDevice, "/userdata/system/services/sunshine restart >/dev/null 2>&1; sleep 6; pgrep -x sunshine >/dev/null", 15000);
+    stage = "restarting Sunshine through the direct Ethernet link";
+    // A wedged Sunshine process can remain visible to pgrep while exposing no
+    // streaming port. Graceful restart then waits indefinitely in display
+    // detection. Kill that stale process before starting a clean host.
+    await execSsh(directDevice, "killall sunshine >/dev/null 2>&1 || true; sleep 2; pgrep -x sunshine >/dev/null 2>&1 && killall -9 sunshine >/dev/null 2>&1 || true; sleep 1; /userdata/system/services/sunshine start >/dev/null 2>&1; sleep 7", 15000);
   }
+  stage = "verifying Sunshine streaming port 47990";
   if (!await waitForDirectPort("10.77.0.2", 47990, 12000)) {
     throw new Error("The direct Ethernet link is ready, but Sunshine did not open its streaming service on Batocera.");
   }
-  const executable = findMoonlightExecutable();
-  if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
-    const settings = readDeviceSettings();
-    const password = settings[deviceName]?.remoteDisplayPassword;
-    const sunshineTrustsRp1 = password && sunshineHasRp1Client(
-      await listSunshineClients("10.77.0.2", password).catch(() => null)
-    );
-    // Both sides must agree. A local certificate alone can be stale after a
-    // Batocera reinstall, while a server client alone can belong to another
-    // Moonlight installation.
-    if (sunshineTrustsRp1 && await moonlightHostIsPaired(executable, "10.77.0.2")) {
-      markRemoteDisplayPairingVerified(deviceName, "10.77.0.2");
-    }
-  }
-  if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
+  stage = "verifying the Moonlight and Sunshine pairing";
+  // Discovery and prior failed pair attempts can leave an unpaired duplicate
+  // for the same IP. Moonlight may choose that exact-address record over the
+  // valid paired record, producing "Computer BATOCERA has not been paired."
+  // Remove only incomplete duplicates. Reuse a verified direct certificate
+  // so offline launches do not perform a needless network pairing exchange.
+  removeUnpairedMoonlightHostEntries();
+  removeMoonlightHostEntries("10.77.0.2", true);
+  const directPairingReady = remoteDisplayPairingVerified(deviceName, "10.77.0.2") &&
+    await moonlightHostIsPaired(executable, "10.77.0.2");
+  if (!directPairingReady) {
+    removeMoonlightHostEntries("10.77.0.2", false);
+    stage = "pairing Moonlight with Sunshine over the direct link";
     await pairRemoteDisplay(deviceName, directDevice);
   }
   if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
     throw new Error("Sunshine is running, but RP1 did not complete pairing for this Batocera installation at 10.77.0.2.");
   }
   return {ready:true, host:"10.77.0.2", adapter, executable};
+  } catch (error) {
+    const detail = usefulFailureMessage(error);
+    if (/^Ad Hoc Display stopped while /i.test(detail)) throw new Error(detail);
+    throw new Error(`Ad Hoc Display stopped while ${stage}: ${detail}`);
+  }
 }
 
 function wait(ms) {
@@ -9706,7 +9863,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/devices/status") {
       const mode = url.searchParams.get("mode") || "fast";
       if (mode === "fast" && fastDeviceStatusCache.devices && Date.now() - fastDeviceStatusCache.at < 15000) {
-        sendJson(res, 200, { ok: true, devices: fastDeviceStatusCache.devices });
+        sendJson(res, 200, { ok: true, devices: await decorateAdHocDisplayPresence(fastDeviceStatusCache.devices) });
         return;
       }
       const retroBatStatuses = mode === "deep" ? await retroBatDiscovery.scan() : retroBatDiscovery.refresh();
@@ -9825,7 +9982,7 @@ const server = http.createServer(async (req, res) => {
           .then(() => { fastDeviceStatusCache.at = 0; })
           .catch(() => {}));
       }
-      const deviceStatuses = { ...namedBatoceraStatuses, ...retroBatStatuses, ...usbStatuses };
+      const deviceStatuses = await decorateAdHocDisplayPresence({ ...namedBatoceraStatuses, ...retroBatStatuses, ...usbStatuses });
       if (mode === "fast") fastDeviceStatusCache = { at: Date.now(), devices: deviceStatuses };
       sendJson(res, 200, { ok: true, devices: deviceStatuses });
       return;
@@ -10387,7 +10544,9 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
     if (req.method === "POST" && url.pathname === "/api/remote-display/ad-hoc") {
       const body = JSON.parse((await readBody(req)) || "{}");
       const deviceName = String(body.device || "");
-      const device = await getRuntimeDevice(deviceName);
+      // The direct cable may be the machine's only network. Do not probe the
+      // saved Wi-Fi address before prepareAdHocDisplay checks 10.77.0.2.
+      const device = await getRuntimeDevice(deviceName, { skipConnectionProbe: true });
       sendJson(res, 200, {ok:true, device:deviceName, ...await prepareAdHocDisplay(deviceName, device)});
       return;
     }
@@ -11545,8 +11704,9 @@ ${check}
     if (fileSize <= 2 * 1024 * 1024) res.end(fs.readFileSync(absolute));
     else fs.createReadStream(absolute).pipe(res);
   } catch (error) {
-    let message = error.message || "Request failed.";
-    if (/ECONNREFUSED .*:22/.test(message) || /Timed out while waiting for handshake/.test(message)) {
+    let message = usefulFailureMessage(error, "Request failed without returning diagnostic details.");
+    if (!/^Ad Hoc Display stopped while /i.test(message) &&
+        (/ECONNREFUSED .*:22/.test(message) || /Timed out while waiting for handshake/.test(message))) {
       message = "Batocera is reachable, but SSH is closed. Enable SSH on Batocera before listing or sending files.";
     }
     sendJson(res, 500, { ok: false, error: message });
@@ -11693,28 +11853,10 @@ async function dispatchPersistedTransferQueue() {
         if (jobIsSmall !== useSmallPool) break;
         selectedPool.push(job);
       }
-      // Authentication is serialized per host above. Machines that still
-      // reset an established upload handshake are automatically remembered as
-      // single-stream SSH; USB/SMB and healthy SSH machines retain 10/4.
+      // Authentication is serialized per host above. Once authenticated, the
+      // normal pool always remains ten small files or four large files.
       const requestedConcurrency = useSmallPool ? 10 : 4;
-      const queueTransport = String(activeConsoleSlots[0]?.transport || consoleQueue[0]?.transport || "ssh").toLowerCase();
-      const configuredSshConcurrency = Number(readDeviceSettings()[deviceName]?.sshTransferConcurrency || 0);
-      const concurrency = queueTransport === "ssh" && configuredSshConcurrency === 1
-        ? 1
-        : requestedConcurrency;
-      // Retain the 4/10 pool after one connection proves that the machine is
-      // accepting and acknowledging this console's uploads.
-      const establishedTransfer = activeConsoleSlots.some(job =>
-        Number(job.transferredBytes || 0) > 0 || Number(job.completedFiles || 0) > 0 || Number(job.percent || 0) > 0);
-      // Bootstrap each console queue with one real byte-moving connection.
-      // As soon as it reports progress the next watchdog pass fills the rest
-      // of the normal 10/4 pool. Launching four zero-byte disc handshakes at
-      // once made Dropbear reset the complete GameCube batch repeatedly.
-      const available = activeConsoleSlots.length === 0
-        ? 1
-        : establishedTransfer
-          ? Math.max(0, concurrency - activeConsoleSlots.length)
-          : 0;
+      const available = Math.max(0, requestedConcurrency - activeConsoleSlots.length);
       const dispatchBatch = selectedPool.slice(0, available);
       for (const [batchIndex, job] of dispatchBatch.entries()) {
         job.dispatching = true;

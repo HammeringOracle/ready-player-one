@@ -312,12 +312,13 @@ html[data-appearance=light] .rp2-dialog{color:#203448;border-color:#6895b9;backg
 )::before {
   content:"X";
   display:block;
-  color:inherit;
+  color:#fff!important;
   font-family:var(--app-font,inherit);
   font-size:16px;
   font-weight:900;
   line-height:1;
 }
+.modal-head > .modal-close::after { content:none!important; }
 .appearance-head .appearance-close > svg { display:none!important; }
 #keypadDialog .kp-close::before {
   content:"X"!important;

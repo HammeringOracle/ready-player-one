@@ -9,8 +9,10 @@ assert.match(html, /const queuedUploadingSystems = new Set/u, 'Queued consoles m
 assert.match(html, /console-transfer-queued/u, 'Queued consoles need their dashed-circle state');
 assert.match(server, /const requestedConcurrency = useSmallPool \? 10 : 4/u,
   'The active console must retain the ten-small/four-large transfer rule');
-assert.match(server, /configuredSshConcurrency === 1/u,
-  'A machine that rejects parallel SSH streams must retain its saved safe single-stream override');
+assert.doesNotMatch(server, /configuredSshConcurrency === 1/u,
+  'A transient SSH failure must not permanently force the machine into single-stream mode');
+assert.match(server, /const available = Math\.max\(0, requestedConcurrency - activeConsoleSlots\.length\)/u,
+  'Copy All must immediately fill the normal ten-small/four-large pool');
 assert.match(server, /const dispatchBatch = selectedPool\.slice\(0, available\)/u,
   'The dispatcher must fill every available 4/10 slot');
 assert.match(server, /const activeQueuedTransferSystem = new Map\(\)/u, 'The dispatcher must remember which console owns the machine');

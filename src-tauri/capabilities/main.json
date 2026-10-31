@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Permissions for the Ready Player One desktop window.",
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://localhost:8789/*",
+      "http://127.0.0.1:8789/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "embedded-display"
+  ]
+}

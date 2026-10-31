@@ -45,6 +45,7 @@ mod embedded_display {
         fn IsWindowVisible(window: Hwnd) -> Bool;
         fn SetWindowLongPtrW(window: Hwnd, index: i32, value: LongPtr) -> LongPtr;
         fn GetWindowRect(window: Hwnd, rect: *mut Rect) -> Bool;
+        fn MoveWindow(window: Hwnd, x: i32, y: i32, width: i32, height: i32, repaint: Bool) -> Bool;
         fn SetForegroundWindow(window: Hwnd) -> Bool;
         fn SetWindowTextW(window: Hwnd, text: *const u16) -> Bool;
     }
@@ -78,7 +79,7 @@ mod embedded_display {
             .ok_or_else(|| "The main RP1 window is unavailable.".to_string())?
             .hwnd().map_err(|error| format!("Could not access the main RP1 window: {error}"))?.0 as Hwnd;
         let mut command = Command::new(&executable);
-        command.args(["stream", "--display-mode", "windowed"]);
+        command.args(["stream", "--720", "--display-mode", "windowed"]);
         if !host.trim().is_empty() { command.arg(&host); }
         command.arg("Desktop");
         command.creation_flags(0x08000000);
@@ -91,9 +92,25 @@ mod embedded_display {
                 let window = find_window(pid);
                 if window != 0 {
                     let title: Vec<u16> = "Ready Player One — Display\0".encode_utf16().collect();
+                    let mut parent_rect = Rect::default();
                     unsafe {
                         SetWindowLongPtrW(window, GWLP_HWNDPARENT, parent);
                         SetWindowTextW(window, title.as_ptr());
+                        if GetWindowRect(parent, &mut parent_rect) != 0 {
+                            let available_width = (parent_rect.right - parent_rect.left).max(640);
+                            let available_height = (parent_rect.bottom - parent_rect.top).max(360);
+                            let mut width = ((available_width as f64) * 0.80).round() as i32;
+                            width = width.clamp(640, 1920);
+                            let mut height = width * 9 / 16;
+                            let height_limit = ((available_height as f64) * 0.80).round() as i32;
+                            if height > height_limit {
+                                height = height_limit.max(360);
+                                width = height * 16 / 9;
+                            }
+                            let x = parent_rect.left + (available_width - width) / 2;
+                            let y = parent_rect.top + (available_height - height) / 2;
+                            MoveWindow(window, x, y, width, height, 1);
+                        }
                         SetForegroundWindow(window);
                     }
                     break;

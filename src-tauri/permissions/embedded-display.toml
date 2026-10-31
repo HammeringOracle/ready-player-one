@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "embedded-display"
+description = "Allows the Ready Player One window to open and close its embedded Moonlight viewer."
+commands.allow = ["open_embedded_display", "close_embedded_display"]
