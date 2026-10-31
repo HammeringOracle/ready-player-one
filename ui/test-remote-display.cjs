@@ -7,7 +7,12 @@ const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 const desktop = fs.readFileSync(path.join(__dirname, '..', 'src-tauri', 'src', 'lib.rs'), 'utf8');
 
 assert(html.includes("remoteDisplayButton.textContent = 'Display'"));
-assert(html.includes("displayButton.textContent = 'Frame Rate'"));
+assert(html.includes("displayButton.textContent = 'OSD (On-Screen Display)'"));
+assert(html.includes("displayButton.className = 'advanced-item osd-action'"));
+assert(html.includes("title:'OSD (On-Screen Display)'"));
+assert(html.includes("controlRow('Global Performance OSD'"));
+assert(html.includes("controlRow('Xenia MangoHud Support'"));
+assert(html.includes("controlRow('Xbox 360 Bezel'"));
 assert(html.includes("confirmLabel: installed ? 'Open Display' : 'Install Both'"));
 assert(/title:'Ad hoc Display'[\s\S]{0,180}glassyActions:true/.test(html));
 assert(html.includes('• Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine.'));

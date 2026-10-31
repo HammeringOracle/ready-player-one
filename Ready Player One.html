@@ -1028,18 +1028,55 @@
       min-width: 58px;
       height: 24px;
       padding: 0 9px;
-      border: 1px solid rgba(91, 163, 255, 0.72);
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      border: 1px solid rgba(137, 194, 255, 0.92);
       border-radius: 7px;
-      color: #a9d1ff;
-      background: rgba(39, 91, 153, 0.24);
+      color: #eef7ff;
+      background: linear-gradient(180deg, #5d99df 0%, #3169ad 47%, #183f77 52%, #102c56 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.62),
+        inset 0 -2px 3px rgba(2, 15, 37, 0.68),
+        0 3px 6px rgba(0, 0, 0, 0.46),
+        0 0 0 1px rgba(87, 164, 255, 0.16),
+        0 0 9px 2px rgba(72, 151, 255, 0.18),
+        0 0 21px 6px rgba(72, 151, 255, 0.08),
+        0 0 34px 11px rgba(72, 151, 255, 0.025);
+      text-shadow: 0 1px 1px rgba(0, 12, 31, 0.9);
       font: inherit;
       font-size: 10px;
       font-weight: 900;
       text-transform: uppercase;
       cursor: pointer;
+      transition: filter 140ms ease, transform 140ms ease, box-shadow 140ms ease;
     }
 
-    .header-scrape:hover { background: rgba(49, 116, 194, 0.38); }
+    .header-scrape::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      top: 1px;
+      left: 5px;
+      right: 5px;
+      height: 42%;
+      border-radius: 5px 5px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.48), rgba(255,255,255,.06));
+      pointer-events: none;
+    }
+
+    .header-scrape:hover {
+      filter: brightness(1.13) saturate(1.08);
+      transform: translateY(-1px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        inset 0 -2px 3px rgba(2, 15, 37, 0.66),
+        0 4px 7px rgba(0, 0, 0, 0.48),
+        0 0 0 1px rgba(101, 177, 255, 0.22),
+        0 0 11px 3px rgba(72, 151, 255, 0.23),
+        0 0 25px 8px rgba(72, 151, 255, 0.1),
+        0 0 38px 13px rgba(72, 151, 255, 0.03);
+    }
     .header-scrape:disabled { opacity: .58; cursor: wait; }
 
     .warehouse-heading {
@@ -1182,6 +1219,13 @@
     .machine-context-menu .advanced-item:active {
       transform: translateY(1px);
       box-shadow: inset 0 2px 5px rgba(0,0,0,.58), 0 1px 2px rgba(0,0,0,.4);
+    }
+    .machine-context-menu .advanced-item:is(.display-action,.osd-action) {
+      border-color: rgba(126,187,255,.94) !important;
+      color: #fff !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.3) 0%, rgba(55,124,207,.76) 43%, rgba(18,48,91,.96) 100%) !important;
+      text-shadow: 0 1px 1px rgba(0,0,0,.82) !important;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.58), inset 0 -1px 0 rgba(0,0,0,.48), 0 4px 8px rgba(0,0,0,.54), 0 0 8px rgba(68,151,255,.3) !important;
     }
 
     .systems-title-actions {
@@ -2135,10 +2179,12 @@
       top: 50%;
       width: calc(100% - 32px);
       transform: translate(-50%, -50%);
-      padding: 18px;
+      padding: 0 !important;
       text-align: center;
-      border-radius: 8px;
-      background: rgba(20, 24, 30, 0.94);
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
     }
 
     .active-library-status {
@@ -2378,6 +2424,11 @@
       line-height: 1.45;
     }
 
+    .confirm-bullets {
+      margin: 0;
+      padding-left: 20px;
+    }
+
     .confirm-device {
       color: #ffffff;
       font-size: 18px;
@@ -2450,6 +2501,105 @@
     }
     #backupRestoreCategories { gap: 5px !important; }
     #backupRestoreCategories > label { min-height: 24px; }
+    #backupRestoreModal .action-combo,
+    #backupRestoreModal .backup-combo {
+      box-sizing: border-box;
+      width: 50%;
+      height: 25px;
+      min-height: 25px;
+      justify-self: start;
+      padding-top: 2px;
+      padding-bottom: 2px;
+    }
+    #backupRestoreModal :is(.action-combo, .backup-combo) { position: relative; display: flex; padding: 0; }
+    #backupRestoreModal .action-combo::after {
+      content: '';
+      position: absolute;
+      right: 9px;
+      top: 50%;
+      transform: translateY(-35%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #fff;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.7));
+      pointer-events: none;
+    }
+    #backupRestoreModal #backupRestoreMode {
+      appearance: none;
+      color-scheme: dark;
+      box-sizing: border-box;
+      width: 100%;
+      height: 25px;
+      min-height: 25px;
+      padding: 2px 29px 2px 9px;
+      border: 1px solid rgba(115,174,255,.92);
+      border-radius: 7px;
+      color: #fff;
+      font-weight: 900;
+      background: linear-gradient(180deg,rgba(255,255,255,.3),rgba(48,111,190,.76) 44%,rgba(18,48,91,.97));
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(0,0,0,.5),0 3px 7px rgba(0,0,0,.48),0 0 10px rgba(65,139,244,.17);
+    }
+    #backupRestoreModal #backupRestoreMode option {
+      color: #fff;
+      background: #182437;
+      font-weight: 800;
+      text-shadow: none;
+    }
+    #backupRestoreModal #backupRestoreChoice {
+      color: #fff;
+      background-color: #141d2a;
+      font-weight: 800;
+      text-shadow: none;
+    }
+    #backupRestoreModal #backupRestoreChoice {
+      box-sizing: border-box;
+      width: calc(100% - 26px);
+      height: 25px;
+      min-height: 25px;
+      border-radius: 7px 0 0 7px;
+    }
+    #backupRestoreModal #openBackupRestoreOptions {
+      position: relative;
+      overflow: hidden;
+      width: 26px;
+      min-width: 26px;
+      height: 25px;
+      min-height: 25px;
+      padding: 0;
+      border: 1px solid rgba(115,174,255,.88);
+      border-left: 0;
+      border-radius: 0 7px 7px 0;
+      color: #fff;
+      background: linear-gradient(180deg,rgba(255,255,255,.28),rgba(48,111,190,.72) 45%,rgba(18,48,91,.95));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.5),0 2px 5px rgba(0,0,0,.45);
+      line-height: 1;
+    }
+    #backupRestoreModal #openBackupRestoreOptions::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 2;
+      transform: translate(-50%,-35%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #fff;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.72));
+    }
+    #backupRestoreModal #openBackupRestoreOptions::after {
+      content: '';
+      position: absolute;
+      inset: 1px 3px auto;
+      height: 42%;
+      border-radius: 4px 4px 50% 50%;
+      background: linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,.03));
+      pointer-events: none;
+    }
     #snapshotConsoleOptions > label { min-height: 24px; }
     #snapshotsSystems {
       gap: 4px 10px !important;
@@ -2505,7 +2655,7 @@
       --dialog-glass-bottom: rgba(83,20,22,.92);
     }
     #systemPickerModal button:not(.modal-close),
-    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog) {
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #alternateXboxBiosDialog, #confirmXboxBiosDialog) {
       position: relative;
       overflow: hidden;
       border: 1px solid var(--dialog-glass-border);
@@ -2515,7 +2665,7 @@
       box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 8px rgba(0,0,0,.48);
     }
     #systemPickerModal button:not(.modal-close)::before,
-    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog)::before {
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #alternateXboxBiosDialog, #confirmXboxBiosDialog)::before {
       content: '';
       position: absolute;
       inset: 1px 4px auto;
@@ -2530,14 +2680,20 @@
     #xboxBiosDialog.glassy-actions #confirmXboxBiosDialog {
       --dialog-glass-border: rgba(255,127,118,.86); --dialog-glass-mid: rgba(181,58,53,.68); --dialog-glass-bottom: rgba(83,20,22,.92);
     }
+    #xboxBiosDialog.glassy-actions #alternateXboxBiosDialog {
+      --dialog-glass-border: rgba(184,151,255,.9); --dialog-glass-mid: rgba(105,72,181,.72); --dialog-glass-bottom: rgba(45,27,91,.94);
+    }
+    #xboxBiosDialog.profile-choice-actions #confirmXboxBiosDialog {
+      --dialog-glass-border: rgba(115,231,151,.88); --dialog-glass-mid: rgba(43,145,78,.7); --dialog-glass-bottom: rgba(15,70,37,.92);
+    }
     #systemPickerModal button:not(.modal-close):hover,
-    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog):hover {
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #alternateXboxBiosDialog, #confirmXboxBiosDialog):hover {
       filter: brightness(1.13);
       border-color: var(--dialog-glass-border);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.54), inset 0 -1px 0 rgba(0,0,0,.4), 0 5px 10px rgba(0,0,0,.54);
     }
     #systemPickerModal button:not(.modal-close):active,
-    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #confirmXboxBiosDialog):active {
+    #xboxBiosDialog.glassy-actions :is(#cancelXboxBiosDialog, #alternateXboxBiosDialog, #confirmXboxBiosDialog):active {
       transform: translateY(1px);
       box-shadow: inset 0 2px 4px rgba(0,0,0,.54), 0 1px 2px rgba(0,0,0,.36);
     }
@@ -2593,9 +2749,63 @@
       transform: translateY(1px);
       box-shadow: inset 0 2px 4px rgba(0,0,0,.56), 0 1px 2px rgba(0,0,0,.38);
     }
+    .glassy-modal .confirm-actions button {
+      --dialog-glass-border: rgba(115,174,255,.88);
+      --dialog-glass-mid: rgba(48,111,190,.68);
+      --dialog-glass-bottom: rgba(18,48,91,.92);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--dialog-glass-border);
+      color: #f8fbff;
+      background: linear-gradient(180deg, rgba(255,255,255,.24) 0%, var(--dialog-glass-mid) 43%, var(--dialog-glass-bottom) 100%);
+      text-shadow: 0 1px 1px rgba(0,0,0,.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 8px rgba(0,0,0,.48);
+    }
+    .glassy-modal .confirm-actions button.setup {
+      --dialog-glass-border: rgba(255,127,118,.86);
+      --dialog-glass-mid: rgba(181,58,53,.68);
+      --dialog-glass-bottom: rgba(83,20,22,.92);
+    }
+    .glassy-modal .confirm-actions button::before {
+      content: '';
+      position: absolute;
+      inset: 1px 4px auto;
+      height: 43%;
+      border-radius: 6px 6px 50% 50%;
+      background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
+      pointer-events: none;
+    }
+    .glassy-modal .confirm-actions button:hover { filter: brightness(1.13); }
+    .glassy-modal .confirm-actions button:active { transform: translateY(1px); box-shadow: inset 0 2px 4px rgba(0,0,0,.54), 0 1px 2px rgba(0,0,0,.36); }
+    .glassy-modal .modal-close {
+      position: relative;
+      overflow: hidden;
+      width: 38px;
+      height: 32px;
+      min-width: 38px;
+      padding: 0;
+      border: 1px solid rgba(255,127,118,.9);
+      border-radius: 7px;
+      color: transparent !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(181,58,53,.62) 45%, rgba(76,17,20,.94) 100%);
+      font-size: 0;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.48), inset 0 -1px 0 rgba(0,0,0,.5), 0 3px 7px rgba(0,0,0,.48);
+    }
+    .glassy-modal .modal-close::before { content:''; position:absolute; inset:1px 3px auto; height:42%; border-radius:4px 4px 45% 45%; background:linear-gradient(180deg,rgba(255,255,255,.27),rgba(255,255,255,.01)); pointer-events:none; }
+    .glassy-modal .modal-close::after { content:'X'; position:absolute; inset:0; display:grid; place-items:center; color:#fff; font:1000 19px/1 Arial,sans-serif; -webkit-text-stroke:.65px #5f090d; text-shadow:0 1px 1px #140102,0 0 4px rgba(255,111,101,.9); pointer-events:none; }
+    .glassy-modal .modal-close:hover { filter:brightness(1.15); box-shadow:inset 0 1px 0 rgba(255,255,255,.58),inset 0 -1px 0 rgba(0,0,0,.5),0 4px 9px rgba(0,0,0,.55); }
     #xboxBiosDialog.display-compact .confirm-modal {
       width: min(390px, 92vw) !important;
     }
+    #xboxBiosDialog.gamertag-editor .confirm-modal { width:min(390px,92vw)!important; }
+    #xboxBiosDialog.gamertag-editor .confirm-body { gap:5px;padding:10px 12px 6px;line-height:1.25; }
+    #xboxBiosDialog.gamertag-editor .confirm-actions { gap:7px;padding:3px 12px 10px; }
+    #xboxBiosDialog.gamertag-editor .gamertag-list { width:min(240px,100%);gap:5px!important;margin:6px 0 2px!important; }
+    #xboxBiosDialog.gamertag-editor .gamertag-row { height:25px; }
+    #xboxBiosDialog.gamertag-editor .gamertag-name-input { height:25px!important;min-height:25px;padding:0 7px!important;border-width:1px!important;border-radius:6px!important;font-size:11px!important; }
+    #xboxBiosDialog.gamertag-editor .gamertag-add-button { width:25px;min-width:25px;height:25px;padding:0;position:relative;overflow:hidden;display:inline-grid;place-items:center;border:1px solid rgba(115,174,255,.88);border-radius:6px;color:transparent;background:linear-gradient(180deg,rgba(255,255,255,.24) 0%,rgba(48,111,190,.68) 43%,rgba(18,48,91,.92) 100%);font-size:0;font-weight:900;line-height:1;text-indent:0;text-align:center;text-shadow:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 0 rgba(0,0,0,.4),0 3px 6px rgba(0,0,0,.48); }
+    #xboxBiosDialog.gamertag-editor .gamertag-add-button::before { content:'';position:absolute;inset:1px 3px auto;height:43%;border-radius:4px 4px 50% 50%;background:linear-gradient(180deg,rgba(255,255,255,.36),rgba(255,255,255,.03));pointer-events:none; }
+    #xboxBiosDialog.gamertag-editor .gamertag-add-button::after { content:'+';position:absolute;inset:0;z-index:2;display:grid;place-items:center;color:#fff;font-size:16px;font-weight:900;line-height:1;text-shadow:0 1px 1px #000b;transform:translateY(-1px);pointer-events:none; }
     #xboxBiosDialog.display-compact .confirm-body {
       gap: 4px;
       padding: 10px 12px 6px;
@@ -3612,7 +3822,6 @@
           <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
           <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
           <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
-          <button class="advanced-item" id="openUsbController" type="button">USB Controller</button>
           <button class="advanced-item" id="openUsbImage" type="button">USB Image</button>
           <input class="hidden-file-input" id="ps1BiosFile" type="file" accept=".bin,application/octet-stream">
           <input class="hidden-file-input" id="largeBiosFile" type="file" accept=".bin,.pup,application/octet-stream">
@@ -3868,7 +4077,7 @@
         </div>
         <div class="confirm-body">
           <div class="confirm-device" id="softResetDevice">Batocera</div>
-          <div>This will tell the selected system to repopulate its game list.</div>
+          <ul class="confirm-bullets"><li>This will tell the selected system to repopulate its game list.</li></ul>
         </div>
         <div class="confirm-actions">
           <button id="cancelSoftReset" type="button">Cancel</button>
@@ -3903,10 +4112,7 @@
         <div class="confirm-body">
           <div class="confirm-device" id="backupRestoreDevice">Batocera</div>
           <label class="wifi-field">Action
-            <select id="backupRestoreMode"><option value="backup">Back Up</option><option value="restore">Restore</option></select>
-          </label>
-          <label class="wifi-field" id="backupRestoreSetRow" hidden>Backup
-            <select id="backupRestoreSet"></select>
+            <span class="action-combo"><select id="backupRestoreMode"><option value="backup">Back Up</option><option value="restore">Restore</option></select></span>
           </label>
           <div class="confirm-note">Choose exactly what to protect or restore.</div>
           <div id="backupRestoreCategories" style="display:grid;gap:5px">
@@ -3916,7 +4122,11 @@
             <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="memory-card" style="width:18px;height:18px"> Memory-Card <span data-backup-size="memory-card" style="margin-left:auto;opacity:.72">Calculating…</span></label>
             <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="save-states" style="width:18px;height:18px"> Save States <span data-backup-size="save-states" style="margin-left:auto;opacity:.72">Calculating…</span></label>
           </div>
-          <div class="confirm-note" id="backupRestoreMessage">Backups are saved in Ready Player One's Backups folder on this PC.</div>
+          <label class="wifi-field">Backup
+            <span class="backup-combo"><input id="backupRestoreChoice" type="text" maxlength="120" list="backupRestoreOptions" placeholder="Type a new backup name" autocomplete="off"><button id="openBackupRestoreOptions" type="button" aria-label="Show saved backups"></button></span>
+            <datalist id="backupRestoreOptions"></datalist>
+          </label>
+          <div class="confirm-note" id="backupRestoreMessage">C:\Users\EF\Documents\Ready Player One\backup</div>
         </div>
         <div class="confirm-actions">
           <button id="cancelBackupRestore" type="button">Close</button>
@@ -3925,7 +4135,7 @@
       </section>
     </div>
 
-    <div class="modal-backdrop" id="usbImageModal" role="dialog" aria-modal="true" aria-labelledby="usbImageTitle">
+    <div class="modal-backdrop glassy-modal" id="usbImageModal" role="dialog" aria-modal="true" aria-labelledby="usbImageTitle">
       <section class="confirm-modal" style="width:min(540px,92vw)">
         <div class="modal-head">
           <span id="usbImageTitle">USB Image</span>
@@ -3987,7 +4197,7 @@
       </section>
     </div>
 
-    <div class="modal-backdrop" id="usbImageConfirmModal" role="dialog" aria-modal="true" aria-labelledby="usbImageConfirmTitle">
+    <div class="modal-backdrop glassy-modal" id="usbImageConfirmModal" role="dialog" aria-modal="true" aria-labelledby="usbImageConfirmTitle">
       <section class="confirm-modal" style="width:min(520px,92vw)">
         <div class="modal-head">
           <span id="usbImageConfirmTitle">Create USB Image?</span>
@@ -4447,8 +4657,9 @@
     const backupRestoreModal = document.querySelector("#backupRestoreModal");
     const backupRestoreDevice = document.querySelector("#backupRestoreDevice");
     const backupRestoreMode = document.querySelector("#backupRestoreMode");
-    const backupRestoreSetRow = document.querySelector("#backupRestoreSetRow");
-    const backupRestoreSet = document.querySelector("#backupRestoreSet");
+    const backupRestoreChoice = document.querySelector("#backupRestoreChoice");
+    const backupRestoreOptions = document.querySelector("#backupRestoreOptions");
+    const openBackupRestoreOptions = document.querySelector("#openBackupRestoreOptions");
     const backupRestoreCategories = document.querySelector("#backupRestoreCategories");
     const backupRestoreMessage = document.querySelector("#backupRestoreMessage");
     const closeBackupRestoreTop = document.querySelector("#closeBackupRestoreTop");
@@ -5781,10 +5992,18 @@
     }
 
     let transferActivityRefreshing = false;
+    // Status calls can overlap when a machine or its inventory is slow. Never
+    // discard a newer paint request: coalesce it and run one fresh pass as
+    // soon as the current pass settles so every console pane keeps pace.
+    let transferActivityRefreshQueued = false;
     let transferIntentRevision = 0;
     async function refreshTransferActivity() {
-      if (transferActivityRefreshing) return;
+      if (transferActivityRefreshing) {
+        transferActivityRefreshQueued = true;
+        return;
+      }
       transferActivityRefreshing = true;
+      transferActivityRefreshQueued = false;
       const requestDevice = selectedDevice;
       const requestSystem = selectedSystem;
       const requestIntentRevision = transferIntentRevision;
@@ -6103,7 +6322,10 @@
           transferActivityList.innerHTML = "";
           transferActivityList.append(transferActivityRow("Checking transfer status", "Reconnecting", "Unable to reach Warehouse. Retrying automatically; transfer completion has not been confirmed."));
         }
-      } finally { transferActivityRefreshing = false; }
+      } finally {
+        transferActivityRefreshing = false;
+        if (transferActivityRefreshQueued) queueMicrotask(refreshTransferActivity);
+      }
     }
 
     function machineDisplayName(device) {
@@ -6282,7 +6504,9 @@
     });
     // Progress remains live, but a slow backend request must not turn the UI
     // into a continuous polling workload while files are being copied.
-    setInterval(refreshTransferActivity, 1500);
+    // Keep visible copy progress responsive without allowing overlapping
+    // requests; refreshTransferActivity coalesces any tick that arrives early.
+    setInterval(refreshTransferActivity, 750);
     const remapDraftKey = controller => `batoceraWarehouse.remaps.${controller}`;
     const mappingLayerHtml = `
       <div class="mapping-layer" id="mappingLayer">
@@ -7183,7 +7407,7 @@
       const localConsoleSize = formatFileSize(localConsoleBytes) || ((data.warehouse || []).length ? 'Calculating…' : '0 B');
       warehouseTitle.innerHTML = virtualCollection
         ? `<span class="warehouse-heading"><span>${data.label}</span></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`
-        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><button class="header-cancel-copy" id="cancelConsoleCopy" type="button" hidden>Cancel Copy</button></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`;
+        : `<span class="warehouse-heading"><span>${key === "music" && musicFolderView ? musicFolderView : `${data.label} Games`}</span><button class="header-cancel-copy" id="cancelConsoleCopy" type="button" hidden>Cancel Copy</button><button class="header-cancel-copy" id="stopConsoleRemoval" type="button" hidden>Stop Removal</button></span><span class="title-metrics"><span class="count">This Computer</span><span class="local-library-size" id="localLibrarySize">Size: ${localConsoleSize}</span></span>`;
       activeTitle.innerHTML = `<span class="active-heading"><span class="active-machine-name">On ${machineDisplayName(selectedDevice)}</span><button class="header-scrape" id="scrapeMissingPictures" type="button">Scrape</button></span><span class="title-metrics"><span class="count">${data.label}</span><span class="storage-count" id="storageCount">${storageHeaderText()}</span></span>`;
       warehouseList.innerHTML = folderHeader + warehouseItems.map(gameRow).join("");
       warehouseList.dataset.system = key;
@@ -7200,6 +7424,7 @@
         warehouseList.scrollTop = 0;
       }
       bindCancelCopyHeader();
+      bindStopRemovalHeader();
       if (!warehouseItems.length) {
         const message = document.createElement('div');
         message.style.cssText = 'padding:18px;color:var(--muted)';
@@ -7332,6 +7557,7 @@
     // NES queue must never lock N64's controls or inherit N64 after navigation.
     const warehouseBulkChangingScopes = new Set();
     const consoleRemovalScopes = new Set();
+    const consoleRemovalStopRequests = new Set();
     function warehouseBulkScope(device = selectedDevice, system = selectedSystem) {
       return pendingResetScope(device, system);
     }
@@ -7402,6 +7628,8 @@
     async function runConsoleRemoveAll(device, system) {
       const removalScope = pendingResetScope(device, system);
       consoleRemovalScopes.add(removalScope);
+      consoleRemovalStopRequests.delete(removalScope);
+      updateStopRemovalHeader();
       try {
       await stopConsoleTransfersForRemoval(device, system);
       // The requested end state is empty. Persist and paint that state before
@@ -7453,46 +7681,65 @@
       const localItems = (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || [];
       const localSizes = new Map(localItems.map(item => [item[0], Number(item[7] || 0)]));
       const remoteSizes = new Map((result.items || []).map(item => [item[0], Number(item[7] || 0)]));
-      const removalItems = names.map(fileName => ({
-        fileName,
-        size: remoteSizes.get(fileName) || localSizes.get(fileName) || 0
-      }));
+      const removalItems = names.map(fileName => ({ fileName, size: remoteSizes.get(fileName) || localSizes.get(fileName) || 0 }));
       const removeGroup = async (items, concurrency) => {
         let nextIndex = 0;
+        const completed = items.map(() => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; });
         const worker = async () => {
           while (nextIndex < items.length) {
-            const { fileName } = items[nextIndex++];
+            const index = nextIndex++;
+            const { fileName } = items[index];
+            if (consoleRemovalStopRequests.has(removalScope)) {
+              completed[index].resolve({ stopped: true, fileName });
+              continue;
+            }
             try {
-              await removeFromSelectedDevice(fileName, { device, system, deferStorageRefresh: true });
+              await removeFromSelectedDevice(fileName, { device, system, deferStorageRefresh: true, deferVisualCommit: true });
+              completed[index].resolve({ ok: true, fileName });
             } catch (error) {
-              failures.push(`${fileName}: ${error.message}`);
+              completed[index].resolve({ ok: false, fileName, error });
             }
           }
         };
-        await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+        const workers = Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+        // Backend deletions run concurrently, but visible rows commit only
+        // after every lower row has finished. This preserves exact bottom-up
+        // motion without sacrificing the established 4/10 speed rule.
+        for (const completion of completed) {
+          const outcome = await completion.promise;
+          if (outcome.ok) commitRemovedGameRow(device, system, outcome.fileName);
+          else if (outcome.stopped) continue;
+          else failures.push(`${outcome.fileName}: ${outcome.error.message}`);
+        }
+        await workers;
       };
-      // Keep reverse display order across size boundaries. Never jump past
-      // a large file merely to collect small files farther up the list.
       for (let start = 0; start < removalItems.length;) {
+        if (consoleRemovalStopRequests.has(removalScope)) break;
         const small = removalItems[start].size <= WAREHOUSE_LARGE_FILE_BYTES;
         let end = start + 1;
-        while (end < removalItems.length
-          && (removalItems[end].size <= WAREHOUSE_LARGE_FILE_BYTES) === small) end++;
+        while (end < removalItems.length && (removalItems[end].size <= WAREHOUSE_LARGE_FILE_BYTES) === small) end++;
         await removeGroup(removalItems.slice(start, end), small ? 10 : 4);
         start = end;
       }
       if (device === selectedDevice) await loadDeviceStorage();
-      if (!failures.length) {
+      const stopped = consoleRemovalStopRequests.has(removalScope);
+      if (!failures.length && !stopped) {
         const localTotal = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []).length;
         footerProgressByScope.set(footerProgressScope(device, system), { completed: 0, total: localTotal, active: false });
         clearRemovedConsoleSelectionState(device, system);
       }
-      finishFooterRemoval(failures.length === 0);
+      finishFooterRemoval(failures.length === 0 && !stopped);
       transferInstalledCache = { device: "", at: 0, systems: {} };
       if (device === selectedDevice && system === selectedSystem) await loadActiveList(system);
+      if (stopped && device === selectedDevice && system === selectedSystem) {
+        saveSelectionSet(system, new Set(activeNames));
+        syncStatus.textContent = `Removal stopped. ${activeNames.size} game${activeNames.size === 1 ? '' : 's'} remain installed.`;
+      }
       if (failures.length) throw new Error(`${names.length - failures.length}/${names.length} games removed. ${failures[0]}`);
       } finally {
         consoleRemovalScopes.delete(removalScope);
+        consoleRemovalStopRequests.delete(removalScope);
+        updateStopRemovalHeader();
         if (device === selectedDevice && system === selectedSystem) updateWarehouseAllControl();
       }
     }
@@ -7721,8 +7968,9 @@
         const label = systemLabelForRow(row);
         const accepted = await showXboxBiosDialog({
           title: 'Remove All', device,
-          message: `Remove every installed ${label} game from ${machineDisplayName(device)}?\n\nActive and waiting ${label} transfers will be stopped first. Associated machine artwork will also be removed. Local PC originals will be kept.`,
-          confirmLabel: 'Remove All', cancelLabel: 'Keep Games', cancellable: true
+          message: `• Remove every installed ${label} game from ${machineDisplayName(device)}.\n• Stop active and waiting ${label} transfers first.\n• Remove associated machine artwork while keeping the original files on this PC.`,
+          confirmLabel: 'Remove All', cancelLabel: 'Keep Games', cancellable: true,
+          glassyActions: true
         });
         if (!accepted) return;
         syncStatus.textContent = `Preparing to remove all ${label} games…`;
@@ -7743,7 +7991,13 @@
 
     async function copyAllConsole(device, system, label) {
       const library = window.warehouseLibrary || fallbackLibrary;
-      const fileNames = activeLayoutNames(system, library[system]?.warehouse || []);
+      // Capture the same order the user sees in the middle pane. Persist that
+      // order with the queue so aliases and embedded titles cannot be sorted
+      // differently by the backend after Copy All has been accepted.
+      const fileNames = activeLayoutNames(system, library[system]?.warehouse || [])
+        .sort((left, right) => compareNaturalGameTitles(
+          displayTitleForFile(system, left), displayTitleForFile(system, right)
+        ));
       if (!fileNames.length) {
         syncStatus.textContent = `${label} has no local files to copy.`;
         return;
@@ -7834,6 +8088,31 @@
         updateCancelCopyHeader();
       });
       updateCancelCopyHeader();
+    }
+
+    function updateStopRemovalHeader() {
+      const button = document.querySelector('#stopConsoleRemoval');
+      if (!button) return;
+      const scope = warehouseBulkScope();
+      const active = consoleRemovalScopes.has(scope);
+      const stopping = consoleRemovalStopRequests.has(scope);
+      button.hidden = !active;
+      button.disabled = stopping;
+      button.textContent = stopping ? 'Stopping…' : 'Stop Removal';
+    }
+
+    function bindStopRemovalHeader() {
+      const button = document.querySelector('#stopConsoleRemoval');
+      if (!button || button.dataset.bound === 'true') return;
+      button.dataset.bound = 'true';
+      button.addEventListener('click', () => {
+        const scope = warehouseBulkScope();
+        if (!consoleRemovalScopes.has(scope)) return;
+        consoleRemovalStopRequests.add(scope);
+        syncStatus.textContent = 'Stopping removal after the active deletions finish…';
+        updateStopRemovalHeader();
+      });
+      updateStopRemovalHeader();
     }
 
     function bindWarehouseAllControl() {
@@ -8897,6 +9176,14 @@
       }
     }
 
+    function commitRemovedGameRow(targetDevice, targetSystem, fileName) {
+      if (targetDevice !== selectedDevice || targetSystem !== selectedSystem) return;
+      activeList.querySelectorAll(".device-game").forEach(item => {
+        if (item.dataset.name === fileName) item.remove();
+      });
+      markWarehouseChecks();
+    }
+
     async function removeFromSelectedDevice(fileName, scope = {}) {
       const targetDevice = scope.device || selectedDevice;
       const targetSystem = scope.system || selectedSystem;
@@ -8997,13 +9284,7 @@
           }, 900);
         }
       }
-      if (targetDevice !== selectedDevice || targetSystem !== selectedSystem) return;
-      activeList.querySelectorAll(".device-game").forEach(item => {
-        if (item.dataset.name === fileName) {
-          item.remove();
-        }
-      });
-      markWarehouseChecks();
+      if (!scope.deferVisualCommit) commitRemovedGameRow(targetDevice, targetSystem, fileName);
     }
 
     function bindActiveRemoves() {
@@ -9683,16 +9964,18 @@
       advancedToggle.setAttribute("aria-expanded", "false");
     }
 
-    function showXboxBiosDialog({ title = "Xbox BIOS Install", device = selectedDevice, message = "", confirmLabel = "OK", cancelLabel = "Cancel", cancellable = false, alternateLabel = "", alternateValue = "alternate", glassyActions = false } = {}) {
+    function showXboxBiosDialog({ title = "Xbox BIOS Install", device = selectedDevice, message = "", confirmLabel = "OK", cancelLabel = "Cancel", cancellable = false, showCancel = cancellable, alternateLabel = "", alternateValue = "alternate", glassyActions = false, profileChoiceActions = false, gamerTagEditor = false } = {}) {
       xboxBiosDialog.classList.remove('dual-boot-working');
       xboxBiosDialog.classList.toggle('glassy-actions', glassyActions);
+      xboxBiosDialog.classList.toggle('profile-choice-actions', profileChoiceActions);
+      xboxBiosDialog.classList.toggle('gamertag-editor', gamerTagEditor);
       xboxBiosDialogTitle.textContent = title;
       xboxBiosDialogDevice.textContent = machineDisplayName(device);
       xboxBiosDialogMessage.textContent = message;
       confirmXboxBiosDialog.textContent = confirmLabel;
       confirmXboxBiosDialog.disabled = false;
       cancelXboxBiosDialog.textContent = cancelLabel;
-      cancelXboxBiosDialog.hidden = !cancellable;
+      cancelXboxBiosDialog.hidden = !showCancel;
       alternateXboxBiosDialog.textContent = alternateLabel;
       alternateXboxBiosDialog.hidden = !alternateLabel;
       xboxBiosDialog.classList.add("open");
@@ -9704,6 +9987,8 @@
           xboxBiosDialog.classList.remove("open");
           xboxBiosDialog.classList.remove('dual-boot-working');
           xboxBiosDialog.classList.remove('glassy-actions');
+          xboxBiosDialog.classList.remove('profile-choice-actions');
+          xboxBiosDialog.classList.remove('gamertag-editor');
           confirmXboxBiosDialog.onclick = null;
           cancelXboxBiosDialog.onclick = null;
           alternateXboxBiosDialog.onclick = null;
@@ -9725,22 +10010,25 @@
       const profileApproval = showXboxBiosDialog({
         title: 'Xbox 360 GamerTags', device, cancellable: true,
         confirmLabel: 'Save GamerTags', cancelLabel: 'Cancel',
-        message: 'Create up to four offline GamerTags. They are available to every Xbox 360 game on this machine.'
+        message: 'Create up to four offline GamerTags. They are available to every Xbox 360 game on this machine.',
+        glassyActions: true, gamerTagEditor: true
       });
       const gamerTagList = document.createElement('div');
-      gamerTagList.style.cssText = 'display:grid;gap:7px;margin:12px 0 2px';
+      gamerTagList.className = 'gamertag-list';
+      gamerTagList.style.cssText = 'display:grid;gap:5px;margin:6px 0 2px';
       const addGamerTagRow = (value = '') => {
         if (gamerTagList.children.length >= 4) return;
         const row = document.createElement('div');
+        row.className = 'gamertag-row';
         row.style.cssText = 'display:flex;align-items:center;gap:7px';
         const input = document.createElement('input');
+        input.className = 'gamertag-name-input';
         input.type = 'text'; input.maxLength = 15; input.value = value;
         input.placeholder = gamerTagList.children.length ? 'Additional GamerTag name' : 'GamerTag name';
         input.setAttribute('aria-label', `GamerTag ${gamerTagList.children.length + 1}`);
-        input.style.cssText = 'min-width:0;flex:1;height:40px;padding:0 11px;border:2px solid #52627b;border-radius:8px;background:#111722;color:#f4f7ff;font:900 1rem inherit';
+        input.style.cssText = 'min-width:0;flex:1;height:25px;padding:0 7px;border:1px solid #52627b;border-radius:6px;background:#111722;color:#f4f7ff;font:900 11px "Segoe UI"';
         const plus = document.createElement('button');
-        plus.type = 'button'; plus.textContent = '+'; plus.title = 'Add another GamerTag';
-        plus.style.cssText = 'width:40px;height:40px;min-width:40px;padding:0;border-radius:8px;font-size:1.35rem;font-weight:1000';
+        plus.type = 'button'; plus.className = 'gamertag-add-button'; plus.textContent = '+'; plus.title = 'Add another GamerTag';
         plus.addEventListener('click', () => { addGamerTagRow(); plus.hidden = true; gamerTagList.lastElementChild?.querySelector('input')?.focus(); });
         row.append(input, plus); gamerTagList.append(row);
         if (gamerTagList.children.length >= 4) plus.hidden = true;
@@ -9765,6 +10053,24 @@
       const device = selectedDevice;
       try {
         if (!device || !selectedDeviceOnline) throw new Error('Select an online Batocera machine first.');
+        const profileChoice = await showXboxBiosDialog({
+          title: 'Xbox 360 Profile', device,
+          message: '• Xenia Profile: Quit any running Xbox 360 game and return to Batocera’s game list, then open Xenia’s native profile manager.\n• GamerTag (Xbox): Create and install offline GamerTags through RP1.',
+          confirmLabel: 'GamerTag (Xbox)',
+          alternateLabel: 'Xenia Profile', alternateValue: 'xenia-profile',
+          cancellable: true, showCancel: false,
+          glassyActions: true, profileChoiceActions: true
+        });
+        if (!profileChoice) return;
+        if (profileChoice === 'xenia-profile') {
+          syncStatus.textContent = 'Opening Xenia profile setup…';
+          const response = await fetch('/api/xenia-profile/open', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.error || 'Could not open Xenia profile setup.');
+          syncStatus.textContent = 'Xenia profile setup opened on the Batocera machine.';
+          await showXboxBiosDialog({title:'Xenia Profile', device, message:'Profile setup opened on the Batocera machine.', confirmLabel:'OK', glassyActions:true});
+          return;
+        }
         const statusResponse = await fetch(`${apiBase}/api/xenia-profile/status?device=${encodeURIComponent(device)}`);
         const status = await statusResponse.json();
         if (!statusResponse.ok || !status.ok) throw new Error(status.error || 'Could not read Xbox 360 GamerTags.');
@@ -9778,21 +10084,10 @@
         syncStatus.textContent = `Xbox 360 GamerTags ready: ${gamerTags.join(', ')}`;
         await showXboxBiosDialog({title:'Xbox 360 GamerTags', device, message:`Saved: ${gamerTags.join(', ')}. These profiles are available to every Xbox 360 game on this machine.`, confirmLabel:'OK'});
       } catch (error) {
-        syncStatus.textContent = `Xbox 360 GamerTags failed: ${error.message}`;
-        await showXboxBiosDialog({title:'Xbox 360 GamerTags', device, message:error.message, confirmLabel:'OK'});
+        syncStatus.textContent = `Xbox 360 profile failed: ${error.message}`;
+        await showXboxBiosDialog({title:'Xbox 360 Profile', device, message:error.message, confirmLabel:'OK', glassyActions:true});
       }
     });
-
-    async function refreshUsbLibraryReaderButton(device, button) {
-      try {
-        const response = await fetch(`${apiBase}/api/usb-library-reader/status?device=${encodeURIComponent(device)}`);
-        const result = await response.json();
-        if (response.ok && result.ok && result.installed) {
-          button.classList.add("installed");
-          button.title = "USB Library Reader installed";
-        }
-      } catch {}
-    }
 
     advancedToggle.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -9802,7 +10097,11 @@
 
     let backupRestorePoll = null;
     let availableBackups = [];
+    let backupRestoreLastMode = "backup";
+    let backupNameDraft = "";
     function backupCategoryBoxes() { return [...backupRestoreCategories.querySelectorAll('input[type="checkbox"]')]; }
+    function backupChoiceLabel(item) { return `${item.name || "Backup"} — ${new Date(item.createdAt).toLocaleString()}`; }
+    function selectedBackupChoice() { return availableBackups.find(item => backupChoiceLabel(item) === backupRestoreChoice.value); }
     function formatBackupSize(bytes) {
       const value = Math.max(0,Number(bytes) || 0);
       if (value < 1024) return `${value} B`;
@@ -9825,9 +10124,14 @@
     }
     function updateBackupRestoreMode() {
       const restoring = backupRestoreMode.value === "restore";
-      backupRestoreSetRow.hidden = !restoring;
+      if (backupRestoreLastMode !== backupRestoreMode.value) {
+        if (restoring) { backupNameDraft = backupRestoreChoice.value.trim(); backupRestoreChoice.value = availableBackups[0] ? backupChoiceLabel(availableBackups[0]) : ""; }
+        else backupRestoreChoice.value = backupNameDraft;
+        backupRestoreLastMode = backupRestoreMode.value;
+      }
+      backupRestoreChoice.placeholder = restoring ? "Choose a saved backup" : "Type a new backup name";
       startBackupRestore.textContent = restoring ? "Restore Selected" : "Back Up Selected";
-      const selected = availableBackups.find(item => item.id === backupRestoreSet.value);
+      const selected = selectedBackupChoice();
       backupCategoryBoxes().forEach(box => {
         box.disabled = restoring && !selected?.categories?.includes(box.value);
         if (box.disabled) box.checked = false;
@@ -9839,11 +10143,16 @@
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "Could not read backup status.");
         availableBackups = result.backups || [];
-        const prior = backupRestoreSet.value;
-        backupRestoreSet.innerHTML = availableBackups.length
-          ? availableBackups.map(item => `<option value="${item.id}">${new Date(item.createdAt).toLocaleString()} — ${item.categories.length} categories</option>`).join("")
-          : '<option value="">No backups found</option>';
-        if (availableBackups.some(item => item.id === prior)) backupRestoreSet.value = prior;
+        const prior = backupRestoreChoice.value;
+        backupRestoreOptions.replaceChildren(...availableBackups.map(item => {
+          const option = document.createElement('option');
+          option.value = backupChoiceLabel(item);
+          option.label = `${item.categories.length} categories`;
+          return option;
+        }));
+        if (backupRestoreMode.value === "restore" && !availableBackups.some(item => backupChoiceLabel(item) === prior)) {
+          backupRestoreChoice.value = availableBackups[0] ? backupChoiceLabel(availableBackups[0]) : "";
+        }
         updateBackupRestoreMode();
         const job = result.job || {};
         if (job.running) {
@@ -9868,19 +10177,26 @@
       closeAdvancedMenu();
       backupRestoreDevice.textContent = machineDisplayName(selectedDevice);
       backupRestoreModal.classList.add("open");
-      backupRestoreMessage.textContent = "Backups are saved in Ready Player One's Backups folder on this PC.";
+      backupRestoreMessage.textContent = "C:\\Users\\EF\\Documents\\Ready Player One\\backup";
       refreshBackupRestore();
       refreshBackupSizes();
     });
     backupRestoreMode.addEventListener("change", updateBackupRestoreMode);
-    backupRestoreSet.addEventListener("change", updateBackupRestoreMode);
+    backupRestoreChoice.addEventListener("input", updateBackupRestoreMode);
+    openBackupRestoreOptions.addEventListener("click", () => {
+      backupRestoreChoice.focus();
+      if (typeof backupRestoreChoice.showPicker === "function") backupRestoreChoice.showPicker();
+      else backupRestoreChoice.dispatchEvent(new KeyboardEvent("keydown", {key:"ArrowDown", bubbles:true}));
+    });
     startBackupRestore.addEventListener("click", async () => {
       const categories = backupCategoryBoxes().filter(box => box.checked && !box.disabled).map(box => box.value);
       if (!categories.length) { backupRestoreMessage.textContent = "Select at least one category."; return; }
+      const selectedBackup = selectedBackupChoice();
+      if (backupRestoreMode.value === "restore" && !selectedBackup) { backupRestoreMessage.textContent = "Choose a saved backup from the dropdown."; return; }
       startBackupRestore.disabled = true;
       backupRestoreMessage.textContent = backupRestoreMode.value === "restore" ? "Starting restore…" : "Starting backup…";
       try {
-        const response = await fetch(`${apiBase}/api/backup-restore/start`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:selectedDevice,mode:backupRestoreMode.value,backupId:backupRestoreSet.value,categories})});
+        const response = await fetch(`${apiBase}/api/backup-restore/start`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:selectedDevice,mode:backupRestoreMode.value,backupId:selectedBackup?.id || "",backupName:backupRestoreChoice.value.trim(),categories})});
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "Could not start backup operation.");
         backupRestorePoll = setInterval(refreshBackupRestore,1500); refreshBackupRestore();
@@ -10314,29 +10630,6 @@
       }
     });
 
-    async function installUsbLibraryReader(device, button) {
-      button.disabled = true;
-      syncStatus.textContent = `Installing USB Library Reader on ${machineDisplayName(device)}...`;
-      try {
-        const response = await fetch(`${apiBase}/api/usb-library-reader/install`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device })
-        });
-        const result = await response.json();
-        if (!response.ok || !result.ok || !result.installed) throw new Error(result.error || "Installation could not be verified.");
-        button.classList.add("installed");
-        button.title = "USB Library Reader installed";
-        syncStatus.textContent = `USB Library Reader installed on ${result.drive}. Boot Batocera once to create its list.`;
-      } catch (error) {
-        button.classList.remove("installed");
-        button.title = "USB Library Reader";
-        syncStatus.textContent = error.message;
-      } finally {
-        button.disabled = false;
-      }
-    }
-
     document.addEventListener("click", (event) => {
       if (!advancedFeatures.contains(event.target)) {
         closeAdvancedMenu();
@@ -10348,9 +10641,9 @@
       retroBatMachineMenu?.remove();
       retroBatMachineMenu = null;
     }
-    async function openMachineFrameRate(card) {
+    async function openMachineOsd(card) {
       const device = card.dataset.device;
-      const finished = showXboxBiosDialog({title:'Frame Rate', device, message:'Reading frame-rate and performance HUD options…', confirmLabel:'Done'});
+      const finished = showXboxBiosDialog({title:'OSD (On-Screen Display)', device, message:'Reading on-screen display options…', confirmLabel:'Done', glassyActions:true});
       xboxBiosDialog.classList.add('display-compact');
       try {
         const response = await fetch(`/api/machine-display?device=${encodeURIComponent(device)}`, {cache:'no-store'});
@@ -10359,32 +10652,54 @@
         if (!result.supported) throw new Error(result.reason || 'Display controls are unavailable for this machine.');
         xboxBiosDialogMessage.textContent = '';
         xboxBiosDialogMessage.style.whiteSpace = 'normal';
-        const row = document.createElement('label');
-        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #ffffff18;cursor:pointer';
-        const copy = document.createElement('span');
-        copy.innerHTML = '<strong style="display:block">Automatic Performance HUD</strong><small style="display:block;margin-top:2px;opacity:.72">Uses a clean MangoHud overlay without console bezels on Xenia.</small>';
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox'; checkbox.checked = Boolean(result.hud);
-        checkbox.style.cssText = 'width:19px;height:19px;accent-color:#63b4ff';
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display:grid;gap:0';
+        const globalHud = document.createElement('input');
+        globalHud.type = 'checkbox'; globalHud.checked = Boolean(result.globalHud);
+        const xeniaHudSupport = document.createElement('input');
+        xeniaHudSupport.type = 'checkbox'; xeniaHudSupport.checked = Boolean(result.xeniaHudSupport);
+        const xbox360Bezel = document.createElement('select');
+        xbox360Bezel.innerHTML = '<option value="default">Default</option><option value="none">None</option>';
+        xbox360Bezel.value = result.xbox360Bezel === 'none' ? 'none' : 'default';
+        [globalHud,xeniaHudSupport].forEach(control => { control.style.cssText = 'width:19px;height:19px;accent-color:#63b4ff'; });
+        xbox360Bezel.style.cssText = 'width:100px;height:27px;border:1px solid #6794c9;border-radius:7px;background:#111b29;color:#eef6ff;padding:0 7px;font:900 10px "Segoe UI"';
+        const controlRow = (title, detail, control) => {
+          const row = document.createElement('label');
+          row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid #ffffff18;cursor:pointer';
+          const copy = document.createElement('span');
+          copy.innerHTML = `<strong style="display:block">${title}</strong><small style="display:block;margin-top:2px;opacity:.72">• ${detail}</small>`;
+          row.append(copy,control);
+          return row;
+        };
+        controls.append(
+          controlRow('Global Performance OSD','Sets global.hud=perf for compatible emulators.',globalHud),
+          controlRow('Xenia MangoHud Support','Sets xbox360.hud_support=true for Xbox 360.',xeniaHudSupport),
+          controlRow('Xbox 360 Bezel','Choose Default or None for xbox360.bezel.',xbox360Bezel)
+        );
         const status = document.createElement('div');
         status.style.cssText = 'min-height:15px;margin-top:4px;font-size:11px;opacity:.8';
-        status.textContent = result.gameRunning && !result.hudAttached
-          ? 'A game is already running. Relaunch it after enabling the HUD.'
-          : result.xeniaCompatibilityMode
-            ? 'Enabled for Xbox 360/Xenia with its covering bezel disabled.'
-            : 'Changes apply to the next game you launch.';
-        checkbox.addEventListener('change', async () => {
-          checkbox.disabled = true; status.textContent = checkbox.checked ? 'Enabling performance HUD…' : 'Disabling performance HUD…';
+        status.textContent = result.gameRunning ? '• A game is running. Saved changes apply after relaunching it.' : '• Changes apply to the next game you launch.';
+        const allControls = [globalHud,xeniaHudSupport,xbox360Bezel];
+        const values = () => ({globalHud:globalHud.checked,xeniaHudSupport:xeniaHudSupport.checked,xbox360Bezel:xbox360Bezel.value});
+        let lastSaved = values();
+        const saveSettings = async () => {
+          allControls.forEach(control => { control.disabled = true; });
+          status.textContent = '• Saving OSD settings…';
           try {
-            const save = await fetch('/api/machine-display', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device,hud:checkbox.checked})});
+            const save = await fetch('/api/machine-display', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device,...values()})});
             const saved = await save.json();
             if (!save.ok || !saved.ok) throw new Error(saved.error || 'Could not save display settings.');
-            status.textContent = saved.requiresRelaunch ? 'Saved. Exit and relaunch the current game.' : checkbox.checked ? 'Enabled. Xbox 360 will use MangoHud without a bezel.' : 'Performance HUD disabled.';
+            lastSaved = values();
+            status.textContent = saved.requiresRelaunch ? '• Saved. Exit and relaunch the current game.' : '• OSD settings saved.';
           } catch (error) {
-            checkbox.checked = !checkbox.checked; status.textContent = error.message;
-          } finally { checkbox.disabled = false; }
-        });
-        row.append(copy, checkbox); xboxBiosDialogMessage.append(row, status);
+            globalHud.checked = lastSaved.globalHud;
+            xeniaHudSupport.checked = lastSaved.xeniaHudSupport;
+            xbox360Bezel.value = lastSaved.xbox360Bezel;
+            status.textContent = `• ${error.message}`;
+          } finally { allControls.forEach(control => { control.disabled = false; }); }
+        };
+        allControls.forEach(control => control.addEventListener('change',saveSettings));
+        xboxBiosDialogMessage.append(controls,status);
       } catch (error) { xboxBiosDialogMessage.textContent = error.message; }
       await finished;
       xboxBiosDialog.classList.remove('display-compact');
@@ -10498,6 +10813,18 @@
           : `Ad Hoc Display stopped while ${adHocStage}: ${detail}`;
         await showXboxBiosDialog({title:'Ad hoc Display', device, message, confirmLabel:'OK', glassyActions:true});
       }
+    }
+    async function openMachineDisplayChoice(card) {
+      const choice = await showXboxBiosDialog({
+        title:'Display', device:card.dataset.device,
+        message:'• Network uses the machine’s current Wi-Fi or LAN connection.\n• Ad Hoc uses a direct Ethernet connection to this RP1 computer.',
+        confirmLabel:'Network', alternateLabel:'Ad Hoc', alternateValue:'ad-hoc',
+        cancellable:true, showCancel:false,
+        glassyActions:true, profileChoiceActions:true
+      });
+      if (!choice) return;
+      if (choice === 'ad-hoc') await openMachineAdHocDisplay(card);
+      else await openMachineRemoteDisplay(card);
     }
     function showRetroBatMachineMenu(card, x, y) {
       closeRetroBatMachineMenu();
@@ -10799,47 +11126,21 @@
       });
       menu.append(behaviorButton);
       if (card.dataset.platform === 'batocera') {
-        const xeniaProfileButton = document.createElement('button');
-        xeniaProfileButton.type = 'button';
-        xeniaProfileButton.className = 'advanced-item';
-        xeniaProfileButton.setAttribute('role', 'menuitem');
-        xeniaProfileButton.textContent = 'Xenia (Xbox 360) Profile';
-        xeniaProfileButton.style.marginTop = '4px';
-        xeniaProfileButton.addEventListener('click', async () => {
-          closeRetroBatMachineMenu();
-          try {
-            const response = await fetch('/api/xenia-profile/open', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device:card.dataset.device})});
-            const result = await response.json();
-            if (!response.ok || !result.ok) throw new Error(result.error || 'Could not open Xenia profile setup.');
-            await showXboxBiosDialog({title:'Xenia (Xbox 360) Profile', device:machineDisplayName(card.dataset.device), message:'Profile setup opened on the Batocera machine.', confirmLabel:'OK'});
-          } catch (error) {
-            await showXboxBiosDialog({title:'Xenia (Xbox 360) Profile', device:machineDisplayName(card.dataset.device), message:error.message, confirmLabel:'OK'});
-          }
-        });
-        menu.append(xeniaProfileButton);
         const remoteDisplayButton = document.createElement('button');
         remoteDisplayButton.type = 'button';
-        remoteDisplayButton.className = 'advanced-item';
+        remoteDisplayButton.className = 'advanced-item display-action';
         remoteDisplayButton.setAttribute('role', 'menuitem');
         remoteDisplayButton.textContent = 'Display';
         remoteDisplayButton.style.marginTop = '4px';
-        remoteDisplayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineRemoteDisplay(card); });
+        remoteDisplayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineDisplayChoice(card); });
         menu.append(remoteDisplayButton);
-        const adHocDisplayButton = document.createElement('button');
-        adHocDisplayButton.type = 'button';
-        adHocDisplayButton.className = 'advanced-item';
-        adHocDisplayButton.setAttribute('role', 'menuitem');
-        adHocDisplayButton.textContent = 'Ad hoc Display';
-        adHocDisplayButton.style.marginTop = '4px';
-        adHocDisplayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineAdHocDisplay(card); });
-        menu.append(adHocDisplayButton);
         const displayButton = document.createElement('button');
         displayButton.type = 'button';
-        displayButton.className = 'advanced-item';
+        displayButton.className = 'advanced-item osd-action';
         displayButton.setAttribute('role', 'menuitem');
-        displayButton.textContent = 'Frame Rate';
+        displayButton.textContent = 'OSD (On-Screen Display)';
         displayButton.style.marginTop = '4px';
-        displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineFrameRate(card); });
+        displayButton.addEventListener('click', () => { closeRetroBatMachineMenu(); openMachineOsd(card); });
         menu.append(displayButton);
       }
       showCompactMachineMenu(button);
@@ -10977,42 +11278,6 @@
       confirmXboxBiosDialog.disabled = false;
       return accepted ? choices.filter(choice => choice.selected).map(choice => choice.id) : [];
     }
-
-    document.querySelector('#openUsbController').addEventListener('click', async event => {
-      const button = event.currentTarget;
-      closeAdvancedMenu();
-      button.disabled = true;
-      try {
-        const devices = await chooseSupportedBatoceraMachines({
-          title:'USB Controller', confirmLabel:'Next',
-          message:'Select one active Batocera machine, or hold Ctrl while clicking to select more than one.'
-        });
-        if (!devices.length) return;
-        const names = devices.map(machineDisplayName).join(', ');
-        const approved = await showXboxBiosDialog({
-          title:'Confirm USB Controller', device:names, cancellable:true,
-          confirmLabel:'Install', cancelLabel:'Cancel',
-          message:'USB Controller installs a small Batocera background service. It scans the machine’s systems and games every 30 seconds and safely writes /boot/ready-player-one/library.json on the Windows-readable USB boot partition. The JSON is a library inventory only; it does not copy or move any games.'
-        });
-        if (!approved) return;
-        const results=[];
-        for(const device of devices){
-          syncStatus.textContent=`Installing USB Controller on ${machineDisplayName(device)}...`;
-          try{
-            const response=await fetch(`${apiBase}/api/usb-controller/install`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device})});
-            if(response.status===404||response.status===405)throw new Error('Ready Player One’s background server is outdated. Stop the old Ready Player One terminal with Ctrl+C, then reopen the app. Batocera does not need to reboot.');
-            const result=await response.json();
-            if(!response.ok||!result.ok||!result.installed)throw new Error(result.error||'Installation could not be verified.');
-            results.push(`${machineDisplayName(device)}: Installed — ${result.path}`);
-          }catch(error){results.push(`${machineDisplayName(device)}: FAILED — ${error.message}`);}
-        }
-        syncStatus.textContent=`USB Controller setup finished for ${devices.length} machine${devices.length===1?'':'s'}`;
-        await showXboxBiosDialog({title:'USB Controller Setup',device:`${devices.length} selected`,confirmLabel:'OK',message:results.join('\n\n')});
-      }catch(error){
-        syncStatus.textContent=error.message;
-        await showXboxBiosDialog({title:'USB Controller Setup Failed',device:'USB Controller',confirmLabel:'OK',message:error.message});
-      }finally{button.disabled=false;}
-    });
 
     function closePs1BiosModal() {
       ps1BiosModal.classList.remove("open");

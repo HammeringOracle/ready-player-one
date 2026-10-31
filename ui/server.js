@@ -3386,9 +3386,13 @@ async function getMachineDisplay(device) {
     const processState = await execOnSshClient(client, "pids=$(pgrep -f '[x]enia|[r]pcs3|[c]emu|[d]olphin|[r]etroarch' || true); if [ -n \"$pids\" ]; then game=1; else game=0; fi; hud=0; for pid in $pids; do if tr '\\0' '\\n' </proc/$pid/environ 2>/dev/null | grep -q -E '^MANGOHUD(_CONFIG|_CONFIGFILE)?='; then hud=1; break; fi; done; echo GAME=$game,HUD=$hud", 10000);
     const hudEnabled = String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf";
     const xeniaHudEnabled = String(batoceraSetting(config, "xbox360.hud_support") || "").toLowerCase() === "true";
+    const xbox360Bezel = String(batoceraSetting(config, "xbox360.bezel") || "default").toLowerCase();
     return {
       supported: true,
       hud: hudEnabled && xeniaHudEnabled,
+      globalHud: hudEnabled,
+      xeniaHudSupport: xeniaHudEnabled,
+      xbox360Bezel: xbox360Bezel === "none" ? "none" : "default",
       gameRunning: /GAME=1/.test(processState),
       hudAttached: /HUD=1/.test(processState),
       xeniaCompatibilityMode: xeniaHudEnabled
@@ -3402,7 +3406,16 @@ async function setMachineDisplay(device, values) {
   }
   return sftpWithDevice(device, async (sftp, client) => {
     let config = await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "");
-    if (typeof values.hud === "boolean") {
+    if (typeof values.globalHud === "boolean" || typeof values.xeniaHudSupport === "boolean" || typeof values.xbox360Bezel === "string") {
+      config = values.globalHud === true
+        ? setBatoceraSetting(config, "global.hud", "perf")
+        : values.globalHud === false ? removeBatoceraSetting(config, "global.hud") : config;
+      config = values.xeniaHudSupport === true
+        ? setBatoceraSetting(config, "xbox360.hud_support", "true")
+        : values.xeniaHudSupport === false ? removeBatoceraSetting(config, "xbox360.hud_support") : config;
+      if (values.xbox360Bezel === "none") config = setBatoceraSetting(config, "xbox360.bezel", "none");
+      else if (values.xbox360Bezel === "default") config = removeBatoceraSetting(config, "xbox360.bezel");
+    } else if (typeof values.hud === "boolean") {
       if (values.hud) {
         config = setBatoceraSetting(config, "global.hud", "perf");
         // Xenia needs the MangoHud wrapper explicitly enabled. Batocera's default
@@ -3426,6 +3439,9 @@ async function setMachineDisplay(device, values) {
     return {
       supported: true,
       hud: String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf",
+      globalHud: String(batoceraSetting(config, "global.hud") || "").toLowerCase() === "perf",
+      xeniaHudSupport: String(batoceraSetting(config, "xbox360.hud_support") || "").toLowerCase() === "true",
+      xbox360Bezel: String(batoceraSetting(config, "xbox360.bezel") || "").toLowerCase() === "none" ? "none" : "default",
       gameRunning,
       hudAttached,
       requiresRelaunch: gameRunning
@@ -5450,6 +5466,10 @@ async function retryPendingArtwork() {
   } catch (error) { console.error('Artwork publishing retry:', error.message); }
   finally { retryingArtwork = false; }
 }
+function wakePendingArtworkPublisher() {
+  setImmediate(() => retryPendingArtwork().catch(error =>
+    console.error('Artwork publishing wake-up:', error.message)));
+}
 const artworkRetryTimer = setInterval(retryPendingArtwork, 15000);
 artworkRetryTimer.unref();
 const artworkStartupRetry = setTimeout(retryPendingArtwork, 1000);
@@ -5649,10 +5669,13 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
     // verified result. This is especially important for GameCube, where a
     // legacy rectangular selector makes correct disc artwork look broken.
     const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork: [image], ensurePresentation: true });
-    progress(75, "No Picture Matches — copying default picture");
-    const published = await artworkPublishQueue.retry(id);
-    progress(100, "No Picture Matches");
-    return { status: published ? "published" : "queued", matched: false, artwork: true, fallback: true };
+    progress(75, "No Picture Matches — default picture queued");
+    // Artwork is durable and published in batches. Never keep a ROM transfer
+    // slot waiting on a second SSH session; ten small ROMs otherwise all stop
+    // near 94% while their individual fallback-cover writers contend.
+    wakePendingArtworkPublisher();
+    progress(100, "No Picture Matches — default picture queued");
+    return { status: "queued", matched: false, artwork: true, fallback: true, publishId: id };
   }
   if (!metadata) {
     progress(100, "No Picture Matches");
@@ -5679,9 +5702,8 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
   const artwork = [image, background].filter((item, index, all) => item && all.findIndex(other => other?.localPath === item.localPath) === index);
   const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), metadata, image ? `./media/images/${image.fileName}` : "")];
   const id = artworkPublishQueue.add({ deviceName, system, transferFileName: fileName, entries, artwork, ensurePresentation: true });
-  progress(75, "Copying picture");
-  const published = await artworkPublishQueue.retry(id);
-  if (published && system === "ps1" && [".cue", ".m3u"].includes(path.posix.extname(fileName).toLowerCase())) {
+  progress(75, "Picture queued");
+  if (system === "ps1" && [".cue", ".m3u"].includes(path.posix.extname(fileName).toLowerCase())) {
     const titleKey = localCoverKey(cleanRomName(fileName));
     for (const pending of artworkPublishQueue.list().filter(job => job.deviceName === deviceName && job.system === "ps1")) {
       const pendingPath = firstXmlTag(pending.entries?.[0] || "", "path");
@@ -5690,8 +5712,9 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
       }
     }
   }
-  progress(100, "Picture complete");
-  return { status: published ? "published" : "queued", matched: true, artwork: Boolean(image) };
+  wakePendingArtworkPublisher();
+  progress(100, "Picture queued");
+  return { status: "queued", matched: true, artwork: Boolean(image), publishId: id };
 }
 
 const sftpCleanupTimer = setInterval(() => {
@@ -9327,7 +9350,7 @@ function listMachineBackups(deviceName) {
     let manifest = {};
     try { manifest = JSON.parse(fs.readFileSync(path.join(folder,"manifest.json"),"utf8")); } catch {}
     const categories = Object.keys(backupCategories).filter(key => fs.existsSync(path.join(folder,`${key}.tar.gz`)));
-    return {id:entry.name,createdAt:manifest.createdAt || entry.name,categories};
+    return {id:entry.name,name:String(manifest.name || "").trim(),createdAt:manifest.createdAt || entry.name,categories};
   }).sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
@@ -9364,7 +9387,7 @@ printf 'save-states='; find /userdata/saves -type f \\( -name '*.state' -o -name
   return sizes;
 }
 
-async function runBackupRestore(deviceName, device, mode, categories, backupId="") {
+async function runBackupRestore(deviceName, device, mode, categories, backupId="", backupName="") {
   backupRestoreJob = {running:true,mode,device:deviceName,backupId,categories,completed:[],current:"",errors:[],finishedAt:""};
   try {
     const machineDir = path.join(backupsPath, safeBackupMachineName(deviceName));
@@ -9392,7 +9415,7 @@ async function runBackupRestore(deviceName, device, mode, categories, backupId="
       }
       backupRestoreJob.completed.push(key);
     }
-    if (mode === "backup") fs.writeFileSync(path.join(folder,"manifest.json"),JSON.stringify({version:1,device:deviceName,host:device.host,createdAt:new Date().toISOString(),categories},null,2));
+    if (mode === "backup") fs.writeFileSync(path.join(folder,"manifest.json"),JSON.stringify({version:1,name:String(backupName || "").trim().slice(0,80),device:deviceName,host:device.host,createdAt:new Date().toISOString(),categories},null,2));
   } catch (error) { backupRestoreJob.errors.push(error.message); }
   backupRestoreJob.running = false; backupRestoreJob.current = ""; backupRestoreJob.finishedAt = new Date().toISOString();
 }
@@ -9574,7 +9597,7 @@ const server = http.createServer(async (req, res) => {
       const categories = [...new Set(Array.isArray(body.categories) ? body.categories : [])].filter(key => backupCategories[key]);
       if (!categories.length) { sendJson(res,400,{ok:false,error:"Select at least one category."}); return; }
       const device = await getRuntimeDevice(body.device);
-      runBackupRestore(body.device,device,mode,categories,String(body.backupId || ""));
+      runBackupRestore(body.device,device,mode,categories,String(body.backupId || ""),String(body.backupName || ""));
       sendJson(res,202,{ok:true,job:backupRestoreJob});
       return;
     }
@@ -11116,10 +11139,7 @@ ${check}
       const system = String(body.system || "");
       cancelledTransferScopes.delete(transferScopeKey(body.device, system));
       const names = [...new Set(Array.isArray(body.fileNames) ? body.fileNames.map(String) : [])]
-        .filter(fileName => !isExcludedLibraryGame(system, fileName))
-        .sort((left, right) => compareNaturalGameTitles(
-          displayGameTitle(system, left), displayGameTitle(system, right)
-        ));
+        .filter(fileName => !isExcludedLibraryGame(system, fileName));
       const queuedAt = new Date().toISOString();
       let queued = 0;
       const enqueueSettings = readDeviceSettings()[body.device] || {};
@@ -11987,10 +12007,12 @@ async function dispatchPersistedTransferQueue() {
       }
       const consoleQueue = queued
         .filter(job => job.system === selectedSystem)
-        .sort((left, right) => compareNaturalGameTitles(
-          displayGameTitle(left.system, left.fileName),
-          displayGameTitle(right.system, right.fileName)
-        ));
+        .sort((left, right) =>
+          Number(left.queueOrder || 0) - Number(right.queueOrder || 0) ||
+          compareNaturalGameTitles(
+            displayGameTitle(left.system, left.fileName),
+            displayGameTitle(right.system, right.fileName)
+          ));
       const activeConsoleSlots = activeSlots.filter(job => job.system === selectedSystem);
       const transferSize = job => Number(job.totalBytes || localTransferSize(job.system, job.fileName).totalBytes || 0);
       // Preserve the established 4/10 rule inside the console that owns the
