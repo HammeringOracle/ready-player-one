@@ -1006,7 +1006,11 @@ function intToIp(value) {
   return [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join(".");
 }
 
+let activeLanNetworkSnapshot = null;
+let activeLanNetworkSnapshotAt = 0;
 function activeLanNetworks() {
+  const now = Date.now();
+  if (activeLanNetworkSnapshot && now - activeLanNetworkSnapshotAt < 1000) return activeLanNetworkSnapshot;
   const networks = [];
   Object.entries(os.networkInterfaces()).forEach(([adapterName, addresses]) => (addresses || []).forEach(info => {
     if (!info || info.family !== "IPv4" || info.internal || !isPrivateLanAddress(info.address) ||
@@ -1017,6 +1021,8 @@ function activeLanNetworks() {
     const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
     networks.push({ address: info.address, mask, network: ipToInt(info.address) & mask });
   }));
+  activeLanNetworkSnapshot = networks;
+  activeLanNetworkSnapshotAt = now;
   return networks;
 }
 
@@ -2692,15 +2698,15 @@ function endDedicatedSshHost(host) {
 function sftpTransferOptions(fileSize) {
   // Four large ROMs may transfer together. Eight SFTP writes per ROM created
   // a 32-request burst that could make Batocera/dropbear reset every new
-  // channel before GameCube transfers even left "Starting". Four pipelined
-  // writes per large file still fills the link while bounding the machine-wide
-  // pressure at sixteen writes under the established 4-file rule.
+  // channel while inventory polling competed for SSH. Inventory now defers
+  // during uploads, so eight pipelined writes per large file restores useful
+  // LAN throughput while retaining the established four-file ceiling.
   // ssh2 explicitly warns that non-default chunk sizes are not supported by
   // every SFTP server. Batocera/Dropbear resets channels receiving RP1's old
   // 512 KiB writes before the first byte is committed. Keep the standard
   // 32 KiB packet and obtain throughput from bounded pipelining plus the
   // scheduler's parallel-file pool.
-  return { concurrency: fileSize > 50 * 1024 * 1024 ? 4 : 3, chunkSize: 32 * 1024 };
+  return { concurrency: fileSize > 50 * 1024 * 1024 ? 8 : 3, chunkSize: 32 * 1024 };
 }
 
 function closeSftpSession(host) {
@@ -2811,7 +2817,9 @@ function closeUploadSftpSession(entry) {
   if (entry.closed) return;
   entry.closed = true;
   clearTimeout(entry.timer);
-  entry.client.end();
+  // This connection belongs only to this upload. Do not wait indefinitely
+  // for a graceful close when cancelling a blocked writer.
+  entry.client.destroy();
 }
 
 // Dropbear may reset a burst of simultaneous, not-yet-authenticated clients
@@ -2841,12 +2849,9 @@ function queueSshAuthentication(host, begin) {
 
 function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
   return new Promise((resolve, reject) => {
-    // Uploads must begin on a newly authenticated channel. Reusing an idle
-    // upload session proved unreliable with Batocera/dropbear: the cached
-    // client could look open locally while its SFTP channel had already been
-    // retired remotely, causing every GameCube retry to remain at zero bytes.
-    // A ROM transfer lasts far longer than a fresh SSH handshake, so favor a
-    // deterministic connection over an unsafe micro-optimization.
+    // Each concurrent ROM gets an independent SSH connection. Batocera's
+    // Dropbear server can stall several SFTP channels multiplexed through one
+    // transport, while independent authenticated clients continue normally.
     const entry = {
       host: device.host, user: device.user, password: device.password,
       client: new Client(), sftp: null, timer: null, activeFail: null, closed: false
@@ -2871,41 +2876,26 @@ function sftpWithDedicatedDeviceOnce(device, work, registerCancel = null) {
     const startWork = () => Promise.resolve().then(() => work(entry.sftp, entry.client)).then(value => finish(null, value), finish);
     entry.client
       .on("ready", () => {
-        releaseAuthentication();
+        // Leave a small quiet interval before the next client authenticates;
+        // otherwise four large files hit Dropbear in the same millisecond.
+        setTimeout(releaseAuthentication, 350);
         entry.client.sftp((error, channel) => {
           if (error) return finish(error);
           entry.sftp = channel;
           startWork();
         });
       })
-      .on("error", error => {
-        entry.activeFail?.(error);
-        closeUploadSftpSession(entry);
-      })
-      .on("close", () => {
-        entry.activeFail?.(new Error("SSH upload connection closed."));
-        closeUploadSftpSession(entry);
-      })
-      ;
+      .on("error", error => entry.activeFail?.(error))
+      .on("close", () => entry.activeFail?.(new Error("SSH upload connection closed.")));
     const connectUpload = release => {
       releaseAuthentication = release;
-      if (settled) {
-        release();
-        return;
-      }
+      if (settled) return release();
       entry.client.connect({
-          host: device.host,
-          username: device.user,
-          password: device.password,
-          readyTimeout: 30000,
-          keepaliveInterval: 10000,
-          keepaliveCountMax: 3,
-          tryKeyboard: false
-        });
+        host: device.host, username: device.user, password: device.password,
+        readyTimeout: 30000, keepaliveInterval: 10000, keepaliveCountMax: 3,
+        tryKeyboard: false
+      });
     };
-    // Serialize authentication per host, then let authenticated uploads use
-    // the normal 10-small/4-large pool. A transient failure must never
-    // permanently downgrade this machine to one transfer.
     queueSshAuthentication(device.host, connectUpload);
   });
 }
@@ -5256,10 +5246,9 @@ system=${JSON.stringify(systemFolders[system])}
 entries=ET.fromstring(base64.b64decode(${JSON.stringify(encoded)}))
 def request(route,data=None,kind="application/json"):
  req=urllib.request.Request(base+route,data=data,headers={"Content-Type":kind})
- with urllib.request.urlopen(req,timeout=20) as response: return response.read()
-def games(): return {g["path"]:g for g in json.loads(request("/systems/"+system+"/games"))}
-try: known=games()
-except Exception: known={}
+ # This is an optional live refresh. Durable XML/media verification below
+ # determines success; an unresponsive ES API must not hold the copy queue.
+ with urllib.request.urlopen(req,timeout=0.5) as response: return response.read()
 gamelist_path=os.path.join(root,"gamelist.xml")
 if os.path.exists(gamelist_path):
  try:
@@ -5339,7 +5328,6 @@ for entry in entries:
   # registry. Batocera's per-game route is not available on every release.
   wrapper=ET.Element("gameList"); wrapper.append(entry)
   request("/addgames/"+system,ET.tostring(wrapper),"application/xml")
-  known=games()
  except Exception: pass
 `;
   // Large batches can exceed Batocera/dropbear's exec-command limit. Upload the
@@ -5907,7 +5895,40 @@ function statSftpOptional(sftp, remotePath) {
 // order, so an interrupted upload still has a contiguous, resumable prefix.
 function streamRomOverSsh(client, localPath, remotePath, offset, totalSize, onBytes) {
   return new Promise((resolve, reject) => {
-    const command = `cat ${offset ? ">>" : ">"} ${shellSingleQuoted(remotePath)}`;
+    const worker = new Worker(path.join(uiRoot, 'rom-stream-worker.js'), {
+      workerData: {localPath, remotePath, offset, totalSize, connection: {
+        host:client.config.host, port:client.config.port,
+        username:client.config.username, password:client.config.password
+      }}
+    });
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      client.removeListener('close', cancelled);
+      worker.terminate();
+      error ? reject(error) : resolve();
+    };
+    const cancelled = () => finish(new Error('Transfer paused by user.'));
+    client.once('close', cancelled);
+    worker.on('error', finish);
+    worker.on('exit', code => { if (!settled) finish(new Error('ROM transfer worker exited before completion ('+code+').')); });
+    worker.on('message', message => {
+      if (settled) return;
+      if (message.error) return finish(new Error(message.error));
+      if (message.done) return finish();
+      try { onBytes?.(message.bytes, totalSize, false); } catch(error) { finish(error); }
+    });
+  });
+}
+
+function streamRomOverSshLegacy(client, localPath, remotePath, offset, totalSize, onBytes) {
+  return new Promise((resolve, reject) => {
+    // Exit after the exact remaining byte count; do not depend on SSH EOF.
+    const target = shellSingleQuoted(remotePath);
+    const command = offset
+      ? `truncate -s ${offset} ${target} && head -c ${totalSize - offset} >> ${target}`
+      : `head -c ${totalSize} > ${target}`;
     client.exec(command, (openError, channel) => {
       if (openError) return reject(openError);
       const source = fs.createReadStream(localPath, { start: offset, highWaterMark: 1024 * 1024 });
@@ -5930,7 +5951,11 @@ function streamRomOverSsh(client, localPath, remotePath, offset, totalSize, onBy
         reject(error);
       };
       source.on("error", fail);
+      channel.on("close", () => source.destroy());
       channel.on("error", fail);
+      // Consume stdout even though head writes only to the destination file.
+      // ssh2 defers channel close until the readable side has been drained.
+      channel.resume();
       channel.stderr.on("data", chunk => { stderr = (stderr + chunk.toString()).slice(-2048); });
       source.on("data", chunk => {
         sent += chunk.length;
@@ -5955,7 +5980,12 @@ function streamRomOverSsh(client, localPath, remotePath, offset, totalSize, onBy
 async function resumablePutSftp(sftp, localPath, remotePath, onBytes, client = null) {
   const localSize = fs.statSync(localPath).size;
   const remoteStats = await statSftpOptional(sftp, remotePath);
-  const remoteSize = Number(remoteStats?.size || 0);
+  // Rewind one pipelined block after interruption: later writes in the final
+  // block may have reached disk before earlier writes were acknowledged.
+  const storedRemoteSize = Number(remoteStats?.size || 0);
+  const remoteSize = storedRemoteSize > 0 && storedRemoteSize <= localSize
+    ? Math.max(0, Math.floor((storedRemoteSize - 1) / (8 * 32 * 1024)) * (8 * 32 * 1024))
+    : storedRemoteSize;
   if (remoteStats && remoteSize === localSize) {
     onBytes?.(localSize, localSize, true);
     return { bytes: localSize, resumedFrom: localSize, skipped: true };
@@ -5966,6 +5996,11 @@ async function resumablePutSftp(sftp, localPath, remotePath, onBytes, client = n
     });
     onBytes?.(0, 0, false);
     return { bytes: 0, resumedFrom: 0, skipped: false };
+  }
+  if (client && localSize > 50 * 1024 * 1024) {
+    const offset = remoteSize > 0 && remoteSize < localSize ? remoteSize : 0;
+    await streamRomOverSshLegacy(client, localPath, remotePath, offset, localSize, onBytes);
+    return {bytes:localSize, resumedFrom:offset, skipped:false};
   }
   // Fresh and resumed disc images stay on SFTP. The experimental continuous
   // SSH stream could fill Dropbear's channel window at exactly 10 MiB when the
@@ -6012,15 +6047,27 @@ async function resumablePutSftp(sftp, localPath, remotePath, onBytes, client = n
     sftp.open(remotePath, "r+", (error, handle) => error ? reject(error) : resolve(handle));
   });
   try {
-    const buffer = Buffer.allocUnsafe(4 * 1024 * 1024);
+    const buffer = Buffer.allocUnsafe(8 * 32 * 1024);
     let position = remoteSize;
     while (position < localSize) {
       const length = Math.min(buffer.length, localSize - position);
       const { bytesRead } = await localHandle.read(buffer, 0, length, position);
       if (!bytesRead) throw new Error(`Unexpected end of local file: ${localPath}`);
-      await new Promise((resolve, reject) => {
-        sftp.write(remoteHandle, buffer, 0, bytesRead, position, error => error ? reject(error) : resolve());
-      });
+      const writes = [];
+      for (let offset = 0; offset < bytesRead; offset += 32 * 1024) {
+        const start = offset;
+        writes.push(new Promise((resolve, reject) => {
+          sftp.write(remoteHandle, buffer, start, Math.min(32 * 1024, bytesRead - start),
+            position + start, error => error ? reject(error) : resolve());
+        }));
+      }
+      const outcomes = await Promise.allSettled(writes);
+      const failed = outcomes.find(result => result.status === 'rejected');
+      if (failed) {
+        await new Promise((resolve, reject) => sftp.fsetstat(remoteHandle, {size:position},
+          error => error ? reject(error) : resolve()));
+        throw failed.reason;
+      }
       position += bytesRead;
       onBytes?.(position, localSize, false);
     }
@@ -10143,11 +10190,19 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
       }
+      const system = url.searchParams.get("system") || "mame";
+      // ROM uploads already have an installation-scoped durable queue and
+      // dedicated SSH channels. Do not open an inventory/authentication
+      // session while those channels are active; the UI retains its last
+      // confirmed snapshot and current progress rows until the batch pauses.
+      if (device.access === "ssh" && Number(activeDedicatedSshHosts.get(device.host) || 0) > 0) {
+        sendJson(res, 200, {ok:true, deferred:true, items:null, pendingResetGames:softResetPendingGames(machineId, system)});
+        return;
+      }
       if (device.access === "ssh" && (!device.platform || device.platform === "batocera")) {
         await ensureCurrentBatoceraInstallation(machineId, device);
       }
 
-      const system = url.searchParams.get("system") || "mame";
       let items;
       try {
         const libraryRequestKey = `${device.host}\u0000${system}`;
@@ -10167,7 +10222,7 @@ const server = http.createServer(async (req, res) => {
         // A library/authentication error is not proof of a disconnected machine.
         if (!reachable && device.access !== 'usb') invalidateMachineConnection(machineId);
         sendJson(res, 503, { ok: false, reconnecting: !reachable, error: reachable
-          ? 'Machine is reachable, but its library could not be read. Check its credentials or SSH service.'
+          ? 'Machine is reachable. Its library refresh is delayed; retrying.'
           : 'Connection interrupted. Rediscovering this machine and retrying its library.' });
         return;
       }
@@ -10981,7 +11036,10 @@ ${check}
 
     if (req.method === "POST" && url.pathname === "/api/transfers/enqueue") {
       const body = JSON.parse((await readBody(req)) || "{}");
-      const device = await getRuntimeDevice(body.device);
+      // The durable upload performs and retries its own authenticated SSH
+      // connection. A preliminary reachability probe delays Copy All and adds
+      // another socket precisely when a large batch is starting.
+      const device = await getRuntimeDevice(body.device, {skipConnectionProbe:true});
       if (!device) {
         sendJson(res, 404, { ok: false, error: "Device is not configured." });
         return;
@@ -10996,6 +11054,7 @@ ${check}
         ));
       const queuedAt = new Date().toISOString();
       let queued = 0;
+      const enqueueSettings = readDeviceSettings()[body.device] || {};
       for (const [queueOrder, fileName] of names.entries()) {
         const transferKey = JSON.stringify([body.device, system, fileName]);
         const existing = transferJobs.get(transferKey);
@@ -11003,19 +11062,27 @@ ${check}
         // completed activity record is only history: the ROM may since have
         // been removed.  Never let that stale history suppress a new Upload
         // All request.
-        if (existing?.running) continue;
+        if (existing?.running) {
+          // A rapid uncheck followed by Copy All can arrive while the old
+          // stream is still honoring its abort. Preserve the new intent and
+          // rebuild this job as soon as that stream closes.
+          if (existing.cancelRequested) {
+            existing.requeueAfterCancel = {queuedAt, queueOrder};
+            queued += 1;
+          }
+          continue;
+        }
         // Replacing an existing Map value does not change its insertion
         // position. Remove it first so a new Upload All cannot inherit stale
         // ordering from an earlier completed/cancelled transfer.
         transferJobs.delete(transferKey);
-        const size = localTransferSize(system, fileName);
         transferJobs.set(transferKey, {
           device: body.device, transport: device.access, system, fileName,
           queueVersion: 2,
-          installationId: String(readDeviceSettings()[body.device]?.installationId || ""),
-          installationResetToken: String(readDeviceSettings()[body.device]?.installationResetToken || ""),
+          installationId: String(enqueueSettings.installationId || ""),
+          installationResetToken: String(enqueueSettings.installationResetToken || ""),
           running: false, completed: false, totalFiles: 0, completedFiles: 0,
-          totalBytes: Number(size.totalBytes || 0), transferredBytes: 0,
+          totalBytes: 0, transferredBytes: 0,
           skippedFiles: 0, percent: 0, current: "Queued", error: "",
           cancelRequested: false, cancelled: false, autoQueued: true,
           queuedAt, queueOrder, nextAttemptAt: 0
@@ -11026,9 +11093,12 @@ ${check}
       // Wake the durable dispatcher immediately for a newly submitted queue.
       // The periodic watchdog remains the recovery path, but a healthy first
       // GameCube transfer should not wait for the next polling interval.
-      setImmediate(() => dispatchPersistedTransferQueue().catch(error =>
-        console.error("Queued transfer wake-up failed:", error)));
-      sendJson(res, 200, { ok: true, queued, total: names.length });
+      await dispatchPersistedTransferQueue();
+      const activeJobs = [...transferJobs.values()].filter(job =>
+        job.device === body.device && job.system === system
+        && (job.running || job.dispatching) && !job.cancelRequested
+        && !job.cancelled && !job.completed && !job.partialDeleted);
+      sendJson(res, 200, { ok: true, queued, total: names.length, activeJobs });
       return;
     }
 
@@ -11108,7 +11178,10 @@ ${check}
         const waitingForFirstProgress = job.phase === "rom"
           && Number(job.transferredBytes || 0) === 0
           && Number(job.completedFiles || 0) === 0;
-        const idleLimitMs = waitingForFirstProgress ? 30000 : 150000;
+        // Authentication is serialized per host. Include the bounded wait
+        // behind the other slots (up to ten), plus this job's handshake.
+        // The SSH client still enforces its own 30-second handshake timeout.
+        const idleLimitMs = waitingForFirstProgress ? 330000 : 150000;
         if (lastActivity && Date.now() - lastActivity > idleLimitMs) {
           job.current = "Transfer stalled; reconnecting";
           job.error = "Transfer stopped making progress and will resume automatically.";
@@ -11177,13 +11250,17 @@ ${check}
         scheduleTransferPersistence(true);
         sendJson(res, 200, { ok: true, item, artwork, presentation, job });
       } catch (error) {
+        const requeueAfterCancel = job.requeueAfterCancel;
         if (job.cancelRequested && job.cancelSystemRequested) {
           try {
             const localPath = safeLocalRomPath(body.system, body.fileName);
             const remotePath = `${remoteDirFor(body.system,device)}/${body.fileName}`;
             const partialPath = fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()
               ? remotePath : `${remotePath}.bw-part`;
-            await sftpWithDevice(device, sftp => removeRemotePath(sftp, partialPath));
+            // Cancellation cleanup must own a bounded, cancellable channel.
+            // A stale cached inventory channel could otherwise hold running
+            // slots forever after the ROM writer had already stopped.
+            await sftpWithInventoryDevice(device, sftp => removeRemotePath(sftp, partialPath));
             job.partialDeleted = true;
           } catch (cleanupError) {
             job.partialCleanupError = cleanupError.message || String(cleanupError);
@@ -11199,6 +11276,19 @@ ${check}
           error: error.message || String(error),
           finishedAt: new Date().toISOString()
         });
+        if (requeueAfterCancel) {
+          Object.assign(job, {
+            running: false, dispatching: false, completed: false,
+            cancelRequested: false, cancelSystemRequested: false, cancelled: false,
+            autoQueued: true, queuedAt: requeueAfterCancel.queuedAt,
+            queueOrder: requeueAfterCancel.queueOrder, nextAttemptAt: 0,
+            retryWaiting: false, partialDeleted: false, percent: 0,
+            transferredBytes: 0, current: "Queued", error: "", finishedAt: "",
+            requeueAfterCancel: null
+          });
+          setImmediate(() => dispatchPersistedTransferQueue().catch(dispatchError =>
+            console.error("Requeued transfer wake-up failed:", dispatchError)));
+        }
         scheduleTransferPersistence(true);
         throw error;
       } finally {
@@ -11414,7 +11504,7 @@ ${check}
         const deadline = Date.now() + 20000;
         while (targetTransfer.running && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve,100));
         if (targetTransfer.running) {
-          sendJson(res,409,{ok:false,error:`${body.fileName} is still closing its transfer. Try unchecking it again in a moment.`});
+          sendJson(res,409,{ok:false,code:"TRANSFER_STOPPING",error:`${body.fileName} is still closing its transfer. Deletion is waiting for it to stop.`});
           return;
         }
         targetTransfer.cancelled = true;
@@ -11779,23 +11869,24 @@ async function dispatchPersistedTransferQueue() {
       job.dispatching = false;
       job.current = "Queued for retry";
     }
+    const dispatchSettings = readDeviceSettings();
     const candidates = [...transferJobs.values()].filter(job => {
       if (!job || job.running || job.dispatching || job.completed || job.cancelled || job.cancelRequested || job.partialDeleted) return false;
       if (/^Batocera(?: \d+)?$/i.test(String(job.device || "")) && !devices[job.device]) return false;
       // A persisted queue is tied to the image that created it. Wait for a
       // fresh SSH identity check before resuming anything on Batocera.
-      if (devices[job.device] && (!readDeviceSettings()[job.device]?.installationId ||
-          verifiedInstallationIds.get(job.device) !== readDeviceSettings()[job.device].installationId)) return false;
-      if (devices[job.device] && job.installationId !== readDeviceSettings()[job.device].installationId) return false;
-      if (devices[job.device] && readDeviceSettings()[job.device]?.installationResetToken &&
-          job.installationResetToken !== readDeviceSettings()[job.device].installationResetToken) return false;
+      const settings = dispatchSettings[job.device];
+      if (devices[job.device] && (!settings?.installationId ||
+          verifiedInstallationIds.get(job.device) !== settings.installationId)) return false;
+      if (devices[job.device] && job.installationId !== settings.installationId) return false;
+      if (devices[job.device] && settings?.installationResetToken &&
+          job.installationResetToken !== settings.installationResetToken) return false;
       if (!(job.autoQueued || job.queuedAt)) return false;
       if (Number(job.nextAttemptAt || 0) > now) return false;
-      try {
-        return fs.existsSync(safeLocalRomPath(job.system, job.fileName));
-      } catch {
-        return false;
-      }
+      // This runs every second. Never stat the entire waiting library here:
+      // synchronous filesystem probes starve the active SSH streams.
+      // Validate only the next available slots below (and again on upload).
+      return true;
     }).sort((left, right) =>
       String(left.queuedAt || "").localeCompare(String(right.queuedAt || "")) ||
       Number(left.queueOrder || 0) - Number(right.queueOrder || 0) ||
@@ -11840,23 +11931,45 @@ async function dispatchPersistedTransferQueue() {
       // size classes into fourteen simultaneous transfers.
       const activeHasSmall = activeConsoleSlots.some(job => transferSize(job) <= 50 * 1024 * 1024);
       const activeHasLarge = activeConsoleSlots.some(job => transferSize(job) > 50 * 1024 * 1024);
+      if (activeConsoleSlots.length >= (activeHasLarge ? 4 : 10)) continue;
+      const queuedSize = job => {
+        try { return transferSize(job); }
+        catch (error) {
+          // A removed source must not block every later title or be retried
+          // every second. A new explicit Copy All can enqueue it again.
+          job.autoQueued = false;
+          job.queuedAt = "";
+          job.error = error.message || String(error);
+          job.current = "Source unavailable";
+          job.finishedAt = new Date().toISOString();
+          scheduleTransferPersistence();
+          return null;
+        }
+      };
+      let firstQueuedSize = null;
+      while (consoleQueue.length && (firstQueuedSize = queuedSize(consoleQueue[0])) === null) {
+        consoleQueue.shift();
+      }
       // Honor the visible top-to-bottom queue. When no batch is active, the
       // first waiting title chooses the 10-small or 4-large pool; never skip
       // farther down the alphabet merely to find a small file.
       const firstQueuedIsSmall = consoleQueue.length
-        ? transferSize(consoleQueue[0]) <= 50 * 1024 * 1024
+        ? firstQueuedSize <= 50 * 1024 * 1024
         : true;
       const useSmallPool = activeHasSmall || (!activeHasLarge && firstQueuedIsSmall);
       const selectedPool = [];
+      const requestedConcurrency = useSmallPool ? 10 : 4;
+      const available = Math.max(0, requestedConcurrency - activeConsoleSlots.length);
       for (const job of consoleQueue) {
-        const jobIsSmall = transferSize(job) <= 50 * 1024 * 1024;
+        if (selectedPool.length >= available) break;
+        const size = job === consoleQueue[0] ? firstQueuedSize : queuedSize(job);
+        if (size === null) continue;
+        const jobIsSmall = size <= 50 * 1024 * 1024;
         if (jobIsSmall !== useSmallPool) break;
         selectedPool.push(job);
       }
       // Authentication is serialized per host above. Once authenticated, the
       // normal pool always remains ten small files or four large files.
-      const requestedConcurrency = useSmallPool ? 10 : 4;
-      const available = Math.max(0, requestedConcurrency - activeConsoleSlots.length);
       const dispatchBatch = selectedPool.slice(0, available);
       for (const [batchIndex, job] of dispatchBatch.entries()) {
         job.dispatching = true;

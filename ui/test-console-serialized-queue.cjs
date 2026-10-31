@@ -18,4 +18,18 @@ assert.match(server, /const dispatchBatch = selectedPool\.slice\(0, available\)/
 assert.match(server, /const activeQueuedTransferSystem = new Map\(\)/u, 'The dispatcher must remember which console owns the machine');
 assert.match(server, /const consoleQueue = queued\s*\.filter\(job => job\.system === selectedSystem\)/u,
   'The dispatcher must drain the active console before selecting another');
+assert.match(server, /activeDedicatedSshHosts\.get\(device\.host\)[\s\S]*?deferred:true, items:null/u,
+  'Library polling must defer instead of competing with active ROM SSH channels');
+assert.match(html, /if \(result\.deferred\)[\s\S]*?renderPendingTransfers\(\)[\s\S]*?scheduleActiveInventoryReconcile/u,
+  'A deferred inventory read must preserve the confirmed pane and live transfer rows');
+assert.match(server, /getRuntimeDevice\(body\.device, \{skipConnectionProbe:true\}\)/u,
+  'Copy All enqueue must not wait on a redundant reachability socket');
+assert.match(server, /concurrency: fileSize > 50 \* 1024 \* 1024 \? 8 : 3/u,
+  'Large disc images must use the bounded eight-write SFTP pipeline');
+assert.match(server, /readyTimeout: 30000/u,
+  'A loaded Batocera SSH handshake must not be aborted by an aggressive timeout');
+assert.match(server, /queueSshAuthentication\(device\.host, connectUpload\)/u,
+  'Concurrent ROMs must stagger independent SSH authentication per machine');
+assert.match(server, /setTimeout\(releaseAuthentication, 350\)/u,
+  'Batocera must receive a quiet interval between concurrent SSH logins');
 console.log('Serialized per-machine, console-at-a-time queue checks passed.');

@@ -1,3 +1,29 @@
+#readyPlayerTwoDialog .rp2-actions button {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(115,174,255,.88);
+  color: #f8fbff;
+  background: linear-gradient(180deg, rgba(255,255,255,.24) 0%, rgba(48,111,190,.68) 43%, rgba(18,48,91,.92) 100%);
+  text-shadow: 0 1px 1px rgba(0,0,0,.72);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 8px rgba(0,0,0,.48);
+}
+#readyPlayerTwoDialog .rp2-actions button::before {
+  content: '';
+  position: absolute;
+  inset: 1px 4px auto;
+  height: 43%;
+  border-radius: 6px 6px 50% 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
+  pointer-events: none;
+}
+#readyPlayerTwoDialog .rp2-actions button:hover:not(:disabled) {
+  filter: brightness(1.13);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.54), inset 0 -1px 0 rgba(0,0,0,.4), 0 5px 10px rgba(0,0,0,.54);
+}
+#readyPlayerTwoDialog .rp2-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.54), 0 1px 2px rgba(0,0,0,.36);
+}
 /* Appearance is local to Ready Player One; machine settings and transfers are untouched.
    RP1 design rule: dialogs must fit their content closely; avoid decorative dead space. */
 .device-card:is([data-platform="retrobat"],[data-platform="retroarch"],[data-platform="esde"],[data-platform="emustation"]) {width:215px;min-width:215px;flex:0 0 215px;grid-template-rows:minmax(0,1fr);}
@@ -294,9 +320,10 @@ html[data-appearance=light] .rp2-dialog{color:#203448;border-color:#6895b9;backg
   flex:0 0 32px!important;
   border:1.5px solid var(--red,#ef5a50)!important;
   border-radius:9px!important;
-  background:rgba(255,255,255,.045)!important;
-  color:var(--red,#ef5a50)!important;
-  box-shadow:none!important;
+  position:relative!important;
+  background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(181,58,53,.62) 45%,rgba(76,17,20,.94))!important;
+  color:transparent!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.48),inset 0 -1px 0 rgba(0,0,0,.5),0 3px 7px rgba(0,0,0,.48)!important;
   font-size:0!important;
   line-height:1!important;
   cursor:pointer;
@@ -310,13 +337,19 @@ html[data-appearance=light] .rp2-dialog{color:#203448;border-color:#6895b9;backg
   .retrobat-login .login-close,
   .installed-feature-dialog header > button[aria-label="Close"]
 )::before {
-  content:"X";
-  display:block;
+  content:"X"!important;
+  position:absolute!important;
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+  display:grid!important;
+  place-items:center!important;
+  background:none!important;
+  transform:none!important;
+  z-index:2!important;
+  pointer-events:none;
   color:#fff!important;
-  font-family:var(--app-font,inherit);
-  font-size:16px;
-  font-weight:900;
-  line-height:1;
+  font:900 18px/1 Arial,sans-serif!important;
 }
 .modal-head > .modal-close::after { content:none!important; }
 .appearance-head .appearance-close > svg { display:none!important; }

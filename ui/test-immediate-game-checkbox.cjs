@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'Ready Player One.html'), 'utf8');
+const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 
 if (!/checkbox\.addEventListener\("click", event => \{[\s\S]*?optimisticWarehouseSelections\.set\(selectionKey, checkbox\.checked\)[\s\S]*?scheduleWarehouseSelectionSync\(game\)/.test(html)) {
   throw new Error('Game checkboxes must capture the browser-native click state and queue exactly once.');
@@ -49,6 +50,13 @@ if (!/const installedOnTarget = targetDevice === selectedDevice[\s\S]*?activeNam
 }
 if (/const visibleInTargetPane = [\s\S]{0,300}querySelectorAll\("\.device-game"\)/.test(html)) {
   throw new Error('Transfer decisions must not use temporary right-pane DOM rows as machine inventory.');
+}
+if (!/for \(const fileName of fileNames\) \{[\s\S]*?dismissedTransferKeys\.delete\(key\)[\s\S]*?optimisticWarehouseSelections\.set\(key, true\)[\s\S]*?pendingTransferKeys\.add\(key\)/.test(html)) {
+  throw new Error('Copy All must override stale per-title uncheck and dismissal state.');
+}
+if (!/if \(existing\.cancelRequested\) \{[\s\S]*?existing\.requeueAfterCancel = \{queuedAt, queueOrder\}/.test(server)
+    || !/if \(requeueAfterCancel\) \{[\s\S]*?cancelRequested: false[\s\S]*?autoQueued: true[\s\S]*?current: "Queued"/.test(server)) {
+  throw new Error('Copy All must requeue a title whose previous cancellation is still closing.');
 }
 
 console.log('Immediate game checkbox regression test passed.');
