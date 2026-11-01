@@ -79,47 +79,54 @@ mod embedded_display {
             .ok_or_else(|| "The main RP1 window is unavailable.".to_string())?
             .hwnd().map_err(|error| format!("Could not access the main RP1 window: {error}"))?.0 as Hwnd;
         let mut command = Command::new(&executable);
-        command.args(["stream", "--720", "--display-mode", "windowed"]);
+        // Batocera's Sunshine host can advertise HEVC even when the local
+        // Moonlight decoder renders that stream as a black window. H.264 is
+        // verified during RP1's Sunshine setup and is the reliable baseline.
+        command.args(["stream", "--720", "--video-codec", "H.264", "--display-mode", "windowed"]);
         if !host.trim().is_empty() { command.arg(&host); }
         command.arg("Desktop");
         command.creation_flags(0x08000000);
-        let child = command.spawn().map_err(|error| format!("Could not start Moonlight: {error}"))?;
+        let mut child = command.spawn().map_err(|error| format!("Could not start Moonlight: {error}"))?;
         let pid = child.id();
-        thread::spawn(move || {
-            let started = Instant::now();
-            thread::sleep(Duration::from_millis(1200));
-            loop {
-                let window = find_window(pid);
-                if window != 0 {
-                    let title: Vec<u16> = "Ready Player One — Display\0".encode_utf16().collect();
-                    let mut parent_rect = Rect::default();
-                    unsafe {
-                        SetWindowLongPtrW(window, GWLP_HWNDPARENT, parent);
-                        SetWindowTextW(window, title.as_ptr());
-                        if GetWindowRect(parent, &mut parent_rect) != 0 {
-                            let available_width = (parent_rect.right - parent_rect.left).max(640);
-                            let available_height = (parent_rect.bottom - parent_rect.top).max(360);
-                            let mut width = ((available_width as f64) * 0.80).round() as i32;
-                            width = width.clamp(640, 1920);
-                            let mut height = width * 9 / 16;
-                            let height_limit = ((available_height as f64) * 0.80).round() as i32;
-                            if height > height_limit {
-                                height = height_limit.max(360);
-                                width = height * 16 / 9;
-                            }
-                            let x = parent_rect.left + (available_width - width) / 2;
-                            let y = parent_rect.top + (available_height - height) / 2;
-                            MoveWindow(window, x, y, width, height, 1);
-                        }
-                        SetForegroundWindow(window);
-                    }
-                    break;
-                }
-                if started.elapsed() > Duration::from_secs(15) { break; }
-                thread::sleep(Duration::from_millis(100));
+        let started = Instant::now();
+        thread::sleep(Duration::from_millis(350));
+        loop {
+            if let Some(status) = child.try_wait().map_err(|error| format!("Could not monitor Moonlight: {error}"))? {
+                return Err(format!("Moonlight closed before opening its viewer window (exit code {}).", status.code().unwrap_or(-1)));
             }
-        });
-        Ok(EmbeddedDisplayResult { opened: true, host })
+            let window = find_window(pid);
+            if window != 0 {
+                let title: Vec<u16> = "Ready Player One — Display\0".encode_utf16().collect();
+                let mut parent_rect = Rect::default();
+                unsafe {
+                    SetWindowLongPtrW(window, GWLP_HWNDPARENT, parent);
+                    SetWindowTextW(window, title.as_ptr());
+                    if GetWindowRect(parent, &mut parent_rect) != 0 {
+                        let available_width = (parent_rect.right - parent_rect.left).max(640);
+                        let available_height = (parent_rect.bottom - parent_rect.top).max(360);
+                        let mut width = ((available_width as f64) * 0.80).round() as i32;
+                        width = width.clamp(640, 1920);
+                        let mut height = width * 9 / 16;
+                        let height_limit = ((available_height as f64) * 0.80).round() as i32;
+                        if height > height_limit {
+                            height = height_limit.max(360);
+                            width = height * 16 / 9;
+                        }
+                        let x = parent_rect.left + (available_width - width) / 2;
+                        let y = parent_rect.top + (available_height - height) / 2;
+                        MoveWindow(window, x, y, width, height, 1);
+                    }
+                    SetForegroundWindow(window);
+                }
+                return Ok(EmbeddedDisplayResult { opened: true, host });
+            }
+            if started.elapsed() > Duration::from_secs(15) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Moonlight started, but no viewer window appeared within 15 seconds.".into());
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 

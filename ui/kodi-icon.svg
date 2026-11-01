@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Kodi_Icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="none"/>
+  <linearGradient id="border" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fefefe"/><stop offset="1" stop-color="#dfdfdf"/>
+  </linearGradient>
+  <path fill="url(#border)" fill-rule="evenodd" d="M17.3 114.9l97.6-97.6c7.2-7.2 19-7.2 26.2 0l97.6 97.6c7.2 7.2 7.2 19 0 26.2l-97.6 97.6c-7.2 7.2-19 7.2-26.2 0l-97.6-97.6c-7.2-7.2-7.2-19 0-26.2z"/>
+  <linearGradient id="kodi" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#33addd"/><stop offset="1" stop-color="#148fbf"/>
+  </linearGradient>
+  <path fill="url(#kodi)" fill-rule="evenodd" d="M61.6 96.1c0-4.4-2.1-6.4-4-4.4l-31.3 31.3c-2.8 2.8-2.8 7.3 0 10.1l31.3 31.3c1.9 1.9 4 0 4-4.4V96.1zm90.9 26.9l33.6-33.6c2.8-2.8 7.3-2.8 10.1 0l33.6 33.6c2.8 2.8 2.8 7.3 0 10.1l-33.6 33.6c-2.8 2.8-7.3 2.8-10.1 0L152.5 133c-2.8-2.7-2.8-7.3 0-10zm-63.1 63.1l33.6-33.6c2.8-2.8 7.3-2.8 10.1 0l33.6 33.6c2.8 2.8 2.8 7.3 0 10.1L133 229.7c-2.8 2.8-7.3 2.8-10.1 0l-33.6-33.6c-2.7-2.7-2.7-7.3.1-10zm-.9-120.3c0-3.5 1-6 3.4-8.5l31-31.1c2.8-2.8 7.3-2.8 10.1 0l33.6 33.6c2.8 2.8 2.8 7.3 0 10.1l-74.3 74.3c-1.9 1.9-3.8 0-3.8-4.4v-74z"/>
+</svg>

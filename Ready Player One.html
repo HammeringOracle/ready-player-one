@@ -408,11 +408,45 @@
       box-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,224,98,.32), 0 0 8px 2px rgba(250,204,21,.22), 0 0 20px 6px rgba(250,190,20,.11), 0 0 34px 12px rgba(245,166,12,.04);
     }
 
+    .device-card.checking-placeholder {
+      pointer-events: none;
+      border-color: rgba(250, 204, 21, 0.82);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,224,98,.32), 0 0 8px 2px rgba(250,204,21,.22), 0 0 20px 6px rgba(250,190,20,.11), 0 0 34px 12px rgba(245,166,12,.04);
+      opacity: 1;
+    }
+
     .device-card.ad-hoc-display {
       border-color: rgba(255, 48, 210, 0.96) !important;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,118,226,.4), 0 0 8px 2px rgba(255,48,210,.3), 0 0 20px 6px rgba(255,48,210,.16), 0 0 36px 13px rgba(255,48,210,.055) !important;
       opacity: 1;
     }
+
+    .machine-connection-symbols {
+      position: absolute;
+      right: 7px;
+      bottom: 4px;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      pointer-events: none;
+    }
+
+    .machine-connection-symbol {
+      width: 13px;
+      height: 13px;
+      display: none;
+      place-items: center;
+      color: #d9ecff;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.85)) drop-shadow(0 0 3px rgba(96,178,255,.45));
+    }
+
+    .machine-connection-symbol.visible { display: grid; }
+    .machine-connection-symbol svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .machine-connection-symbol[data-connection="wifi"] { color: #7fd4ff; }
+    .machine-connection-symbol[data-connection="ethernet"] { width: 13px; height: 13px; color: #ff65dd; place-items: center; }
+    .machine-connection-symbol[data-connection="ethernet"] svg { width: 12.75px; height: 12.75px; }
+    .machine-connection-symbol[data-connection="usb-c"] { color: #c9d4e5; }
 
     .mini-pc {
       width: 38px;
@@ -1581,7 +1615,7 @@
     }
 
     .icon.karaoke-icon {
-      background: url("ui/karaoke-icon.svg") center / cover no-repeat;
+      background: url("ui/pikaraoke-icon.png") center / contain no-repeat;
       color: transparent;
       box-shadow: 0 0 14px rgba(96, 165, 250, 0.26);
     }
@@ -1590,6 +1624,12 @@
       background: url("ui/pikaraoke-icon.png") center / contain no-repeat;
       color: transparent;
       box-shadow: 0 0 14px rgba(226, 55, 255, 0.34);
+    }
+
+    .icon.kodi-icon {
+      background: url("ui/kodi-icon.svg") center / contain no-repeat;
+      color: transparent;
+      box-shadow: 0 0 14px rgba(51, 173, 221, 0.34);
     }
 
     /* Batocera's own system artwork replaces abbreviation tiles as each
@@ -1759,7 +1799,7 @@
       width: 34px;
       height: 30px;
       border-radius: 9px;
-      background: url("ui/karaoke-icon.svg") center / contain no-repeat;
+      background: url("ui/pikaraoke-icon.png") center / contain no-repeat;
       border-color: transparent;
       box-shadow: 0 0 14px rgba(96, 165, 250, 0.28);
     }
@@ -3803,12 +3843,20 @@
 
     <section class="device-strip" id="deviceStrip" aria-label="Discovered systems">
       <div class="machine-list" id="machineList">
+      <article class="device-card checking-placeholder" data-placeholder="checking" aria-live="polite">
+        <div class="mini-pc" aria-hidden="true"></div>
+        <div>
+          <div class="device-name">Checking...</div>
+          <div class="device-meta">Looking for IP...</div>
+        </div>
+      </article>
       <article class="device-card offline selected" data-device="Batocera" data-platform="batocera" data-online="false" data-host="" hidden>
         <div class="mini-pc" aria-hidden="true"></div>
         <div>
           <div class="device-name">Batocera</div>
           <div class="device-meta">Waiting for IP…</div>
         </div>
+        <span class="machine-connection-symbols" aria-label="Connections"></span>
       </article>
       </div>
       <div class="advanced-features" id="advancedFeatures">
@@ -3853,6 +3901,7 @@
           <div class="row" data-system="c64"><span class="icon">C64</span><span>Commodore 64</span><span class="count">0</span></div>
           <div class="row" data-system="music"><span class="icon">MF</span><span>MP3/FLAC</span><span class="count">0</span></div>
           <div class="row" data-system="movies"><span class="icon" role="img" aria-label="Movies"></span><span>Movies</span><span class="count">0</span></div>
+          <div class="row" data-system="kodi"><span class="icon kodi-icon" role="img" aria-label="Kodi"></span><span>Kodi</span><span class="count">I</span></div>
           <div class="row" data-system="gb"><span class="icon">GB</span><span>Game Boy</span><span class="count">0</span></div>
           <div class="row" data-system="gbc"><span class="icon">GC</span><span>Game Boy Color</span><span class="count">0</span></div>
           <div class="row" data-system="nds"><span class="icon">DS</span><span>Nintendo DS</span><span class="count">0</span></div>
@@ -5110,7 +5159,7 @@
     // Streaming/audio services are selectable features, not emulated game
     // consoles. Keep them in the list without inflating the console total.
     const virtualCollectionSystems = new Set(["all", "favorites"]);
-    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "music", "movies", ...virtualCollectionSystems]);
+    const consoleCountExclusions = new Set(["karaoke", "pikaraoke", "kodi", "music", "movies", ...virtualCollectionSystems]);
     const systemVisibilityKey = "batoceraWarehouse.visibleSystems";
     // Repair the exact catalog block written by the former discovery-union
     // bug. Only a large cache containing nearly the whole signature qualifies;
@@ -5351,7 +5400,7 @@
       if (virtualCollectionSystems.has(system) && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'steam' && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === '3dsen' && selectedMachinePlatform(device) !== 'batocera') return true;
-      if (system === 'pikaraoke' && selectedMachinePlatform(device) !== 'batocera') return true;
+      if (['pikaraoke', 'kodi'].includes(system) && selectedMachinePlatform(device) !== 'batocera') return true;
       if (system === 'windows' && selectedMachinePlatform(device) !== 'batocera') return true;
       return unsupportedSystemsByPlatform[selectedMachinePlatform(device)]?.has(system) || false;
     }
@@ -5432,6 +5481,7 @@
         movies: 'Install the VLC Movies launcher and refresh the machine movie list',
         pygame: 'Install and verify the Pygame CE runtime automatically',
         pikaraoke: 'Check existing PiKaraoke, browser, and dependencies; install only missing components',
+        kodi: 'Verify Batocera Kodi and add it as a standalone console',
         '3dsen': 'Install the 3dSen launcher only after Windows (Wine) has been selected and configured'
       };
       const prerequisites = {
@@ -5700,6 +5750,9 @@
             } else if (system === 'pikaraoke') {
               const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/pikaraoke/setup', {device});
+            } else if (system === 'kodi') {
+              const status = await request(`/api/kodi/status?device=${encodeURIComponent(device)}`, null, 'GET');
+              if (!status.installed) await request('/api/kodi/install', {device});
             } else if (system === 'xbox360') {
               const setupResult = await request('/api/xbox360-xenia/setup', {device});
               if (!setupResult.status?.runtimePrepared) throw new Error("Batocera's internal Xenia runtime did not finish preparing.");
@@ -6963,12 +7016,19 @@
     function showLibraryConnectionMessage(message) {
       const reconnecting = message.startsWith("Reconnecting") || message.startsWith("Checking connection");
       const loading = message.startsWith("Loading");
+      const waiting = message.startsWith("Waiting for this machine");
       const empty = message === "No games found for this system on this machine.";
+      // The machine card communicates discovery, loading, and waiting state.
+      // Keep the right pane stable and reserve its notice area for actionable
+      // failures or a genuinely empty library.
+      if (reconnecting || loading || waiting) {
+        clearLibraryConnectionMessage();
+        return;
+      }
       // Connection, loading, retry, and timeout notices belong at the bottom
       // of the game list. Only a genuinely empty console uses the centered
       // empty-state presentation.
       const centered = empty;
-      if (reconnecting && activeLibraryStatus.querySelector(".reconnecting-dots")) return;
       if (!centered && !activeLibraryStatus.hidden && activeLibraryStatus.dataset.message === message) return;
       if (empty && activeList.querySelector(".device-game")) {
         activeList.querySelector(".library-connection-message.is-empty")?.remove();
@@ -7241,7 +7301,7 @@
           : items.length;
         const badge = row.querySelector(".count");
         if (badge) {
-          badge.textContent = virtualCollectionSystems.has(key) ? "—" : key === "pikaraoke" ? "I" : count.toLocaleString();
+          badge.textContent = virtualCollectionSystems.has(key) ? "—" : ["pikaraoke", "kodi"].includes(key) ? "I" : count.toLocaleString();
         }
       });
     }
@@ -9612,18 +9672,25 @@
       meta.className = "device-meta";
       meta.textContent = status.usb ? `${status.host || "USB"} • ${status.usbMode === "direct" ? "Direct" : "Staged"}` : status.host || "Waiting for IP…";
       labels.append(title, meta);
+      const connectionSymbols = document.createElement("span");
+      connectionSymbols.className = "machine-connection-symbols";
+      connectionSymbols.setAttribute("aria-label", "Connections");
       const chevron = document.createElement("button");
       chevron.className = "device-chevron";
       chevron.type = "button";
       chevron.setAttribute("aria-label", `Configure ${name}`);
       chevron.textContent = "⌄";
-      card.append(icon, labels);
+      card.append(icon, labels, connectionSymbols);
       machineList.insertBefore(card, addMachine);
       bindDeviceCard(card);
       return card;
     }
 
     function syncDeviceCards(statuses) {
+      // The startup card is rendered in the initial HTML so discovery is
+      // visible immediately. A completed status response replaces it with the
+      // actual machine cards, even when that response finds no machines.
+      machineList.querySelector('.device-card[data-placeholder="checking"]')?.remove();
       document.querySelectorAll('.device-card[data-platform="batocera-usb"]').forEach(card => {
         if (!Object.prototype.hasOwnProperty.call(statuses || {}, card.dataset.device)) {
           applyDeviceStatus(card, {
@@ -9803,6 +9870,37 @@
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
       card.hidden = !(online || reachable || searching || communicating || status?.adHocDisplay);
 
+      let connectionSymbols = card.querySelector(".machine-connection-symbols");
+      if (!connectionSymbols) {
+        connectionSymbols = document.createElement("span");
+        connectionSymbols.className = "machine-connection-symbols";
+        connectionSymbols.setAttribute("aria-label", "Connections");
+        card.append(connectionSymbols);
+      }
+      const connectionDefinitions = {
+        "usb-c": '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4.5" width="13" height="7" rx="3.5"/><path d="M5 8h6"/></svg>',
+        ethernet: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v10.5h-11zM5 2.5v2h6v-2M4 7h8M4.5 9.5h1M7 9.5h1M9.5 9.5h1M12 9.5h.01"/></svg>',
+        wifi: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6.5a9 9 0 0 1 12 0M4.5 9a5.3 5.3 0 0 1 7 0M7 11.5a1.5 1.5 0 0 1 2 0"/><circle cx="8" cy="13" r=".6" fill="currentColor" stroke="none"/></svg>'
+      };
+      const connectionStates = {
+        "usb-c": Boolean(status?.usb),
+        ethernet: Boolean(status?.directDisplayConnected || status?.directDisplayConfigured),
+        wifi: Boolean(online && !status?.usb)
+      };
+      for (const [type, svg] of Object.entries(connectionDefinitions)) {
+        let symbol = connectionSymbols.querySelector(`[data-connection="${type}"]`);
+        if (!symbol) {
+          symbol = document.createElement("span");
+          symbol.className = "machine-connection-symbol";
+          symbol.dataset.connection = type;
+          symbol.innerHTML = svg;
+          connectionSymbols.append(symbol);
+        }
+        symbol.classList.toggle("visible", connectionStates[type]);
+      }
+      const visibleConnections = Object.entries(connectionStates).filter(([, visible]) => visible).map(([type]) => type === "usb-c" ? "USB Type-C" : type === "ethernet" ? "Ethernet display" : "Wi-Fi");
+      connectionSymbols.setAttribute("aria-label", visibleConnections.length ? `Connections: ${visibleConnections.join(", ")}` : "No active connections");
+
       const meta = card.querySelector(".device-meta");
       if (meta) {
         const hostName = String(status?.hostName || status?.displayName || "").trim();
@@ -9981,9 +10079,13 @@
       xboxBiosDialog.classList.add("open");
       return new Promise(resolve => {
         let settled = false;
+        const onKeyDown = event => {
+          if (event.key === 'Escape') finish(false);
+        };
         const finish = value => {
           if (settled) return;
           settled = true;
+          document.removeEventListener('keydown', onKeyDown);
           xboxBiosDialog.classList.remove("open");
           xboxBiosDialog.classList.remove('dual-boot-working');
           xboxBiosDialog.classList.remove('glassy-actions');
@@ -10003,6 +10105,7 @@
         xboxBiosDialog.onclick = event => {
           if (event.target === xboxBiosDialog && cancellable) finish(false);
         };
+        document.addEventListener('keydown', onKeyDown);
       });
     }
 
@@ -10772,6 +10875,8 @@
     async function openMachineAdHocDisplay(card) {
       const device = card.dataset.device;
       let adHocStage = 'confirming the direct-link setup';
+      const pauseAdHoc = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+      const permanentAdHocFailure = message => /no connected usb-c\/ethernet adapter|connect the adapter and ethernet cable|administrator approval|approve the administrator prompt|must be opened from the rp1 desktop application/i.test(String(message || ''));
       const adHocFailureText = error => {
         if (typeof error === 'string' && error.trim()) return error.trim();
         if (error?.message && String(error.message).trim()) return String(error.message).trim();
@@ -10789,24 +10894,66 @@
         });
         if (!approved) return;
         adHocStage = 'configuring the Windows and Batocera direct Ethernet link';
-        showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working', glassyActions:true});
+        const preparationController = new AbortController();
+        let preparationDialogActive = true;
+        const preparationDialog = showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working', cancellable:true, showCancel:false, glassyActions:true});
+        preparationDialog.then(() => {
+          if (preparationDialogActive) preparationController.abort();
+        });
         confirmXboxBiosDialog.disabled = true;
         xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
-        const response = await fetch('/api/remote-display/ad-hoc', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device})});
-        const responseText = await response.text();
         let result;
-        try { result = responseText ? JSON.parse(responseText) : null; }
-        catch { throw new Error(`RP1 returned HTTP ${response.status} with unreadable diagnostic text: ${responseText.slice(0, 240) || '(empty response)'}`); }
+        let preparationError;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const response = await fetch('/api/remote-display/ad-hoc', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device}), signal:preparationController.signal});
+            const responseText = await response.text();
+            try { result = responseText ? JSON.parse(responseText) : null; }
+            catch { throw new Error(`RP1 returned HTTP ${response.status} with unreadable diagnostic text: ${responseText.slice(0, 240) || '(empty response)'}`); }
+            if (!response.ok || !result?.ok) throw new Error(result?.error || `Direct-link preparation returned HTTP ${response.status} without an error description.`);
+            preparationError = null;
+            break;
+          } catch (error) {
+            if (preparationController.signal.aborted) return;
+            preparationError = error;
+            if (attempt || permanentAdHocFailure(adHocFailureText(error))) break;
+            syncStatus.textContent = 'Ad hoc Display is recovering the direct link…';
+            await pauseAdHoc(1500);
+          }
+        }
+        preparationDialogActive = false;
+        if (xboxBiosDialog.classList.contains('open')) closeXboxBiosDialog.click();
         xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
-        if (!response.ok || !result?.ok) throw new Error(result?.error || `Direct-link preparation returned HTTP ${response.status} without an error description.`);
+        if (preparationError) throw preparationError;
         adHocStage = 'opening the Moonlight viewer window';
+        const viewerDialog = showXboxBiosDialog({title:'Ad hoc Display — Opening Viewer', device, message:'Opening Moonlight and waiting for the video window…', confirmLabel:'Working', cancellable:false, showCancel:false, glassyActions:true});
+        confirmXboxBiosDialog.disabled = true;
+        xboxBiosDialog.classList.add('dual-boot-working', 'display-compact');
         const invoke = window.__TAURI__?.core?.invoke;
         if (!invoke) throw new Error('Ad hoc Display must be opened from the RP1 desktop application.');
-        const opened = await invoke('open_embedded_display', {executable:result.executable, host:result.host});
+        let opened;
+        let viewerError;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            opened = await invoke('open_embedded_display', {executable:result.executable, host:result.host});
+            if (!opened?.opened) throw new Error('The RP1 desktop did not confirm that the Moonlight viewer opened.');
+            viewerError = null;
+            break;
+          } catch (error) {
+            viewerError = error;
+            if (attempt || permanentAdHocFailure(adHocFailureText(error))) break;
+            await pauseAdHoc(750);
+          }
+        }
+        if (viewerError) throw viewerError;
         if (!opened?.opened) throw new Error('The RP1 desktop did not confirm that the Moonlight viewer opened.');
+        if (xboxBiosDialog.classList.contains('open')) closeXboxBiosDialog.click();
+        await viewerDialog;
+        xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact', 'open');
         syncStatus.textContent = `Ad hoc Display opened through ${result.adapter?.Name || 'Ethernet'}.`;
       } catch (error) {
         xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact');
+        if (error?.name === 'AbortError') return;
         const detail = adHocFailureText(error);
         const message = /^Ad Hoc Display stopped while /i.test(detail)
           ? detail

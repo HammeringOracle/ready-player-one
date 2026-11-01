@@ -494,6 +494,7 @@ const systemFolders = {
   nes: "nes",
   "3dsen": "3dsen",
   pikaraoke: "pikaraoke",
+  kodi: "kodi",
   snes: "snes",
   sega: "megadrive",
   gba: "gba",
@@ -544,6 +545,7 @@ const localFolders = {
   nes: "nes",
   "3dsen": "nes",
   pikaraoke: "pikaraoke",
+  kodi: "kodi",
   snes: "snes",
   sega: "megadrive",
   gba: "gba",
@@ -588,7 +590,7 @@ const localFolders = {
 
 // Stable system IDs keep older saved layouts compatible; only PC paths move.
 for (const system of Object.keys(localFolders)) {
-  if (!["music", "karaoke", "movies"].includes(system)) localFolders[system] = `roms/${localFolders[system]}`;
+  if (!["music", "karaoke", "movies", "kodi"].includes(system)) localFolders[system] = `roms/${localFolders[system]}`;
 }
 
 const systemLabels = {
@@ -599,6 +601,7 @@ const systemLabels = {
   nes: "NES",
   "3dsen": "3dSen",
   pikaraoke: "PiKaraoke",
+  kodi: "Kodi",
   snes: "SNES",
   sega: "Mega Drive",
   gba: "GBA",
@@ -649,6 +652,7 @@ const localExtensions = {
   nes: [".nes", ".zip", ".7z"],
   "3dsen": [".nes", ".zip", ".7z"],
   pikaraoke: [".sh"],
+  kodi: [".sh"],
   snes: [".smc", ".sfc", ".zip", ".7z"],
   sega: [".bin", ".gen", ".md", ".smd", ".zip", ".7z"],
   gba: [".gba", ".zip", ".7z"],
@@ -1101,6 +1105,12 @@ function isPrivateLanAddress(address) {
 }
 
 function isIgnoredScanAddress(address, adapterName) {
+  // 10.77.0.0/24 is reserved exclusively for the user-invoked Ad Hoc Display.
+  // Never let normal discovery, library reads, or ROM transfers adopt it as a
+  // machine address; those operations must stay on the saved Wi-Fi/LAN host.
+  if (/^10\.77\.0\./.test(String(address || ""))) {
+    return true;
+  }
   const name = String(adapterName || "").toLowerCase();
   if (/vpn|nord|tap|tunnel|tailscale|virtualbox|vethernet|vmware/.test(name)) {
     return true;
@@ -2234,13 +2244,45 @@ function streamFileToSsh(device, source, command) {
   });
 }
 
+async function installBatoceraSystemTitle(device, system, localPath) {
+  if (!/^[a-z0-9_-]+$/.test(system)) throw new Error("Invalid Batocera system title target.");
+  if (!fs.existsSync(localPath)) throw new Error(`Ready Player One's ${system} title artwork is missing.`);
+  const mediaDir = `/userdata/roms/${system}/media/images`;
+  const remoteTitle = `${mediaDir}/${system}-title.png`;
+  const serviceName = `rp1-${system}-logo`;
+  await execSsh(device, `mkdir -p ${mediaDir} /userdata/system/services`, 30000);
+  await sftpWithDevice(device, async sftp => {
+    await fastPutSftp(sftp, localPath, remoteTitle);
+  });
+  const service = `#!/bin/sh
+case "$1" in
+  start|restart)
+    source=${remoteTitle}
+    [ -s "$source" ] || exit 1
+    theme="$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg 2>/dev/null | head -n1)"
+    [ -n "$theme" ] || theme=es-theme-carbon
+    for root in /userdata/themes /usr/share/emulationstation/themes; do
+      logos="$root/$theme/art/logos"
+      [ -d "$logos" ] || continue
+      cp -f "$source" "$logos/${system}.png"
+      rm -f "$logos/${system}.svg" "$logos/${system}-w.png" "$logos/${system}-w.svg"
+    done
+    ;;
+esac
+`;
+  const payload = Buffer.from(service, "utf8").toString("base64");
+  await execSsh(device, `printf '%s' '${payload}' | base64 -d > /userdata/system/services/${serviceName}; chmod 755 /userdata/system/services/${serviceName}; batocera-services enable ${serviceName} >/dev/null 2>&1 || true; /userdata/system/services/${serviceName} start`, 30000);
+}
+
 async function getKaraokeStatus(device) {
   const command = [
     "missing='';",
     "test -f /userdata/system/configs/emulationstation/es_systems_karaoke.cfg || missing=\"$missing system\";",
     "test -x /userdata/system/scripts/karaoke-vlc.sh || missing=\"$missing launcher\";",
     "test -d /userdata/roms/karaoke || missing=\"$missing folder\";",
-    "test -f /userdata/roms/karaoke/media/images/karaoke.svg || missing=\"$missing image\";",
+    "test -f /userdata/roms/karaoke/media/images/karaoke.png || missing=\"$missing image\";",
+    "test -s /userdata/roms/karaoke/media/images/karaoke-title.png || missing=\"$missing title\";",
+    "test -x /userdata/system/services/rp1-karaoke-logo && grep -Fq 'karaoke.png' /userdata/system/services/rp1-karaoke-logo || missing=\"$missing theme-logo\";",
     "test -f /userdata/roms/karaoke/gamelist.xml || missing=\"$missing gamelist\";",
     "command -v cvlc >/dev/null 2>&1 || missing=\"$missing cvlc\";",
     "command -v batocera-es-swissknife >/dev/null 2>&1 || missing=\"$missing es-refresh\";",
@@ -2336,7 +2378,27 @@ exec /usr/bin/cvlc -I dummy --vout xcb_x11 --fullscreen --play-and-exit --no-vid
 EOF
 chmod 644 /userdata/system/configs/emulationstation/es_systems_karaoke.cfg
 chmod 755 /userdata/system/scripts/karaoke-vlc.sh
-chmod 644 /userdata/roms/karaoke/media/images/karaoke.svg
+chmod 644 /userdata/roms/karaoke/media/images/karaoke.png
+cat > /userdata/system/services/rp1-karaoke-logo <<'EOF'
+#!/bin/sh
+case "$1" in
+  start|restart)
+    source=/userdata/roms/karaoke/media/images/karaoke.png
+    [ -s "$source" ] || exit 1
+    theme="$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg 2>/dev/null | head -n1)"
+    [ -n "$theme" ] || theme=es-theme-carbon
+    for root in /userdata/themes /usr/share/emulationstation/themes; do
+      logos="$root/$theme/art/logos"
+      [ -d "$logos" ] || continue
+      cp -f "$source" "$logos/karaoke.png"
+      cp -f "$source" "$logos/karaoke-w.png"
+    done
+    ;;
+esac
+EOF
+chmod 755 /userdata/system/services/rp1-karaoke-logo
+batocera-services enable rp1-karaoke-logo >/dev/null 2>&1 || true
+/userdata/system/services/rp1-karaoke-logo start
 cat > /userdata/roms/karaoke/gamelist.xml <<'EOF'
 <?xml version="1.0"?>
 <gameList>
@@ -2347,7 +2409,7 @@ for f in /userdata/roms/karaoke/*.cdg /userdata/roms/karaoke/*.CDG; do
   name="$(printf '%s' "$base" | sed 's/\\.[^.]*$//')"
   esc_base="$(printf '%s' "$base" | sed 's/&/\\&amp;/g; s/</\\&lt;/g; s/>/\\&gt;/g; s/"/\\&quot;/g')"
   esc_name="$(printf '%s' "$name" | sed 's/&/\\&amp;/g; s/</\\&lt;/g; s/>/\\&gt;/g; s/"/\\&quot;/g')"
-  printf '  <game>\\n    <path>./%s</path>\\n    <name>%s</name>\\n    <image>./media/images/karaoke.svg</image>\\n    <marquee>./media/images/karaoke.svg</marquee>\\n  </game>\\n' "$esc_base" "$esc_name" >> /userdata/roms/karaoke/gamelist.xml
+  printf '  <game>\\n    <path>./%s</path>\\n    <name>%s</name>\\n    <image>./media/images/karaoke.png</image>\\n    <marquee>./media/images/karaoke.png</marquee>\\n  </game>\\n' "$esc_base" "$esc_name" >> /userdata/roms/karaoke/gamelist.xml
 done
 cat >> /userdata/roms/karaoke/gamelist.xml <<'EOF'
 </gameList>
@@ -2359,13 +2421,14 @@ echo OK
 }
 
 async function installKaraoke(device) {
-  const iconPath = path.join(uiRoot, "karaoke-icon.svg");
-  if (!fs.existsSync(iconPath)) throw new Error("Ready Player One's built-in Karaoke icon is missing.");
+  const iconPath = path.join(uiRoot, "pikaraoke-icon.png");
+  if (!fs.existsSync(iconPath)) throw new Error("Ready Player One's built-in PiKaraoke icon is missing.");
   await sftpWithDevice(device, async sftp => {
     await mkdirpSftp(sftp, "/userdata/roms/karaoke/media/images");
-    await fastPutSftp(sftp, iconPath, "/userdata/roms/karaoke/media/images/karaoke.svg");
+    await fastPutSftp(sftp, iconPath, "/userdata/roms/karaoke/media/images/karaoke.png");
   });
   await execSsh(device, karaokeInstallCommand(), 30000);
+  await installBatoceraSystemTitle(device, "karaoke", path.join(uiRoot, "system-art", "karaoke-title.png"));
   return getKaraokeStatus(device);
 }
 
@@ -2495,6 +2558,7 @@ async function getPiKaraokeStatus(device) {
     "has launcher_v12 \"grep -Fq 'native_browser=/userdata/system/pikaraoke-native-browser' $root/launch.sh && grep -Fq 'root-profile' $root/launch.sh && grep -Fq 'XDG_RUNTIME_DIR=/var/run' $root/launch.sh\";",
     "has entry \"test -f /userdata/roms/pikaraoke/PiKaraoke.sh\";",
     "has image \"test -s /userdata/roms/pikaraoke/media/images/pikaraoke.png && grep -Fq '<image>./media/images/pikaraoke.png</image>' /userdata/roms/pikaraoke/gamelist.xml\";",
+    "has title \"test -s /userdata/roms/pikaraoke/media/images/pikaraoke-title.png && test -x /userdata/system/services/rp1-pikaraoke-logo && grep -Fq 'pikaraoke.png' /userdata/system/services/rp1-pikaraoke-logo\";",
     "has app \"test -x $root/bin/pikaraoke\";",
     "has uv \"test -x $root/uv/uv || command -v uv\";",
     "has ffmpeg \"command -v ffmpeg\";",
@@ -2503,7 +2567,7 @@ async function getPiKaraokeStatus(device) {
   ].join(" ");
   const output = await execSsh(device, command, 30000);
   const components = Object.fromEntries(output.trim().split(/\r?\n/).map(line => line.split("=")).filter(parts => parts.length === 2).map(([key, value]) => [key, value === "1"]));
-  const required = ["console", "label", "theme", "launcher", "launcher_v12", "entry", "image", "app", "uv", "ffmpeg", "javascript", "browser"];
+  const required = ["console", "label", "theme", "launcher", "launcher_v12", "entry", "image", "title", "app", "uv", "ffmpeg", "javascript", "browser"];
   const missing = required.filter(name => !components[name]);
   return { installed: missing.length === 0, missing, components };
 }
@@ -2527,7 +2591,10 @@ if [ ! -x "$native_browser/firefox/firefox" ]; then
 fi
 test -x "$native_browser/firefox/firefox" || { echo 'The PiKaraoke browser could not be installed.' >&2; exit 29; }
 mkdir -p "$native_browser/home"
-chown batocera:batocera "$native_browser" "$native_browser/home"
+# Some Batocera userdata filesystems deliberately do not implement Unix
+# ownership. PiKaraoke only needs the browser profile to be writable, so use
+# ownership when supported and a permission fallback everywhere else.
+chown batocera:batocera "$native_browser" "$native_browser/home" 2>/dev/null || chmod 777 "$native_browser" "$native_browser/home"
 
 # Inspect first. Existing components are deliberately preserved and are never
 # downloaded a second time merely because Apply was clicked again.
@@ -2558,7 +2625,25 @@ export UV_PYTHON_INSTALL_DIR="$root/python"
 export UV_CACHE_DIR="$root/cache"
 export PATH="$root/bin:$root/deno/bin:$PATH"
 if [ ! -x "$root/bin/pikaraoke" ]; then
-  "$uvbin" tool install --python 3.12 pikaraoke
+  # /userdata can be NTFS, where the standalone Python archive's symbolic
+  # links cannot be created. Install the package into an ordinary directory
+  # and run it with Batocera's existing Python instead.
+  rm -rf "$root/site-packages.tmp"
+  mkdir -p "$root/site-packages.tmp"
+  # UV's cache also uses links internally, so keep that temporary cache on
+  # Batocera's native /tmp filesystem while copying final packages to userdata.
+  rm -rf /tmp/rp1-pikaraoke-uv-cache
+  UV_CACHE_DIR=/tmp/rp1-pikaraoke-uv-cache "$uvbin" pip install --python /usr/bin/python3 --target "$root/site-packages.tmp" --link-mode copy pikaraoke
+  rm -rf /tmp/rp1-pikaraoke-uv-cache
+  rm -rf "$root/site-packages"
+  mv "$root/site-packages.tmp" "$root/site-packages"
+  cat > "$root/bin/pikaraoke" <<'EOF'
+#!/bin/sh
+root=/userdata/system/ready-player-one/pikaraoke
+export PYTHONPATH="$root/site-packages"
+exec /usr/bin/python3 -m pikaraoke "$@"
+EOF
+  chmod 755 "$root/bin/pikaraoke"
 fi
 test -x "$root/bin/pikaraoke" || { echo 'PiKaraoke installation did not produce a runnable program.' >&2; exit 24; }
 
@@ -2685,7 +2770,17 @@ async function installPiKaraoke(device) {
   }
   const before = await getPiKaraokeStatus(device);
   if (!before.installed) {
-    await execSsh(device, piKaraokeInstallCommand(), 600000);
+    // Upload the installer as a script instead of sending one very large SSH
+    // exec request. Batocera's SSH server can refuse that request with the
+    // unhelpful "Unable to exec" response after a previous long-running setup.
+    const remoteScript = "/userdata/system/ready-player-one/pikaraoke-setup.sh";
+    const installLog = "/userdata/system/logs/rp1-pikaraoke-install.log";
+    await execSsh(device, "mkdir -p /userdata/system/ready-player-one /userdata/system/logs", 30000);
+    await sftpWithDevice(device, async sftp => {
+      await writeSftpFile(sftp, remoteScript, piKaraokeInstallCommand());
+    });
+    const runScript = `chmod 755 ${remoteScript}; if sh ${remoteScript} >${installLog} 2>&1; then cat ${installLog}; else code=$?; cat ${installLog} >&2; exit $code; fi`;
+    await execSsh(device, runScript, 600000);
     const iconPath = path.join(uiRoot, "pikaraoke-icon.png");
     if (!fs.existsSync(iconPath)) throw new Error("Ready Player One's built-in PiKaraoke icon is missing.");
     await sftpWithDevice(device, async sftp => {
@@ -2693,10 +2788,95 @@ async function installPiKaraoke(device) {
       await fastPutSftp(sftp, iconPath, "/userdata/roms/pikaraoke/media/images/pikaraoke.png");
     });
   }
+  await installBatoceraSystemTitle(device, "pikaraoke", path.join(uiRoot, "system-art", "pikaraoke-title.png"));
   const after = await getPiKaraokeStatus(device);
   if (!after.installed) throw new Error(`PiKaraoke setup is incomplete: ${after.missing.join(", ")}.`);
   if (!before.components?.console || !before.components?.launcher || !before.components?.entry) await runSoftReset(device);
   return { ...after, checkedBeforeInstall: true, alreadyInstalled: before.installed, installedComponents: before.missing.filter(name => !after.missing.includes(name)) };
+}
+
+async function getKodiStatus(device) {
+  const command = [
+    "missing='';",
+    "command -v kodi >/dev/null 2>&1 || missing=\"$missing app\";",
+    "command -v batocera-kodilauncher >/dev/null 2>&1 || missing=\"$missing launcher-app\";",
+    "test -f /userdata/system/configs/emulationstation/es_systems_kodi.cfg || missing=\"$missing console\";",
+    "test -x /userdata/system/scripts/rp1-kodi.sh && grep -Fq -- 'batocera-es-swissknife --kodi' /userdata/system/scripts/rp1-kodi.sh || missing=\"$missing launcher\";",
+    "test -x /userdata/roms/kodi/Kodi.sh || missing=\"$missing entry\";",
+    "test -s /userdata/roms/kodi/media/images/kodi.svg || missing=\"$missing image\";",
+    "grep -Fq '<theme>kodi</theme>' /userdata/system/configs/emulationstation/es_systems_kodi.cfg 2>/dev/null || missing=\"$missing theme\";",
+    "if [ -z \"$missing\" ]; then echo INSTALLED; else echo MISSING:$missing; fi"
+  ].join(" ");
+  const output = (await execSsh(device, command, 30000)).trim();
+  const installed = output.includes("INSTALLED");
+  return { installed, missing: installed ? [] : output.replace(/^MISSING:/, "").trim().split(/\s+/).filter(Boolean) };
+}
+
+function kodiInstallCommand() {
+  return `set -e
+command -v kodi >/dev/null 2>&1 || { echo 'Kodi is not installed in this Batocera image.' >&2; exit 30; }
+command -v batocera-kodilauncher >/dev/null 2>&1 || { echo 'Batocera does not provide its Kodi launcher.' >&2; exit 31; }
+mkdir -p /userdata/roms/kodi/media/images /userdata/system/scripts /userdata/system/configs/emulationstation
+cat > /userdata/system/configs/emulationstation/es_systems_kodi.cfg <<'EOF'
+<?xml version="1.0"?>
+<systemList>
+  <system>
+    <fullname>Kodi</fullname>
+    <name>kodi</name>
+    <manufacturer>Kodi Foundation</manufacturer>
+    <release>2002</release>
+    <hardware>media center</hardware>
+    <path>/userdata/roms/kodi</path>
+    <extension>.sh .SH</extension>
+    <command>/userdata/system/scripts/rp1-kodi.sh "%ROM%"</command>
+    <platform>pc</platform>
+    <theme>kodi</theme>
+  </system>
+</systemList>
+EOF
+cat > /userdata/system/scripts/rp1-kodi.sh <<'EOF'
+#!/bin/sh
+# Use Batocera's supported window handoff: stop EmulationStation, open Kodi
+# as the secondary application, then restore EmulationStation when Kodi exits.
+exec /usr/bin/batocera-es-swissknife --kodi
+EOF
+cat > /userdata/roms/kodi/Kodi.sh <<'EOF'
+#!/bin/sh
+exec /userdata/system/scripts/rp1-kodi.sh
+EOF
+cat > /userdata/roms/kodi/gamelist.xml <<'EOF'
+<?xml version="1.0"?>
+<gameList>
+  <game>
+    <path>./Kodi.sh</path>
+    <name>Kodi</name>
+    <desc>Official Kodi media center</desc>
+    <image>./media/images/kodi.svg</image>
+    <thumbnail>./media/images/kodi.svg</thumbnail>
+    <marquee>./media/images/kodi.svg</marquee>
+  </game>
+</gameList>
+EOF
+chmod 755 /userdata/system/scripts/rp1-kodi.sh /userdata/roms/kodi/Kodi.sh
+chmod 644 /userdata/system/configs/emulationstation/es_systems_kodi.cfg /userdata/roms/kodi/gamelist.xml /userdata/roms/kodi/media/images/kodi.svg
+echo OK
+`;
+}
+
+async function installKodi(device) {
+  if (!device || device.access !== "ssh" || (device.platform && device.platform !== "batocera")) {
+    throw new Error("Select a connected Batocera machine with SSH access.");
+  }
+  const iconPath = path.join(uiRoot, "kodi-icon.svg");
+  if (!fs.existsSync(iconPath)) throw new Error("Ready Player One's official Kodi logo is missing.");
+  await execSsh(device, "mkdir -p /userdata/roms/kodi/media/images", 30000);
+  await sftpWithDevice(device, async sftp => {
+    await fastPutSftp(sftp, iconPath, "/userdata/roms/kodi/media/images/kodi.svg");
+  });
+  await execSsh(device, kodiInstallCommand(), 30000);
+  const status = await getKodiStatus(device);
+  if (!status.installed) throw new Error(`Kodi setup is incomplete: ${status.missing.join(", ")}.`);
+  return status;
 }
 
 const sftpSessionCache = new Map();
@@ -3250,8 +3430,22 @@ async function setMachineAudio(device, values) {
       : sinks.find(name => /hdmi/i.test(name));
     if (!sink) throw new Error(requestedOutput === "analog" ? "Batocera did not report a 3.5 mm analog output." : "Batocera did not report an HDMI audio output.");
     const quotedSink = shellSingleQuoted(sink);
-    await execSsh(device, `pactl set-default-sink ${quotedSink}; pactl set-sink-volume ${quotedSink} ${volume}%; for input in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do pactl move-sink-input "$input" ${quotedSink} 2>/dev/null || true; done; batocera-settings-set audio.device ${quotedSink}; batocera-settings-set audio.volume ${volume}; sync`, 15000);
-    return { supported: true, output: requestedOutput, volume, sink };
+    let commandError = null;
+    try {
+      await execSsh(device, `pactl set-default-sink ${quotedSink}; pactl set-sink-volume ${quotedSink} ${volume}%; for input in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do pactl move-sink-input "$input" ${quotedSink} 2>/dev/null || true; done; batocera-settings-set audio.device ${quotedSink} >/dev/null 2>&1 || true; batocera-settings-set audio.volume ${volume} >/dev/null 2>&1 || true; sync`, 15000);
+    } catch (error) {
+      // Batocera can close the SSH command with code -1 while PulseAudio is
+      // switching sinks even though the live change completed successfully.
+      // Verify the machine state instead of surfacing that transport artifact.
+      commandError = error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const verified = await getMachineAudio(device).catch(() => null);
+    if (verified?.supported && verified.output === requestedOutput) {
+      return { supported: true, output: requestedOutput, volume: verified.volume, sink };
+    }
+    if (commandError) throw commandError;
+    throw new Error(`Batocera did not keep ${requestedOutput === "analog" ? "3.5 mm" : "HDMI"} as the active audio output.`);
   }
 }
 
@@ -3575,6 +3769,17 @@ function anyRemoteDisplayPairingVerified(host) {
   });
 }
 
+async function sunshineHasPairedClients(deviceName, device) {
+  if (!device?.host) return false;
+  const password = readDeviceSettings()[deviceName]?.remoteDisplayPassword;
+  if (!password) return false;
+  try {
+    return sunshineHasRp1Client(await listSunshineClients(device.host, password));
+  } catch {
+    return false;
+  }
+}
+
 function verifiedRemoteDisplayDevice(host) {
   const settings = readDeviceSettings();
   return Object.entries(settings).find(([, deviceSettings]) => {
@@ -3587,9 +3792,23 @@ function verifiedRemoteDisplayDevice(host) {
 async function decorateAdHocDisplayPresence(statuses) {
   const result = Object.fromEntries(Object.entries(statuses || {}).map(([name, status]) => [name, {...status}]));
   const deviceName = verifiedRemoteDisplayDevice("10.77.0.2");
-  if (!deviceName || !await isTcpPortOpen("10.77.0.2", 22, 900, "10.77.0.1")) return result;
+  if (!deviceName) return result;
+  const normalStatus = result[deviceName] || {};
+  // Magenta is a fallback-presence state, not an instruction to start Ad Hoc
+  // Display. A healthy Wi-Fi or normal LAN connection always keeps the normal
+  // machine color, even when the direct cable is also attached.
+  const normalNetworkReady = Boolean(normalStatus.online || normalStatus.reachable ||
+    normalStatus.checks?.ssh || normalStatus.checks?.smb || normalStatus.checks?.web);
+  const directDisplayConnected = await isTcpPortOpen("10.77.0.2", 22, 900, "10.77.0.1");
+  normalStatus.directDisplayConfigured = true;
+  normalStatus.directDisplayConnected = directDisplayConnected;
+  if (normalNetworkReady || !directDisplayConnected) {
+    delete normalStatus.adHocDisplay;
+    delete normalStatus.adHocDisplayHost;
+    return result;
+  }
   result[deviceName] = {
-    ...(result[deviceName] || {}),
+    ...normalStatus,
     adHocDisplay: true,
     adHocDisplayHost: "10.77.0.2"
   };
@@ -3639,13 +3858,22 @@ async function ensureLocalMoonlight() {
 async function ensureLocalSunshineAppImage() {
   const cacheRoot = path.join(remoteDisplayToolsPath, "sunshine");
   fs.mkdirSync(cacheRoot, { recursive: true });
-  // Current Sunshine AppImages require libwayland-client on Batocera builds
-  // that do not ship it. This official build is the verified AppImage used by
-  // the Batocera user-service layout and keeps its runtime dependencies bundled.
-  const imagePath = path.join(cacheRoot, "sunshine-batocera-compatible.AppImage");
-  if (fs.existsSync(imagePath) && fs.statSync(imagePath).size > 20 * 1024 * 1024) return imagePath;
-  const assetUrl = "https://github.com/LizardByte/Sunshine/releases/download/v2025.122.141614/sunshine.AppImage";
-  const imageResponse = await fetchWithLimit(assetUrl, { headers: { "User-Agent": "Ready-Player-One" } }, 180000);
+  // Prefer the current official x86_64 build. The older pinned 2025 AppImage
+  // captured Batocera's X11 surface as black and could not initialize AMD KMS.
+  // Current builds use Batocera's Vulkan stack and capture the real DRM output.
+  const cached = fs.readdirSync(cacheRoot)
+    .filter(name => /^Sunshine_.*_x86_64\.AppImage$/i.test(name))
+    .map(name => path.join(cacheRoot, name))
+    .filter(file => fs.statSync(file).size > 20 * 1024 * 1024)
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+  if (cached) return cached;
+  const releaseResponse = await fetchWithLimit("https://api.github.com/repos/LizardByte/Sunshine/releases", { headers: { "User-Agent": "Ready-Player-One" } }, 30000);
+  const releases = await releaseResponse.json();
+  const asset = releases.flatMap(release => release.assets || [])
+    .find(item => /(?:Sunshine_.*_x86_64|sunshine)\.AppImage$/i.test(item.name));
+  if (!asset?.browser_download_url) throw new Error("The official Sunshine x86_64 AppImage was not found.");
+  const imagePath = path.join(cacheRoot, asset.name);
+  const imageResponse = await fetchWithLimit(asset.browser_download_url, { headers: { "User-Agent": "Ready-Player-One" } }, 180000);
   fs.writeFileSync(imagePath, Buffer.from(await imageResponse.arrayBuffer()));
   if (fs.statSync(imagePath).size < 20 * 1024 * 1024) throw new Error("The Sunshine download is incomplete.");
   return imagePath;
@@ -3705,29 +3933,49 @@ async function remoteDisplayStatus(device) {
   };
 }
 
-async function installRemoteDisplay(device) {
-  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") throw new Error("Display installation requires an online Batocera machine with SSH access.");
-  const moonlight = await ensureLocalMoonlight();
-  const sunshine = await ensureLocalSunshineAppImage();
-  const waylandLibrary = await ensureLocalSunshineWaylandLibrary();
-  const service = `#!/bin/bash
+function sunshineServiceScript() {
+  return `#!/bin/bash
 export HOME=/userdata/system
-export LD_LIBRARY_PATH=/userdata/system/sunshine-libs\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 app=/userdata/system/bin/rp1-sunshine.AppImage
 case "$1" in
-  start) mkdir -p /userdata/system/logs; : > /userdata/system/logs/rp1-sunshine.log; DISPLAY=:0.0 "$app" --appimage-extract-and-run >>/userdata/system/logs/rp1-sunshine.log 2>&1 & ;;
-  stop) killall sunshine 2>/dev/null || true ;;
+  start)
+    mkdir -p /userdata/system/logs
+    : > /userdata/system/logs/rp1-sunshine.log
+    session_pid="$(pgrep -f 'batocera-emulationstation|emulationstation' | head -n1)"
+    if test -n "$session_pid" && test -r "/proc/$session_pid/environ"; then
+      session_display="$(tr '\\0' '\\n' < "/proc/$session_pid/environ" | sed -n 's/^DISPLAY=//p' | head -n1)"
+      session_xauthority="$(tr '\\0' '\\n' < "/proc/$session_pid/environ" | sed -n 's/^XAUTHORITY=//p' | head -n1)"
+    fi
+    export DISPLAY="\${session_display:-:0}"
+    if test -n "$session_xauthority"; then export XAUTHORITY="$session_xauthority"; else unset XAUTHORITY; fi
+    # The current AppImage launches a helper process of its own. setsid -f
+    # can orphan that helper before Batocera keeps it alive, leaving no stream
+    # and no fresh log. Plain nohup backgrounding is stable across both builds.
+    nohup "$app" --appimage-extract-and-run >>/userdata/system/logs/rp1-sunshine.log 2>&1 </dev/null &
+    ;;
+  stop)
+    killall sunshine 2>/dev/null || true
+    # AppImage has a wrapper parent as well as the Sunshine child. Leaving the
+    # parent alive makes the next restart race the old extracted runtime.
+    pkill -f '^/userdata/system/bin/rp1-sunshine[.]AppImage ' 2>/dev/null || true
+    ;;
   restart|reload) "$0" stop; sleep 1; "$0" start ;;
   status) pgrep -x sunshine >/dev/null ;;
   *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
 esac
 `;
+}
+
+async function installRemoteDisplay(device) {
+  if (device?.access !== "ssh" || device.platform && device.platform !== "batocera") throw new Error("Display installation requires an online Batocera machine with SSH access.");
+  const moonlight = await ensureLocalMoonlight();
+  const sunshine = await ensureLocalSunshineAppImage();
+  const service = sunshineServiceScript();
   await sftpWithDevice(device, async (sftp, client) => {
     await execOnSshClient(client, "mkdir -p /userdata/system/bin /userdata/system/services /userdata/system/logs /userdata/system/sunshine-libs /userdata/system/.config/sunshine", 10000);
     await fastPutSftp(sftp, sunshine, "/userdata/system/bin/rp1-sunshine.AppImage");
-    await fastPutSftp(sftp, waylandLibrary, "/userdata/system/sunshine-libs/libwayland-client.so.0");
     await writeSftpFile(sftp, "/userdata/system/services/sunshine", service);
-    await writeSftpFile(sftp, "/userdata/system/.config/sunshine/sunshine.conf", "capture = x11\n");
+    await writeSftpFile(sftp, "/userdata/system/.config/sunshine/sunshine.conf", "capture = kms\n");
     await execOnSshClient(client, "chmod 755 /userdata/system/bin/rp1-sunshine.AppImage /userdata/system/services/sunshine; rm -f /userdata/system/services/rp1-sunshine; batocera-services enable sunshine; /userdata/system/services/sunshine start; sleep 7; pgrep -x sunshine >/dev/null", 45000);
   });
   const status = await remoteDisplayStatus(device);
@@ -3736,11 +3984,16 @@ esac
 }
 
 async function ensureRemoteDisplayEncoder(device) {
-  const command = `cfg=/userdata/system/.config/sunshine/sunshine.conf; mkdir -p "$(dirname "$cfg")"; touch "$cfg"; if grep -q '^capture[[:space:]]*=[[:space:]]*x11[[:space:]]*$' "$cfg"; then changed=0; else if grep -q '^capture[[:space:]]*=' "$cfg"; then sed -i 's/^capture[[:space:]]*=.*/capture = x11/' "$cfg"; else printf '\\ncapture = x11\\n' >> "$cfg"; fi; changed=1; fi; if test "$changed" = 1 || ! pgrep -x sunshine >/dev/null; then /userdata/system/services/sunshine restart >/dev/null 2>&1 || /userdata/system/services/sunshine start >/dev/null 2>&1; sleep 9; fi; grep -q 'Found H.264 encoder:' /userdata/system/logs/rp1-sunshine.log`;
+  // Always create a fresh encoder log. Previously, an already-correct X11
+  // setting skipped the restart and validated a stale or empty log, causing
+  // Ad Hoc Display to stop even though the same machine had worked before.
+  const servicePayload = Buffer.from(sunshineServiceScript(), "utf8").toString("base64");
+  const command = `cfg=/userdata/system/.config/sunshine/sunshine.conf; log=/userdata/system/logs/rp1-sunshine.log; service=/userdata/system/services/sunshine; mkdir -p "$(dirname "$cfg")" "$(dirname "$log")" "$(dirname "$service")"; printf '%s' '${servicePayload}' | base64 -d > "$service"; chmod 755 "$service"; touch "$cfg"; if grep -Eq '^capture[[:space:]]*=[[:space:]]*kms' "$cfg" && pgrep -x sunshine >/dev/null && ss -lnt 2>/dev/null | grep -q ':47990 ' && grep -Eiq 'Found H[.]264 encoder' "$log"; then exit 0; fi; for capture_mode in kms x11; do if grep -q '^capture[[:space:]]*=' "$cfg"; then sed -i "s/^capture[[:space:]]*=.*/capture = $capture_mode/" "$cfg"; else printf '\\ncapture = %s\\n' "$capture_mode" >> "$cfg"; fi; for attempt in 1 2; do "$service" restart >/dev/null 2>&1; for wait_step in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 1; if test "$wait_step" = 3 && ! pgrep -x sunshine >/dev/null && ! test -s "$log"; then break; fi; grep -Eq 'Fatal: Unable to find display|Error: Unable to initialize capture method|Fatal: Please check that a display is connected' "$log" && break; pgrep -x sunshine >/dev/null || continue; if grep -Eiq 'Found H[.]264 encoder|H[.]264[^[:cntrl:]]*encoder|encoder[^[:cntrl:]]*H[.]264' "$log"; then sleep 1; pgrep -x sunshine >/dev/null && ss -lnt 2>/dev/null | grep -q ':47990 ' && exit 0; fi; done; "$service" stop >/dev/null 2>&1; sleep 1; done; done; printf 'SUNSHINE_LOG_TAIL\\n' >&2; tail -n 60 "$log" >&2 2>/dev/null; exit 1`;
   try {
-    await execSsh(device, command, 20000);
-  } catch {
-    throw new Error("Sunshine could not initialize a working Batocera video encoder. RP1 set X11 capture, but encoder verification failed.");
+    await execSsh(device, command, 35000);
+  } catch (error) {
+    const detail = usefulFailureMessage(error);
+    throw new Error(`Sunshine could not initialize a working Batocera video encoder after two service restarts. ${detail}`);
   }
   return true;
 }
@@ -3786,8 +4039,8 @@ function waitForMoonlightPairing(child, timeoutMs = 30000) {
   });
 }
 
-function submitSunshinePin(host, password, pin) {
-  const body = JSON.stringify({pin:String(pin), name:"Ready Player One"});
+function submitSunshinePin(host, password, pin, pairingId) {
+  const body = JSON.stringify({pairing_id:String(pairingId || ""), pin:String(pin), name:"Ready Player One"});
   return new Promise((resolve, reject) => {
     const request = https.request({hostname:host, port:47990, path:"/api/pin", method:"POST", rejectUnauthorized:false,
       auth:`rp1:${password}`, headers:{"Content-Type":"application/json", "Content-Length":Buffer.byteLength(body)}}, response => {
@@ -3800,6 +4053,25 @@ function submitSunshinePin(host, password, pin) {
     });
     request.setTimeout(30000, () => request.destroy(new Error("Sunshine pairing timed out.")));
     request.on("error", reject); request.end(body);
+  });
+}
+
+function listPendingSunshinePairings(host, password) {
+  return new Promise((resolve, reject) => {
+    const request = https.request({hostname:host, port:47990, path:"/api/pin", method:"GET", rejectUnauthorized:false,
+      auth:`rp1:${password}`, headers:{Accept:"application/json"}}, response => {
+      let body = "";
+      response.on("data", chunk => body += chunk);
+      response.on("end", () => {
+        let parsed = null;
+        try { parsed = JSON.parse(body || "{}"); } catch {}
+        if (response.statusCode >= 200 && response.statusCode < 300 && parsed) resolve(Array.isArray(parsed.pairings) ? parsed.pairings : []);
+        else reject(new Error(`Sunshine pending-pairing lookup failed (HTTP ${response.statusCode}).`));
+      });
+    });
+    request.setTimeout(10000, () => request.destroy(new Error("Sunshine pending-pairing lookup timed out.")));
+    request.on("error", reject);
+    request.end();
   });
 }
 
@@ -3853,7 +4125,10 @@ async function pairRemoteDisplay(deviceName, device, { sunshineReady = false } =
     await new Promise(resolve => setTimeout(resolve, 2000));
     for (let attempt = 0; attempt < 20 && !verified; attempt += 1) {
       try {
-        await submitSunshinePin(device.host, password, pin);
+        const pending = await listPendingSunshinePairings(device.host, password);
+        const pairingId = String(pending.at(-1)?.id || "");
+        if (!/^[0-9a-f]{32}$/i.test(pairingId)) throw new Error("Moonlight has not published its Sunshine pairing request yet.");
+        await submitSunshinePin(device.host, password, pin, pairingId);
       } catch (error) { submitError = error; }
       await new Promise(resolve => setTimeout(resolve, 750));
       try {
@@ -3895,11 +4170,23 @@ async function pairRemoteDisplay(deviceName, device, { sunshineReady = false } =
 }
 
 function firstWiredWindowsAdapter() {
-  const script = `$items=Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Up' -and $_.Name -notmatch 'Wi-?Fi|Wireless'} | ForEach-Object {$cfg=Get-NetIPConfiguration -InterfaceIndex $_.ifIndex -ErrorAction SilentlyContinue;[pscustomobject]@{Name=$_.Name;InterfaceDescription=$_.InterfaceDescription;LinkSpeed=$_.LinkSpeed;InterfaceIndex=$_.ifIndex;DirectAddress=[bool](Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1');HasGateway=[bool]$cfg.IPv4DefaultGateway;Usb=[bool]($_.InterfaceDescription -match 'USB|Type-C')}};$items | Sort-Object @{Expression='DirectAddress';Descending=$true},@{Expression='HasGateway';Descending=$false},@{Expression='Usb';Descending=$true} | Select-Object -First 1 Name,InterfaceDescription,LinkSpeed,InterfaceIndex,DirectAddress,HasGateway | ConvertTo-Json -Compress`;
+  // Node reads configured interface addresses without starting PowerShell or
+  // asking Windows to enumerate gateways. This is the authoritative fast path
+  // after RP1 has configured the direct adapter once.
+  const direct = Object.entries(os.networkInterfaces()).find(([, addresses]) =>
+    (addresses || []).some(address => address.family === "IPv4" && address.address === "10.77.0.1" && !address.internal));
+  if (direct) return {Name:direct[0], InterfaceDescription:direct[0], DirectAddress:true, HasGateway:false, Detection:"node-direct-address"};
+
+  // The address is not configured yet. Find a live physical wired adapter
+  // without the expensive Get-NetIPConfiguration call that caused false
+  // timeouts on otherwise healthy USB-C Ethernet adapters.
+  const script = `$gateways=@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Select-Object -ExpandProperty InterfaceIndex);$items=Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Up' -and $_.Name -notmatch 'Wi-?Fi|Wireless'} | ForEach-Object {[pscustomobject]@{Name=$_.Name;InterfaceDescription=$_.InterfaceDescription;LinkSpeed=$_.LinkSpeed;InterfaceIndex=$_.ifIndex;DirectAddress=$false;HasGateway=($gateways -contains $_.ifIndex);Usb=[bool]($_.InterfaceDescription -match 'USB|Type-C')}};$items|Sort-Object @{Expression='HasGateway';Descending=$false},@{Expression='Usb';Descending=$true}|Select-Object -First 1 Name,InterfaceDescription,LinkSpeed,InterfaceIndex,DirectAddress,HasGateway|ConvertTo-Json -Compress`;
   try {
-    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:10000}).trim();
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:15000}).trim();
     return output ? JSON.parse(output) : null;
-  } catch { return null; }
+  } catch (error) {
+    return {Name:"", Diagnostic:`Windows adapter scan failed: ${usefulFailureMessage(error)}`};
+  }
 }
 function configureWindowsDirectAdapter(alias) {
   const elevated = `$ErrorActionPreference='Stop';$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;if($adapter.Status -ne 'Up'){throw 'The selected Ethernet adapter has no active cable link.'};Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -eq '10.77.0.1' -and $_.InterfaceIndex -ne $adapter.ifIndex} | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue;& netsh.exe interface ipv4 set address name=$env:RP1_ADAPTER static 10.77.0.1 255.255.255.0 none | Out-Null;Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction SilentlyContinue;$address=Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop | Where-Object IPAddress -eq '10.77.0.1';$route=Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue;if(-not $address -or -not $route){throw 'Windows did not create the direct-link address and route.'}`;
@@ -3939,24 +4226,32 @@ function usefulFailureMessage(error, fallback = "The operation failed without re
   return fallback;
 }
 
-async function prepareAdHocDisplay(deviceName, device) {
+const activeAdHocDisplayPreparations = new Map();
+
+async function prepareAdHocDisplayOnce(deviceName, device) {
   let stage = "validating the selected Batocera machine";
   try {
   stage = "detecting the connected Windows Ethernet adapter";
   const adapter = firstWiredWindowsAdapter();
-  if (!adapter?.Name) throw new Error("No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
-  if (!windowsAdapterHasDirectRoute(adapter.Name)) {
-    stage = `configuring Windows adapter ${adapter.Name} as 10.77.0.1`;
-    await configureWindowsDirectAdapter(adapter.Name);
-    for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+  if (!adapter?.Name) throw new Error(adapter?.Diagnostic || "No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
+  // A successful direct SSH connection proves the adapter address and route.
+  // Do not make an already-working link depend on slow Windows management
+  // cmdlets or an unnecessary administrator prompt.
+  let directLinkReady = await waitForDirectPort("10.77.0.2", 22, 3000);
+  if (!directLinkReady) {
+    if (!windowsAdapterHasDirectRoute(adapter.Name)) {
+      stage = `configuring Windows adapter ${adapter.Name} as 10.77.0.1`;
+      await configureWindowsDirectAdapter(adapter.Name);
+      for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
     }
+    stage = `verifying Windows adapter ${adapter.Name} and its direct route`;
+    if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
+    directLinkReady = await waitForDirectPort("10.77.0.2", 22, 12000);
   }
-  stage = `verifying Windows adapter ${adapter.Name} and its direct route`;
-  if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
   // Prefer the cable before touching the saved Wi-Fi address. Once Batocera
   // owns 10.77.0.2, Ad Hoc Display must work with Wi-Fi completely disabled.
-  const directLinkReady = await waitForDirectPort("10.77.0.2", 22, 3000);
   if (!directLinkReady && (!device?.host || device.access !== "ssh")) {
     throw new Error("The direct Ethernet address is not ready. Connect Batocera to Wi-Fi once for the initial direct-link setup, then Wi-Fi can remain off.");
   }
@@ -3969,7 +4264,9 @@ async function prepareAdHocDisplay(deviceName, device) {
   const directPairingReceipt = executable && anyRemoteDisplayPairingVerified("10.77.0.2");
   const directMoonlightCertificate = executable && await moonlightHostIsPaired(executable, "10.77.0.2");
   const directSunshineReady = directLinkReady && await waitForDirectPort("10.77.0.2", 47990, 3000);
-  if (directLinkReady && directPairingReceipt && directMoonlightCertificate && directSunshineReady) {
+  const directSunshinePaired = directSunshineReady && await sunshineHasPairedClients(deviceName, directDevice);
+  if (directLinkReady && directMoonlightCertificate && directSunshineReady && directSunshinePaired) {
+    if (!directPairingReceipt) markRemoteDisplayPairingVerified(deviceName, "10.77.0.2");
     removeUnpairedMoonlightHostEntries();
     removeMoonlightHostEntries("10.77.0.2", true);
     return {ready:true, host:"10.77.0.2", adapter, executable};
@@ -3987,8 +4284,8 @@ async function prepareAdHocDisplay(deviceName, device) {
   // known to work.
   stage = "checking Sunshine and Moonlight";
   let displayStatus = await remoteDisplayStatus(setupDevice);
-  if (!displayStatus.sunshineInstalled || !displayStatus.sunshineRunning) {
-    stage = "installing or starting Sunshine";
+  if (!displayStatus.sunshineInstalled) {
+    stage = "installing Sunshine";
     displayStatus = await installRemoteDisplay(setupDevice);
   }
   stage = "verifying the Batocera video encoder";
@@ -3997,7 +4294,7 @@ async function prepareAdHocDisplay(deviceName, device) {
   // connected and prevent ConnMan's new wired service from becoming the
   // default route; otherwise Batocera loses its normal LAN address and RP1
   // briefly discovers the machine before it disappears.
-  const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; test -n "$wifi_svc" && connmanctl connect "$wifi_svc" >/dev/null 2>&1 & sleep 5; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; sleep 3`;
+  const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; if test -n "$wifi_svc"; then timeout 12 connmanctl connect "$wifi_svc" >/dev/null 2>&1 || true; fi; sleep 3; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; sleep 3`;
   if (!directLinkReady) {
     stage = "configuring Batocera Ethernet as 10.77.0.2";
     try {
@@ -4038,12 +4335,14 @@ async function prepareAdHocDisplay(deviceName, device) {
   // so offline launches do not perform a needless network pairing exchange.
   removeUnpairedMoonlightHostEntries();
   removeMoonlightHostEntries("10.77.0.2", true);
-  const directPairingReady = remoteDisplayPairingVerified(deviceName, "10.77.0.2") &&
-    await moonlightHostIsPaired(executable, "10.77.0.2");
+  const directPairingReady = await moonlightHostIsPaired(executable, "10.77.0.2") &&
+    await sunshineHasPairedClients(deviceName, directDevice);
   if (!directPairingReady) {
     removeMoonlightHostEntries("10.77.0.2", false);
     stage = "pairing Moonlight with Sunshine over the direct link";
     await pairRemoteDisplay(deviceName, directDevice);
+  } else if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
+    markRemoteDisplayPairingVerified(deviceName, "10.77.0.2");
   }
   if (!remoteDisplayPairingVerified(deviceName, "10.77.0.2")) {
     throw new Error("Sunshine is running, but RP1 did not complete pairing for this Batocera installation at 10.77.0.2.");
@@ -4053,6 +4352,19 @@ async function prepareAdHocDisplay(deviceName, device) {
     const detail = usefulFailureMessage(error);
     if (/^Ad Hoc Display stopped while /i.test(detail)) throw new Error(detail);
     throw new Error(`Ad Hoc Display stopped while ${stage}: ${detail}`);
+  }
+}
+
+async function prepareAdHocDisplay(deviceName, device) {
+  const key = String(deviceName || device?.host || "Batocera").toLowerCase();
+  const existing = activeAdHocDisplayPreparations.get(key);
+  if (existing) return existing;
+  const preparation = prepareAdHocDisplayOnce(deviceName, device);
+  activeAdHocDisplayPreparations.set(key, preparation);
+  try {
+    return await preparation;
+  } finally {
+    if (activeAdHocDisplayPreparations.get(key) === preparation) activeAdHocDisplayPreparations.delete(key);
   }
 }
 
@@ -8574,6 +8886,10 @@ if os.path.exists(p):
     commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_pikaraoke.cfg /userdata/system/scripts/pikaraoke-launch.sh /userdata/system/ready-player-one/pikaraoke/launch.sh");
     commands.push("rm -rf -- /userdata/system/ready-player-one/pikaraoke");
   }
+  if (system === "kodi") {
+    commands.push("pkill -x kodi.bin 2>/dev/null || true");
+    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_kodi.cfg /userdata/system/scripts/rp1-kodi.sh");
+  }
   if (system === "movies") {
     commands.push("pkill -x vlc 2>/dev/null || true; pkill -x cvlc 2>/dev/null || true");
     commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_movies.cfg /userdata/system/scripts/rp1-movies-vlc.sh");
@@ -10846,6 +11162,7 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
       systems.karaoke = (await getKaraokeStatus(device)).installed;
       systems.movies = (await getMoviesStatus(device)).installed;
       systems.pikaraoke = (await getPiKaraokeStatus(device)).installed;
+      systems.kodi = (await getKodiStatus(device)).installed;
       systems.xbox360 = (await getXbox360XeniaStatus(device)).installed;
       systems.windows = (await getWindowsWineStatus(device)).installed;
       systems['3dsen'] = (await execSsh(device, "test -L /userdata/roms/3dsen && grep -Fq '<name>3dsen</name>' /userdata/system/configs/emulationstation/es_systems.cfg && test -s /userdata/system/ready-player-one/3dsen-runtime/3dSen.pc/autorun.cmd && echo yes || echo no")).trim() === 'yes';
@@ -10985,6 +11302,21 @@ ${check}
         return;
       }
       sendJson(res, 200, { ok: true, ...await installPiKaraoke(device) });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/kodi/status") {
+      const device = await getRuntimeDevice(url.searchParams.get("device"));
+      if (!device) { sendJson(res, 404, { ok: false, error: "Device is not configured." }); return; }
+      sendJson(res, 200, { ok: true, ...await getKodiStatus(device) });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/kodi/install") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device) { sendJson(res, 404, { ok: false, error: "Device is not configured." }); return; }
+      sendJson(res, 200, { ok: true, ...await installKodi(device) });
       return;
     }
 

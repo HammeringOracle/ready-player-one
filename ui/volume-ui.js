@@ -6,11 +6,12 @@
     #volumeDialog .vu-explanation{margin:8px 0;padding-left:20px;font-size:13px;line-height:1.4}
     #volumeDialog .vu-explanation li+li{margin-top:4px}
     #volumeDialog .music-path{display:inline-block;padding:1px 6px;border-radius:5px;color:#ffd66b;background:rgba(224,171,48,.13);font-weight:800;text-shadow:0 0 8px rgba(255,196,65,.18)}
-    #volumeDialog .vu-machines{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-    #volumeDialog button.vu-machine{box-sizing:border-box;width:180px;height:48px;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:7px;position:relative;padding:4px 24px 4px 8px;text-align:left;font:inherit;color:var(--text,#f0f3fa);border:1px solid rgba(126,174,245,.42);border-radius:10px;background:linear-gradient(180deg,rgba(255,255,255,.17),rgba(55,94,151,.2) 42%,rgba(10,15,22,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 3px 7px rgba(0,0,0,.4);opacity:.8}
-    #volumeDialog button.vu-machine.selected{border-color:rgba(38,168,255,.88);box-shadow:0 0 0 4px rgba(38,168,255,.25),0 0 34px rgba(38,168,255,.42);opacity:1}
-    #volumeDialog .vu-machine::after{content:"";position:absolute;top:7px;right:8px;width:10px;height:10px;border-radius:50%;background:var(--green,#65ce73);box-shadow:0 0 16px var(--green,#65ce73)}
-    #volumeDialog .vu-machine .device-name{font-size:14px;font-weight:900;line-height:1} #volumeDialog .vu-machine .device-meta{margin-top:5px;font-size:10px;opacity:.75}
+    #volumeDialog .vu-machines{display:grid;grid-template-columns:repeat(auto-fit,180px);gap:10px;margin:10px 0;padding:0;white-space:normal}
+    #volumeDialog .layout-machine-card{position:relative;width:180px;height:42px;box-sizing:border-box;text-align:left;grid-template-columns:minmax(0,1fr);padding:5px 20px 5px 52px}
+    #volumeDialog .layout-machine-card > :not(.mini-pc){min-width:0;width:100%;overflow:hidden}
+    #volumeDialog .layout-machine-card .mini-pc{position:absolute;top:50%;left:9px;transform:translateY(-50%)}
+    #volumeDialog .layout-machine-card .device-name{white-space:normal;font-size:14px}
+    #volumeDialog .layout-machine-card .device-meta{width:auto;max-width:none;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px}
     #volumeDialog button{padding:7px 13px;border-radius:9px;border:1px solid #719ae5;background:#294c85;color:white;font:12px/1.2 sans-serif;cursor:pointer}
     #volumeDialog footer{margin-top:8px}
     #volumeDialog :is(.vu-install,.vu-disable){position:relative;overflow:hidden;border-color:rgba(115,174,255,.88);background:linear-gradient(180deg,rgba(255,255,255,.27),rgba(48,111,190,.7) 43%,rgba(18,48,91,.94));text-shadow:0 1px 1px rgba(0,0,0,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.42),0 4px 9px rgba(0,0,0,.5)}
@@ -32,7 +33,7 @@
   }
   function show(result){disable.hidden=!result.installed;install.textContent=result.installed?'Update setup':'Install';music.checked=true;status.textContent=result.installed?'Installed. Separate Music and Game mappings are available.'+(result.musicStreams!==undefined?'\nActive audio streams: music '+result.musicStreams+', game '+result.gameStreams+'.':'')+(result.warning?'\n'+result.warning:''):'Not installed. Standard overall-volume controls remain available.';}
   async function check(){const id=++checkId;lock(true);status.textContent='Checking this machine…';try{const result=await request('volume-status');if(id===checkId)show(result);}catch(e){status.textContent=e.message;disable.hidden=true;}finally{if(id===checkId)lock(false);}}
-  function selectMachine(button){machines.querySelectorAll('.vu-machine').forEach(item=>{const selected=item===button;item.classList.toggle('selected',selected);item.setAttribute('aria-checked',String(selected));});device.value=button.dataset.device;check();}
+  function selectMachine(button){machines.querySelectorAll('.layout-machine-card').forEach(item=>{const selected=item===button;item.setAttribute('aria-pressed',String(selected));item.setAttribute('aria-checked',String(selected));});device.value=button.dataset.device;check();}
   install.onclick=async()=>{let succeeded=false;lock(true);status.textContent='Installing Music over Games…';try{show(await request('volume-install'));install.textContent='Success';succeeded=true;}catch(e){status.textContent='Setup could not be confirmed: '+e.message+' Reopen this window to check the machine’s status.';}finally{lock(false);if(succeeded)install.disabled=true;}};
   disable.onclick=async()=>{if(!confirm('Disable separate audio controls and game-time music? Existing standard volume mappings are unchanged. Separate Music/Game mappings will stop working until this feature is installed again.'))return;lock(true);try{show(await request('volume-disable'));}catch(e){status.textContent=e.message;}finally{lock(false);}};
   dialog.querySelector('.vu-close').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});
@@ -41,11 +42,11 @@
     document.querySelector('#advancedFeatures')?.classList.remove('open');machines.replaceChildren();device.value='';
     const snapshot=window.getDiscoveredMachineStatuses?.()||{};
     for(const [id,m] of Object.entries(snapshot))if(m.online&&!m.usb&&(m.platform==='batocera'||(!m.platform&&m.access==='ssh'))){
-      const card=document.createElement('button');card.type='button';card.className='vu-machine';card.dataset.device=id;card.dataset.platform='batocera';card.setAttribute('role','radio');card.setAttribute('aria-checked','false');
+      const card=document.createElement('button');card.type='button';card.className='layout-machine-card vu-machine';card.dataset.device=id;card.dataset.platform='batocera';card.setAttribute('role','radio');card.setAttribute('aria-checked','false');card.setAttribute('aria-pressed','false');
       const icon=document.createElement('div');icon.className='mini-pc';icon.setAttribute('aria-hidden','true');
       const labels=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div');title.className='device-name';title.textContent=m.displayName||id;meta.className='device-meta';meta.textContent=m.host||'Auto scan';labels.append(title,meta);card.append(icon,labels);card.onclick=()=>selectMachine(card);machines.append(card);
     }
     dialog.showModal();
-    const first=machines.querySelector('.vu-machine');if(first)selectMachine(first);else{status.textContent='No Batocera machines have been discovered yet.';install.disabled=true;disable.hidden=true;}
+    const first=machines.querySelector('.layout-machine-card');if(first)selectMachine(first);else{status.textContent='No Batocera machines have been discovered yet.';install.disabled=true;disable.hidden=true;}
   };
 })();
