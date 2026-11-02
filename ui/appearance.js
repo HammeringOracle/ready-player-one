@@ -85,6 +85,7 @@
             <label data-control="xboxRenderer"><span>Xbox renderer<small>Batocera setting: <code class="machine-behavior-xbox-setting">xbox.xemu_api (not set)</code></small></span><select name="xboxRenderer"><option value="AUTO">Automatic</option><option value="VULKAN">VULKAN</option><option value="OPENGL">OPENGL</option></select></label>
             <label data-control="xboxVideoMode"><span>Xbox display resolution<small>Applies to Xbox only; separate from internal rendering scale.</small></span><select name="xboxVideoMode"><option value="AUTO">Automatic</option><option value="1280x720">720p (1280×720)</option></select></label>
             <label data-control="wifiPowerSaver"><span>Wi-Fi Power Saver<small>Turn this off if Batocera's wireless connection drops while the machine is running.</small></span><select name="wifiPowerSaver"><option value="off">Off</option><option value="on">On</option></select></label>
+            <label data-control="themeSet"><span>EmulationStation theme<small>Choose from themes installed on this machine.</small></span><select name="themeSet"></select></label>
             <label data-control="audioOutput" class="machine-behavior-audio"><span>Audio output<small>Switch live audio between HDMI and the 3.5 mm jack.</small></span><span class="machine-audio-controls"><select name="audioOutput"><option value="hdmi">HDMI</option><option value="analog">3.5 mm</option></select><span class="machine-audio-level"><button type="button" class="machine-audio-down" aria-label="Volume down">−</button><output>0%</output><button type="button" class="machine-audio-up" aria-label="Volume up">+</button></span></span></label>
             <p class="machine-behavior-note"></p>
             <div class="machine-behavior-actions"><button type="button" class="machine-behavior-restore">Restore Previous</button><button type="submit" class="appearance-done machine-behavior-save">Apply Settings</button></div>
@@ -164,6 +165,17 @@
         behaviorForm.elements.behavior.value = result.behavior || 'dim';
         behaviorForm.elements.powerSaver.value = result.powerSaver || 'default';
         behaviorForm.elements.wifiPowerSaver.value = result.wifiPowerSaver ? 'on' : 'off';
+        const themeControl = behaviorForm.querySelector('[data-control="themeSet"]');
+        const themes = Array.isArray(result.installedThemes) ? result.installedThemes : [];
+        behaviorForm.elements.themeSet.replaceChildren(...themes.map(theme => {
+          const option = document.createElement('option');
+          option.value = theme;
+          const carbonLabels = {'es-theme-carbon':'Carbon — Original','es-theme-carbon-console':'Carbon — Console Backgrounds'};
+          option.textContent = carbonLabels[theme.toLowerCase()] || theme.replace(/^es-theme-/i,'ES Theme ').replace(/[-_]+/g,' ').replace(/\b\w/g,letter => letter.toUpperCase()).replace(/^Es Theme /,'ES Theme ');
+          return option;
+        }));
+        themeControl.hidden = !result.capabilities?.themeSet || themes.length === 0;
+        if (!themeControl.hidden) behaviorForm.elements.themeSet.value = result.themeSet || themes[0];
         const audioResponse = await fetch(`/api/machine-audio?device=${encodeURIComponent(id)}`,{cache:'no-store'});
         const audio = await audioResponse.json();
         const audioControl = behaviorForm.querySelector('[data-control="audioOutput"]');
@@ -218,7 +230,7 @@
       event.preventDefault(); if (!behaviorDevice) return;
       setBehaviorBusy(true); behaviorStatus.textContent = 'Applying and refreshing machine…';
       try {
-        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value,xboxRenderer:behaviorForm.elements.xboxRenderer.value,xboxVideoMode:behaviorForm.elements.xboxVideoMode.value,wifiPowerSaver:behaviorForm.elements.wifiPowerSaver.value === 'on'};
+        const body = {device:behaviorDevice,screenSaverMinutes:Number(behaviorForm.elements.screenSaverMinutes.value),systemSleepMinutes:Number(behaviorForm.elements.systemSleepMinutes.value),behavior:behaviorForm.elements.behavior.value,powerSaver:behaviorForm.elements.powerSaver.value,xboxRenderer:behaviorForm.elements.xboxRenderer.value,xboxVideoMode:behaviorForm.elements.xboxVideoMode.value,wifiPowerSaver:behaviorForm.elements.wifiPowerSaver.value === 'on',themeSet:behaviorForm.elements.themeSet.value};
         const response = await fetch('/api/machine-behavior',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.error || 'Could not apply machine behavior.');
         if (!behaviorForm.querySelector('[data-control="xboxRenderer"]').hidden && result.xboxRenderer !== xboxRendererSelect.value) {

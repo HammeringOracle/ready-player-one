@@ -442,10 +442,11 @@
     }
 
     .machine-connection-symbol.visible { display: grid; }
+    .machine-connection-symbol.inactive { color: #657080; filter: drop-shadow(0 1px 1px rgba(0,0,0,.78)); opacity: .78; }
     .machine-connection-symbol svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
     .machine-connection-symbol[data-connection="wifi"] { color: #7fd4ff; }
     .machine-connection-symbol[data-connection="ethernet"] { width: 13px; height: 13px; color: #ff65dd; place-items: center; }
-    .machine-connection-symbol[data-connection="ethernet"] svg { width: 12.75px; height: 12.75px; }
+    .machine-connection-symbol[data-connection="ethernet"] svg { width: 11px; height: 11px; stroke-width: 1.05; }
     .machine-connection-symbol[data-connection="usb-c"] { color: #c9d4e5; }
 
     .mini-pc {
@@ -2680,6 +2681,15 @@
 
     #xboxBiosDialog .confirm-body,
     #xboxBiosDialogMessage { min-width: 0; }
+    /* The Display dialog must remain dismissible even if a backend failure is
+       unexpectedly long. Keep its header/X and actions fixed in the viewport
+       and scroll only the message area. */
+    #xboxBiosDialog .confirm-modal {
+      max-height: calc(100vh - 32px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    #xboxBiosDialog .confirm-body { overflow-y: auto; }
     #xboxBiosDialogMessage {
       max-width: 100%;
       overflow-wrap: anywhere;
@@ -2847,7 +2857,8 @@
     #xboxBiosDialog.gamertag-editor .gamertag-add-button::before { content:'';position:absolute;inset:1px 3px auto;height:43%;border-radius:4px 4px 50% 50%;background:linear-gradient(180deg,rgba(255,255,255,.36),rgba(255,255,255,.03));pointer-events:none; }
     #xboxBiosDialog.gamertag-editor .gamertag-add-button::after { content:'+';position:absolute;inset:0;z-index:2;display:grid;place-items:center;color:#fff;font-size:16px;font-weight:900;line-height:1;text-shadow:0 1px 1px #000b;transform:translateY(-1px);pointer-events:none; }
     #xboxBiosDialog.display-compact .confirm-body {
-      gap: 4px;
+      /* One consistent separation between the machine name and its message. */
+      gap: 10px;
       padding: 10px 12px 6px;
       line-height: 1.25;
     }
@@ -3932,7 +3943,7 @@
           <div class="row" data-system="jaguarcd"><span class="icon">JC</span><span>Atari Jaguar CD</span><span class="count">0</span></div>
           <div class="row" data-system="atari800"><span class="icon">8B</span><span>Atari 400/800/XL/XE</span><span class="count">0</span></div>
           <div class="row" data-system="atarist"><span class="icon">ST</span><span>Atari ST/STE/TT/Falcon</span><span class="count">0</span></div>
-          <div class="row" data-system="pcengine"><span class="icon">PC</span><span>PC Engine</span><span class="count">0</span></div>
+          <div class="row" data-system="pcengine"><span class="icon">PC</span><span>TurboGrafx-16 (PC Engine)</span><span class="count">0</span></div>
           <div class="row" data-system="dos"><span class="icon">PC</span><span>DOS</span><span class="count">0</span></div>
           <div class="row" data-system="favorites"><span class="icon">★</span><span>Favorites</span><span class="count">—</span></div>
           <div class="row" data-system="all"><span class="icon">ALL</span><span>All Games</span><span class="count">—</span></div>
@@ -5380,6 +5391,7 @@
     }
     const systemPickerPageSize = 30;
     let systemPickerDevice = selectedDevice;
+    const explicitlyUncheckedSystems = new Set();
     const unsupportedSystemsByPlatform = {
       // Lakka is RetroArch itself. These systems require standalone emulators
       // that are not available as Lakka/libretro cores.
@@ -5419,6 +5431,7 @@
 
     function showSystemPicker() {
       systemPickerDevice = selectedDevice;
+      explicitlyUncheckedSystems.clear();
       const visible = readVisibleSystems();
       const alphabeticalRows = [...rows].sort((left, right) => systemLabelForRow(left).localeCompare(systemLabelForRow(right), undefined, { sensitivity: "base", numeric: true }));
       systemPickerGrid.innerHTML = alphabeticalRows.map(row => {
@@ -5444,6 +5457,10 @@
     }
 
     systemPickerGrid.addEventListener('change', event => {
+      if (event.target.matches('input[type="checkbox"]')) {
+        if (event.target.checked) explicitlyUncheckedSystems.delete(event.target.value);
+        else explicitlyUncheckedSystems.add(event.target.value);
+      }
       if (event.target.matches('input[value="3dsen"], input[value="windows"], input[value="pikaraoke"]')) updateSystemRequirementWarning();
     });
 
@@ -5463,7 +5480,9 @@
       const automaticSetupPlatform = !targetStatus?.platform || ['batocera','retrobat'].includes(targetStatus.platform);
       const machines = automaticSetupPlatform && targetStatus?.online && (targetStatus.access === 'ssh' || targetStatus.platform==='retrobat') ? [visibilityDevice] : [];
       const previous = readVisibleSystems(visibilityDevice);
-      const removed = new Set([...previous].filter(system => !selected.has(system)));
+      // Only this edit's checkbox changes are actionable. A legacy unchecked
+      // system must never turn unrelated unchecked consoles into deletions.
+      const removed = new Set([...previous, ...explicitlyUncheckedSystems].filter(system => !selected.has(system)));
       const added = new Set([...selected].filter(system => !previous.has(system)));
       if (removed.size && !machines.length) {
         await showXboxBiosDialog({title:'Machine Unavailable', device:visibilityDevice, message:'Reconnect this machine before removing a console. RP1 will not merely hide it while its files remain on the machine.', confirmLabel:'OK'});
@@ -5475,6 +5494,7 @@
         ps1: 'Install verified cached PS1 BIOS', ps2: 'Install verified cached PS2 BIOS',
         ps3: 'Copy verified cached PS3 firmware (emulator installation may still be required)',
         ps4: 'Install user-supplied PS4 firmware modules for shadPS4',
+        psvita: 'Copy and install the verified PS Vita system and font firmware in Vita3K',
         xbox: 'Install verified cached Xbox BIOS files', xbox360: "Prepare Batocera's internal Xenia runtime",
         windows: 'Verify Batocera Wine and prepare Windows game, installer, and dependency folders',
         wiiu: 'Install cached Cemu keys', karaoke: 'Install Karaoke launcher and refresh machine game list',
@@ -5497,9 +5517,9 @@
         dreamcast: { kind: 'BIOS', name: 'dc_boot.bin and dc_flash.bin', folder: '/userdata/bios/dc' },
         neogeo: { kind: 'BIOS', name: 'neogeo.zip', folder: '/userdata/bios' },
         switch: { kind: 'KEYS/FIRMWARE', name: 'keys and firmware dumped from your own Nintendo Switch', folder: '/userdata/bios/switch' },
-        psvita: { kind: 'FIRMWARE', name: 'the PS Vita base system software and system update', folder: '/userdata/bios/psvita' }
+        psvita: { kind: 'FIRMWARE', name: 'PSVUPDAT.PUP and PSP2UPDAT.PUP', folder: '/userdata/bios/psvita' }
       };
-      const manual = new Set(['nds', '3ds', 'switch', 'segacd', 'saturn', 'dreamcast', 'psvita', 'neogeo', 'mame']);
+      const manual = new Set(['nds', '3ds', 'switch', 'segacd', 'saturn', 'dreamcast', 'neogeo', 'mame']);
       if(targetStatus?.platform==='retrobat'){
         setup.ps2='Install verified cached PS2 BIOS in RetroBat bios/pcsx2/bios';
         setup.ps3='Stage PS3 firmware; complete RPCS3 installation on this PC';
@@ -5534,10 +5554,8 @@
             if (!profileResponse.ok || !profileResult.ok) throw new Error(`${device}: ${profileResult.error || 'Could not verify Xbox 360 GamerTags'}`);
             xbox360ProfileStatusByMachine[device] = profileResult;
           }
-          // Only act on checkboxes changed in this edit. Earlier code added
-          // every installed-but-unchecked Batocera system here, causing a
-          // one-console change to produce a confirmation containing many
-          // unrelated consoles.
+          // Report only the systems changed in this edit; keep older unchecked
+          // choices out of this confirmation and out of the removal request.
           for (const system of virtualCollectionSystems) deviceRemoved.delete(system);
           for (const system of deviceRemoved) {
             removals.push({device, system});
@@ -5612,10 +5630,14 @@
         if (!gamerTags) return;
         xbox360ProfileChoice = {gamerTags};
       }
-      localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...selected]));
+      // Keep removals selected until the machine confirms each deletion. If
+      // RP1 closes or loses the connection mid-operation, its saved state must
+      // not imply that files were removed when they may still be present.
+      const pendingVisibility = new Set([...selected, ...removals.map(item => item.system)]);
+      localStorage.setItem(visibilityStorageKey(visibilityDevice), JSON.stringify([...pendingVisibility]));
       const persistVisibility = await fetch(`${apiBase}/api/ui/visible-systems`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({device:visibilityDevice, systems:[...selected]})
+        body:JSON.stringify({device:visibilityDevice, systems:[...pendingVisibility]})
       });
       const persistedVisibility = await persistVisibility.json().catch(() => ({}));
       if (!persistVisibility.ok || !persistedVisibility.ok) throw new Error(persistedVisibility.error || 'RP1 could not save this machine’s console selection.');
@@ -5623,7 +5645,7 @@
       localStorage.setItem(steamDiscoveryKey(visibilityDevice), 'done');
       localStorage.setItem(c64DiscoveryKey(visibilityDevice), 'done');
       localStorage.setItem(collectionDiscoveryKey(visibilityDevice), 'done');
-      if (selectedDevice === visibilityDevice) applyVisibleSystems(selected);
+      if (selectedDevice === visibilityDevice) applyVisibleSystems(pendingVisibility);
       const results = [];
       const collectionLayoutsPrepared = new Set();
       saveSystemPicker.disabled = true;
@@ -5673,6 +5695,10 @@
         for (const removal of removals) {
           try {
             const removedSystem = await request('/api/systems/remove', {device:removal.device, system:removal.system, deferReset:true});
+            const confirmed = readVisibleSystems(removal.device);
+            confirmed.delete(removal.system);
+            localStorage.setItem(visibilityStorageKey(removal.device), JSON.stringify([...confirmed]));
+            if (removal.device === selectedDevice) applyVisibleSystems(confirmed);
             const selections = readDeviceTransferSelections(removal.device);
             delete selections[removal.system];
             localStorage.setItem(transferQueueStorageKey(removal.device), JSON.stringify(selections));
@@ -5718,7 +5744,11 @@
               results.push(`${resultPrefix(device)}${label}: Added, but automatic cartridge artwork FAILED — ${error.message}`);
             }
           }
-          if (installedByMachine[device]?.[system] && !['windows', 'pygame'].includes(system)) {
+          if (installedByMachine[device]?.[system] && !['windows', 'pygame', 'pikaraoke'].includes(system)) {
+            if (['karaoke', 'movies', 'kodi'].includes(system) && lastDeviceStatuses[device]?.platform !== 'retrobat') {
+              try { await request('/api/media-system/background', {device, system}); }
+              catch (error) { results.push(`${resultPrefix(device)}${label}: Background setup FAILED — ${error.message}`); }
+            }
             if (contributesToProgress) advanceSetupProgress();
             continue;
           }
@@ -5735,7 +5765,7 @@
               if (contributesToProgress) advanceSetupProgress();
               continue;
             }
-            if (['ps1','ps2','ps3','ps4'].includes(system)) await request('/api/bios/install-cached', {device, system});
+            if (['ps1','ps2','ps3','ps4','psvita'].includes(system)) await request('/api/bios/install-cached', {device, system});
             else if (system === 'wiiu') await request(`/api/wiiu-keys/install-cached?device=${encodeURIComponent(device)}`);
             else if (system === 'karaoke') {
               const status = await request(`/api/karaoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
@@ -5748,8 +5778,7 @@
               if (!status.installed) status = await request(`/api/pygame-ce?device=${encodeURIComponent(device)}`, null, 'POST');
               if (!status.installed || !status.version) throw new Error('Pygame CE installation could not be verified.');
             } else if (system === 'pikaraoke') {
-              const status = await request(`/api/pikaraoke/status?device=${encodeURIComponent(device)}`, null, 'GET');
-              if (!status.installed) await request('/api/pikaraoke/setup', {device});
+              await request('/api/pikaraoke/setup', {device});
             } else if (system === 'kodi') {
               const status = await request(`/api/kodi/status?device=${encodeURIComponent(device)}`, null, 'GET');
               if (!status.installed) await request('/api/kodi/install', {device});
@@ -8648,6 +8677,7 @@
     const layoutSetupLabels = {
       ps1: "PS1 BIOS", ps2: "PS2 BIOS", ps3: "PS3 firmware file (RPCS3 installation may still be required)",
       ps4: "PS4 firmware modules for shadPS4",
+      psvita: "PS Vita system and font firmware for Vita3K",
       xbox: "Xbox BIOS", xbox360: "Xbox 360 Xenia/Wine", windows: "Windows (Wine)", wiiu: "Wii U keys", karaoke: "Karaoke launcher"
     };
 
@@ -8675,7 +8705,7 @@
         if (installed) continue;
         syncStatus.textContent = `Setting up ${label} on ${device}...`;
         if(platform==='retrobat'){await layoutSetupRequest('/api/retrobat/setup',{device,system});continue;}
-        if (["ps1", "ps2", "ps3", "ps4"].includes(system)) await layoutSetupRequest("/api/bios/install-cached", {device, system});
+        if (["ps1", "ps2", "ps3", "ps4", "psvita"].includes(system)) await layoutSetupRequest("/api/bios/install-cached", {device, system});
         else if (system === "wiiu") await layoutSetupRequest(`/api/wiiu-keys/install-cached?device=${encodeURIComponent(device)}`);
         else if (system === "xbox") await layoutSetupRequest("/api/xbox-bios/install-cached", {device});
         else if (system === "karaoke") await layoutSetupRequest("/api/karaoke/install", {device});
@@ -9879,7 +9909,7 @@
       }
       const connectionDefinitions = {
         "usb-c": '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4.5" width="13" height="7" rx="3.5"/><path d="M5 8h6"/></svg>',
-        ethernet: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v10.5h-11zM5 2.5v2h6v-2M4 7h8M4.5 9.5h1M7 9.5h1M9.5 9.5h1M12 9.5h.01"/></svg>',
+        ethernet: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.2" y="1.2" width="13.6" height="13.6" rx="1.25"/><path d="M3 3h10v6.1h-1.7v1.4H9.9v1.3H6.1v-1.3H4.7V9.1H3zM4.6 3v2.1M6 3v2.1M7.4 3v2.1M8.8 3v2.1M10.2 3v2.1M11.6 3v2.1"/></svg>',
         wifi: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6.5a9 9 0 0 1 12 0M4.5 9a5.3 5.3 0 0 1 7 0M7 11.5a1.5 1.5 0 0 1 2 0"/><circle cx="8" cy="13" r=".6" fill="currentColor" stroke="none"/></svg>'
       };
       const connectionStates = {
@@ -9896,7 +9926,9 @@
           symbol.innerHTML = svg;
           connectionSymbols.append(symbol);
         }
-        symbol.classList.toggle("visible", connectionStates[type]);
+        const visible = type === "wifi" || connectionStates[type];
+        symbol.classList.toggle("visible", visible);
+        symbol.classList.toggle("inactive", type === "wifi" && !connectionStates[type]);
       }
       const visibleConnections = Object.entries(connectionStates).filter(([, visible]) => visible).map(([type]) => type === "usb-c" ? "USB Type-C" : type === "ethernet" ? "Ethernet display" : "Wi-Fi");
       connectionSymbols.setAttribute("aria-label", visibleConnections.length ? `Connections: ${visibleConnections.join(", ")}` : "No active connections");
@@ -10890,13 +10922,13 @@
       try {
         const approved = await showXboxBiosDialog({
           title:'Ad hoc Display', device, cancellable:true, confirmLabel:'Configure Direct Link', cancelLabel:'Cancel', glassyActions:true,
-          message:'• Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine.\n\n• RP1 will assign a private gigabit link (10.77.0.1 ↔ 10.77.0.2) and use it only for Display.\n\n• Windows may request administrator approval.'
+          message:'• Connect the RP1 computer’s USB-C Ethernet adapter directly to this Batocera machine.\n• RP1 will assign a private gigabit link (10.77.0.1 ↔ 10.77.0.2) and use it only for Display.\n• Windows may request administrator approval.'
         });
         if (!approved) return;
         adHocStage = 'configuring the Windows and Batocera direct Ethernet link';
         const preparationController = new AbortController();
         let preparationDialogActive = true;
-        const preparationDialog = showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working', cancellable:true, showCancel:false, glassyActions:true});
+        const preparationDialog = showXboxBiosDialog({title:'Ad hoc Display — Connecting', device, message:'• Detecting the USB-C Ethernet adapter and preparing the direct link…', confirmLabel:'Working', cancellable:true, showCancel:false, glassyActions:true});
         preparationDialog.then(() => {
           if (preparationDialogActive) preparationController.abort();
         });
@@ -10954,18 +10986,25 @@
       } catch (error) {
         xboxBiosDialog.classList.remove('dual-boot-working', 'display-compact');
         if (error?.name === 'AbortError') return;
-        const detail = adHocFailureText(error);
-        const message = /^Ad Hoc Display stopped while /i.test(detail)
-          ? detail
-          : `Ad Hoc Display stopped while ${adHocStage}: ${detail}`;
+        let detail = adHocFailureText(error);
+        // Never let a Node/PowerShell command line (especially its Base64
+        // payload) into the UI. It is not actionable and previously made the
+        // error modal taller than the screen, hiding its close control.
+        if (/Command failed:\s*powershell\.exe|EncodedCommand/i.test(detail)) {
+          detail = 'Windows could not reset the saved direct Ethernet adapter. Approve the administrator prompt, then try again.';
+        }
+        const plainDetail = detail.replace(/^•\s*/, '');
+        const message = /^Ad Hoc Display stopped while /i.test(plainDetail)
+          ? `• ${plainDetail}`
+          : `• Ad Hoc Display stopped while ${adHocStage}: ${plainDetail}`;
         await showXboxBiosDialog({title:'Ad hoc Display', device, message, confirmLabel:'OK', glassyActions:true});
       }
     }
     async function openMachineDisplayChoice(card) {
       const choice = await showXboxBiosDialog({
         title:'Display', device:card.dataset.device,
-        message:'• Network uses the machine’s current Wi-Fi or LAN connection.\n• Ad Hoc uses a direct Ethernet connection to this RP1 computer.',
-        confirmLabel:'Network', alternateLabel:'Ad Hoc', alternateValue:'ad-hoc',
+        message:'• Wi-Fi uses the machine’s current wireless connection.\n• Ad Hoc uses a direct Ethernet connection to this RP1 computer.',
+        confirmLabel:'Wi-Fi', alternateLabel:'Ad Hoc', alternateValue:'ad-hoc',
         cancellable:true, showCancel:false,
         glassyActions:true, profileChoiceActions:true
       });

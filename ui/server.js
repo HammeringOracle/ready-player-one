@@ -2429,6 +2429,7 @@ async function installKaraoke(device) {
   });
   await execSsh(device, karaokeInstallCommand(), 30000);
   await installBatoceraSystemTitle(device, "karaoke", path.join(uiRoot, "system-art", "karaoke-title.png"));
+  await installMediaSystemBackground(device, "karaoke");
   return getKaraokeStatus(device);
 }
 
@@ -2542,6 +2543,7 @@ async function installMovies(device) {
   });
   await execSsh(device, moviesInstallCommand(), 30000);
   await installNintendoPicturePresentation(device, ["movies"]);
+  await installMediaSystemBackground(device, "movies");
   return getMoviesStatus(device);
 }
 
@@ -2789,10 +2791,72 @@ async function installPiKaraoke(device) {
     });
   }
   await installBatoceraSystemTitle(device, "pikaraoke", path.join(uiRoot, "system-art", "pikaraoke-title.png"));
+  await installPiKaraokeConsoleIcon(device);
   const after = await getPiKaraokeStatus(device);
   if (!after.installed) throw new Error(`PiKaraoke setup is incomplete: ${after.missing.join(", ")}.`);
   if (!before.components?.console || !before.components?.launcher || !before.components?.entry) await runSoftReset(device);
   return { ...after, checkedBeforeInstall: true, alreadyInstalled: before.installed, installedComponents: before.missing.filter(name => !after.missing.includes(name)) };
+}
+
+async function installMediaSystemBackground(device, system) {
+  if (!['karaoke', 'movies', 'kodi'].includes(system)) throw new Error('Invalid media system background.');
+  if (system === 'karaoke') {
+    const iconPath = path.join(uiRoot, 'pikaraoke-icon.png');
+    if (!fs.existsSync(iconPath)) throw new Error('The shared karaoke image is missing.');
+    await sftpWithDevice(device, async sftp => {
+      await mkdirpSftp(sftp, '/userdata/roms/karaoke/media/images');
+      await fastPutSftp(sftp, iconPath, '/userdata/roms/karaoke/media/images/karaoke.png');
+    });
+  }
+  const script = `import os, re
+system=${JSON.stringify(system)}
+path='/userdata/roms/'+system+'/theme.xml'
+icon='/userdata/roms/'+system+'/media/images/'+system+('.svg' if system=='kodi' else '.png')
+if not os.path.isfile(icon): raise RuntimeError('Media console image is missing: '+icon)
+marker='READY PLAYER ONE MEDIA BACKGROUND'
+settings='/userdata/system/configs/emulationstation/es_settings.cfg'
+config=open(settings,encoding='utf-8').read()
+m=re.search(r'name=["\\\']ThemeSet["\\\']\\s+value=["\\\']([A-Za-z0-9._-]+)',config)
+name=m.group(1) if m else 'es-theme-carbon'
+base=next((os.path.join(r,name,'theme.xml') for r in ['/userdata/themes','/usr/share/emulationstation/themes'] if os.path.isfile(os.path.join(r,name,'theme.xml'))),None)
+if not base: raise RuntimeError('Selected theme not found')
+if os.path.isfile(path):
+ text=open(path,encoding='utf-8-sig').read()
+ if 'READY PLAYER ONE' not in text: raise RuntimeError('Existing custom theme was not overwritten')
+else: text='<theme><formatVersion>7</formatVersion><include>'+base+'</include></theme>'
+text=re.sub(r'<!-- READY PLAYER ONE MEDIA BACKGROUND BEGIN -->[\\s\\S]*?<!-- READY PLAYER ONE MEDIA BACKGROUND END -->','',text)
+block='<!-- '+marker+' BEGIN --><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>'+icon+'</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><!-- '+marker+' END -->'
+if '</theme>' not in text: raise RuntimeError('Invalid existing system theme')
+text=text.replace('</theme>',block+'</theme>',1)
+tmp=path+'.rp1-background-new'
+with open(tmp,'w',encoding='utf-8') as f: f.write(text)
+os.replace(tmp,path)
+print('Background installed: '+system)
+`;
+  await execSsh(device, `printf '%s' '${Buffer.from(script, 'utf8').toString('base64')}' | base64 -d | python3`, 15000);
+}
+
+async function installPiKaraokeConsoleIcon(device) {
+  const command = `set -e
+target=/userdata/roms/pikaraoke/theme.xml
+icon=/userdata/roms/pikaraoke/media/images/pikaraoke.png
+[ -s "$icon" ] || { echo 'PiKaraoke console image is missing.' >&2; exit 1; }
+if [ -f "$target" ] && ! grep -Fq 'READY PLAYER ONE PIKARAOKE CONSOLE ICON' "$target"; then
+  echo 'PiKaraoke already has a custom theme; it was not overwritten.' >&2; exit 1
+fi
+theme=$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n1)
+case "$theme" in ''|*[!A-Za-z0-9._-]*) theme=es-theme-carbon;; esac
+base=""
+for root in /userdata/themes /usr/share/emulationstation/themes; do [ -f "$root/$theme/theme.xml" ] && { base="$root/$theme/theme.xml"; break; }; done
+[ -n "$base" ] || { echo 'The selected EmulationStation theme was not found.' >&2; exit 1; }
+cat > "$target.rp1-new" <<EOF
+<!-- READY PLAYER ONE PIKARAOKE CONSOLE ICON -->
+<theme><formatVersion>7</formatVersion><include>$base</include>
+<view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$icon</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view></theme>
+EOF
+mv -f "$target.rp1-new" "$target"
+grep -Fq 'READY PLAYER ONE PIKARAOKE CONSOLE ICON' "$target"`;
+  await execSsh(device, command, 15000);
 }
 
 async function getKodiStatus(device) {
@@ -2874,6 +2938,7 @@ async function installKodi(device) {
     await fastPutSftp(sftp, iconPath, "/userdata/roms/kodi/media/images/kodi.svg");
   });
   await execSsh(device, kodiInstallCommand(), 30000);
+  await installMediaSystemBackground(device, 'kodi');
   const status = await getKodiStatus(device);
   if (!status.installed) throw new Error(`Kodi setup is incomplete: ${status.missing.join(", ")}.`);
   return status;
@@ -3453,15 +3518,18 @@ async function getMachineBehavior(device) {
   const spec = machineBehaviorSpec(device);
   if (spec.kind === "unsupported" || device?.access !== "ssh") return { supported: false, platform: spec.platform, reason: "This machine does not expose remote behavior controls through RP1." };
   {
-    const [content, batoceraConfig, wifiPowerState] = await Promise.all([
+    const [content, batoceraConfig, wifiPowerState, installedThemeOutput] = await Promise.all([
       execSsh(device, `cat ${shellSingleQuoted(spec.path)} 2>/dev/null || true`, 10000).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : ""),
       spec.platform === "batocera" ? execSsh(device, "cat /userdata/system/batocera.conf 2>/dev/null || true", 10000).catch(() => "") : Promise.resolve(""),
-      spec.platform === "batocera" ? execSsh(device, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : Promise.resolve("")
+      spec.platform === "batocera" ? execSsh(device, "iw dev wlan0 get power_save 2>/dev/null || true", 5000) : Promise.resolve(""),
+      spec.platform === "batocera" ? execSsh(device, "for base in /usr/share/emulationstation/themes /userdata/themes; do [ -d \"$base\" ] || continue; for theme in \"$base\"/*; do [ -d \"$theme\" ] && basename \"$theme\"; done; done | sort -u", 10000).catch(() => "") : Promise.resolve("")
     ]);
     if (spec.kind === "retroarch") {
       const timeout = Number(retroarchSetting(content, "menu_screensaver_timeout") || 0);
       return { supported: true, platform: spec.platform, kind: spec.kind, screenSaverMinutes: Math.max(0, Math.round(timeout / 60)), capabilities: { screenSaverTime: true, systemSleepTime: false, behavior: false, powerSaver: false } };
     }
+    const installedThemes = String(installedThemeOutput).split(/\r?\n/).map(value => value.trim()).filter(value => /^[A-Za-z0-9._-]+$/.test(value));
+    const themeSet = xmlSetting(content, "ThemeSet") || (installedThemes.includes("es-theme-carbon") ? "es-theme-carbon" : installedThemes[0] || "");
     return {
       supported: true, platform: spec.platform, kind: spec.kind,
       screenSaverMinutes: Math.max(0, Math.round(Number(xmlSetting(content, "ScreenSaverTime") || 300000) / 60000)),
@@ -3471,7 +3539,8 @@ async function getMachineBehavior(device) {
       xboxRenderer: String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase(),
       xboxVideoMode: xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")),
       wifiPowerSaver: /power save:\s*on/i.test(wifiPowerState),
-      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera" }
+      themeSet, installedThemes,
+      capabilities: { screenSaverTime: true, systemSleepTime: true, behavior: true, powerSaver: true, xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera", themeSet: spec.platform === "batocera" }
     };
   }
 }
@@ -3491,6 +3560,8 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
   const xboxVideoMode = String(values.xboxVideoMode || "AUTO").toUpperCase() === "720P" ? "1280x720" : String(values.xboxVideoMode || "AUTO");
   if (!restore && spec.platform === "batocera" && !new Set(["AUTO", "1280x720"]).has(xboxVideoMode)) throw new Error("Choose a supported Xbox display resolution.");
   const wifiPowerSaver = values.wifiPowerSaver === true;
+  const themeSet = String(values.themeSet || "").trim();
+  if (!restore && spec.platform === "batocera" && !/^[A-Za-z0-9._-]+$/.test(themeSet)) throw new Error("Choose an installed EmulationStation theme.");
   return sftpWithDevice(device, async (sftp, client) => {
     let content = await readSftpFile(sftp, spec.path).catch(() => spec.kind === "emulationstation" ? '<?xml version="1.0"?>\n<config>\n</config>\n' : "");
     let batoceraConfig = spec.platform === "batocera" ? await readSftpFile(sftp, "/userdata/system/batocera.conf").catch(() => "") : "";
@@ -3505,14 +3576,16 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
         ScreenSaverBehavior: xmlSetting(content, "ScreenSaverBehavior"), PowerSaverMode: xmlSetting(content, "PowerSaverMode"),
         XboxRenderer: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.xemu_api") : null,
         XboxVideoMode: spec.platform === "batocera" ? batoceraSetting(batoceraConfig, "xbox.videomode") : null,
-        WifiPowerSaver: spec.platform === "batocera" ? /power save:\s*on/i.test(currentWifiPowerState) : null
+        WifiPowerSaver: spec.platform === "batocera" ? /power save:\s*on/i.test(currentWifiPowerState) : null,
+        ThemeSet: spec.platform === "batocera" ? xmlSetting(content, "ThemeSet") : null
       } : { menu_screensaver_timeout: retroarchSetting(content, "menu_screensaver_timeout") };
       writeMachineBehaviorState(state);
-    } else if (spec.platform === "batocera" && (!Object.hasOwn(state[identity], "XboxVideoMode") || !Object.hasOwn(state[identity], "WifiPowerSaver"))) {
+    } else if (spec.platform === "batocera" && (!Object.hasOwn(state[identity], "XboxVideoMode") || !Object.hasOwn(state[identity], "WifiPowerSaver") || !Object.hasOwn(state[identity], "ThemeSet"))) {
       // Existing restore snapshots predate this control. Preserve the machine's
       // current video mode as the restore baseline instead of deleting it.
       state[identity].XboxVideoMode = batoceraSetting(batoceraConfig, "xbox.videomode");
       state[identity].WifiPowerSaver = /power save:\s*on/i.test(currentWifiPowerState);
+      state[identity].ThemeSet = xmlSetting(content, "ThemeSet");
       writeMachineBehaviorState(state);
     }
     if (restore) {
@@ -3527,6 +3600,7 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
           batoceraConfig = original.XboxRenderer == null ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", original.XboxRenderer);
           batoceraConfig = original.XboxVideoMode == null ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", original.XboxVideoMode);
           customSh = setWifiPowerSaverStartup(customSh, original.WifiPowerSaver !== false);
+          content = original.ThemeSet == null ? removeXmlSetting(content, "ThemeSet") : setXmlSetting(content, "string", "ThemeSet", original.ThemeSet);
         }
       } else if (original.menu_screensaver_timeout != null) content = setRetroarchSetting(content, "menu_screensaver_timeout", original.menu_screensaver_timeout);
       else content = String(content).replace(/^\s*menu_screensaver_timeout\s*=.*(?:\r?\n|$)/mi, "");
@@ -3538,6 +3612,9 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       content = setXmlSetting(content, "string", "ScreenSaverBehavior", values.behavior);
       content = setXmlSetting(content, "string", "PowerSaverMode", values.powerSaver);
       if (spec.platform === "batocera") {
+        const themeExists = String(await execOnSshClient(client, `[ -d /usr/share/emulationstation/themes/${shellSingleQuoted(themeSet)} ] || [ -d /userdata/themes/${shellSingleQuoted(themeSet)} ] && echo yes`, 5000)).trim() === "yes";
+        if (!themeExists) throw new Error("That EmulationStation theme is not installed on this machine.");
+        content = setXmlSetting(content, "string", "ThemeSet", themeSet);
         batoceraConfig = xboxRenderer === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.xemu_api") : setBatoceraSetting(batoceraConfig, "xbox.xemu_api", xboxRenderer);
         batoceraConfig = xboxVideoMode === "AUTO" ? removeBatoceraSetting(batoceraConfig, "xbox.videomode") : setBatoceraSetting(batoceraConfig, "xbox.videomode", await supportedXbox720Mode(client));
         customSh = setWifiPowerSaverStartup(customSh, wifiPowerSaver);
@@ -3556,7 +3633,7 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       await new Promise((resolve, reject) => sftp.rename("/userdata/system/custom.sh.rp1-upload", "/userdata/system/custom.sh", error => error ? reject(error) : resolve()));
       await execOnSshClient(client, `chmod 755 /userdata/system/custom.sh; iw dev wlan0 set power_save ${appliedWifiPowerSaver ? "on" : "off"} 2>/dev/null || true`, 5000);
     }
-    await execOnSshClient(client, `sync${spec.kind === "emulationstation" ? "; /etc/init.d/S31emulationstation start >/dev/null 2>&1 || true" : ""}`, 30000);
+    await execOnSshClient(client, `sync${spec.kind === "emulationstation" ? "; /etc/init.d/S31emulationstation start >/dev/null 2>&1 || true; for es_wait in 1 2 3 4 5 6 7 8 9 10; do pgrep -f '[b]atocera-emulationstation|[e]mulationstation' >/dev/null && exit 0; sleep 1; done; echo 'Batocera front end did not return after applying Machine Behavior settings.' >&2; exit 1" : ""}`, 30000);
     return {
       supported: true, platform: spec.platform, kind: spec.kind, restored: restore, refreshed: spec.kind === "emulationstation",
       screenSaverMinutes: spec.kind === "retroarch" ? Math.max(0, Math.round(Number(retroarchSetting(content, "menu_screensaver_timeout") || 0) / 60)) : Math.max(0, Math.round(Number(xmlSetting(content, "ScreenSaverTime") || 0) / 60000)),
@@ -3566,7 +3643,8 @@ async function applyMachineBehavior(deviceName, device, values, restore = false)
       xboxRenderer: spec.platform === "batocera" ? String(batoceraSetting(batoceraConfig, "xbox.xemu_api") || "AUTO").toUpperCase() : "AUTO",
       xboxVideoMode: spec.platform === "batocera" ? xboxVideoModeChoice(batoceraSetting(batoceraConfig, "xbox.videomode")) : "AUTO",
       wifiPowerSaver: spec.platform === "batocera" ? appliedWifiPowerSaver : false,
-      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation", xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera" }
+      themeSet: spec.platform === "batocera" ? xmlSetting(content, "ThemeSet") || "" : "",
+      capabilities: { screenSaverTime: true, systemSleepTime: spec.kind === "emulationstation", behavior: spec.kind === "emulationstation", powerSaver: spec.kind === "emulationstation", xboxRenderer: spec.platform === "batocera", xboxVideoMode: spec.platform === "batocera", wifiPowerSaver: spec.platform === "batocera", themeSet: spec.platform === "batocera" }
     };
   });
 }
@@ -3941,13 +4019,17 @@ case "$1" in
   start)
     mkdir -p /userdata/system/logs
     : > /userdata/system/logs/rp1-sunshine.log
-    session_pid="$(pgrep -f 'batocera-emulationstation|emulationstation' | head -n1)"
+    for attempt in $(seq 1 30); do
+      session_pid="$(pidof emulationstation | awk '{print $1}')"
+      test -n "$session_pid" && test -S /tmp/.X11-unix/X0 && break
+      sleep 1
+    done
     if test -n "$session_pid" && test -r "/proc/$session_pid/environ"; then
       session_display="$(tr '\\0' '\\n' < "/proc/$session_pid/environ" | sed -n 's/^DISPLAY=//p' | head -n1)"
       session_xauthority="$(tr '\\0' '\\n' < "/proc/$session_pid/environ" | sed -n 's/^XAUTHORITY=//p' | head -n1)"
     fi
     export DISPLAY="\${session_display:-:0}"
-    if test -n "$session_xauthority"; then export XAUTHORITY="$session_xauthority"; else unset XAUTHORITY; fi
+    if test -n "$session_xauthority" && test -r "$session_xauthority"; then export XAUTHORITY="$session_xauthority"; elif test -r /var/lib/.Xauthority; then export XAUTHORITY=/var/lib/.Xauthority; else unset XAUTHORITY; fi
     # The current AppImage launches a helper process of its own. setsid -f
     # can orphan that helper before Batocera keeps it alive, leaving no stream
     # and no fresh log. Plain nohup backgrounding is stable across both builds.
@@ -3984,9 +4066,16 @@ async function installRemoteDisplay(device) {
 }
 
 async function ensureRemoteDisplayEncoder(device) {
+  // Either capture backend is valid. Preserve an already running host with a
+  // verified encoder instead of restarting it merely because it uses X11.
+  const healthy = await execSsh(device, "pgrep -x sunshine >/dev/null && ss -lnt 2>/dev/null | grep -q ':47990 ' && grep -Eiq 'Found H[.]264 encoder' /userdata/system/logs/rp1-sunshine.log && echo ready", 5000).catch(() => "");
+  if (String(healthy).trim() === "ready") return true;
   // Always create a fresh encoder log. Previously, an already-correct X11
   // setting skipped the restart and validated a stale or empty log, causing
   // Ad Hoc Display to stop even though the same machine had worked before.
+  // A healthy encoder can still produce a perfectly black stream when
+  // EmulationStation is not running. Start and verify the actual Batocera
+  // front end before accepting Sunshine's encoder/port checks.
   const servicePayload = Buffer.from(sunshineServiceScript(), "utf8").toString("base64");
   const command = `cfg=/userdata/system/.config/sunshine/sunshine.conf; log=/userdata/system/logs/rp1-sunshine.log; service=/userdata/system/services/sunshine; mkdir -p "$(dirname "$cfg")" "$(dirname "$log")" "$(dirname "$service")"; printf '%s' '${servicePayload}' | base64 -d > "$service"; chmod 755 "$service"; touch "$cfg"; if grep -Eq '^capture[[:space:]]*=[[:space:]]*kms' "$cfg" && pgrep -x sunshine >/dev/null && ss -lnt 2>/dev/null | grep -q ':47990 ' && grep -Eiq 'Found H[.]264 encoder' "$log"; then exit 0; fi; for capture_mode in kms x11; do if grep -q '^capture[[:space:]]*=' "$cfg"; then sed -i "s/^capture[[:space:]]*=.*/capture = $capture_mode/" "$cfg"; else printf '\\ncapture = %s\\n' "$capture_mode" >> "$cfg"; fi; for attempt in 1 2; do "$service" restart >/dev/null 2>&1; for wait_step in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 1; if test "$wait_step" = 3 && ! pgrep -x sunshine >/dev/null && ! test -s "$log"; then break; fi; grep -Eq 'Fatal: Unable to find display|Error: Unable to initialize capture method|Fatal: Please check that a display is connected' "$log" && break; pgrep -x sunshine >/dev/null || continue; if grep -Eiq 'Found H[.]264 encoder|H[.]264[^[:cntrl:]]*encoder|encoder[^[:cntrl:]]*H[.]264' "$log"; then sleep 1; pgrep -x sunshine >/dev/null && ss -lnt 2>/dev/null | grep -q ':47990 ' && exit 0; fi; done; "$service" stop >/dev/null 2>&1; sleep 1; done; done; printf 'SUNSHINE_LOG_TAIL\\n' >&2; tail -n 60 "$log" >&2 2>/dev/null; exit 1`;
   try {
@@ -4188,6 +4277,7 @@ function firstWiredWindowsAdapter() {
     return {Name:"", Diagnostic:`Windows adapter scan failed: ${usefulFailureMessage(error)}`};
   }
 }
+
 function configureWindowsDirectAdapter(alias) {
   const elevated = `$ErrorActionPreference='Stop';$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;if($adapter.Status -ne 'Up'){throw 'The selected Ethernet adapter has no active cable link.'};Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -eq '10.77.0.1' -and $_.InterfaceIndex -ne $adapter.ifIndex} | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue;& netsh.exe interface ipv4 set address name=$env:RP1_ADAPTER static 10.77.0.1 255.255.255.0 none | Out-Null;Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction SilentlyContinue;$address=Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop | Where-Object IPAddress -eq '10.77.0.1';$route=Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue;if(-not $address -or -not $route){throw 'Windows did not create the direct-link address and route.'}`;
   const encoded = Buffer.from(elevated, "utf16le").toString("base64");
@@ -4231,14 +4321,17 @@ const activeAdHocDisplayPreparations = new Map();
 async function prepareAdHocDisplayOnce(deviceName, device) {
   let stage = "validating the selected Batocera machine";
   try {
-  stage = "detecting the connected Windows Ethernet adapter";
-  const adapter = firstWiredWindowsAdapter();
-  if (!adapter?.Name) throw new Error(adapter?.Diagnostic || "No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
   // A successful direct SSH connection proves the adapter address and route.
   // Do not make an already-working link depend on slow Windows management
   // cmdlets or an unnecessary administrator prompt.
+  stage = "detecting the connected Windows Ethernet adapter";
+  const adapter = firstWiredWindowsAdapter();
+  if (!adapter?.Name) throw new Error(adapter?.Diagnostic || "No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
   let directLinkReady = await waitForDirectPort("10.77.0.2", 22, 3000);
   if (!directLinkReady) {
+    // A saved 10.77.0.1 address is enough while the peer is restarting.
+    // Get-NetRoute can omit its route while the cable is down, and trying to
+    // reconfigure that adapter merely raises an unnecessary UAC prompt.
     if (!windowsAdapterHasDirectRoute(adapter.Name)) {
       stage = `configuring Windows adapter ${adapter.Name} as 10.77.0.1`;
       await configureWindowsDirectAdapter(adapter.Name);
@@ -6533,6 +6626,64 @@ const largeBiosInstallers = {
   }
 };
 
+const psVitaFirmwareInstallers = {
+  "PSVUPDAT.PUP": {
+    md5: "f2c7b12fe85496ec88a0391b514d6e3b",
+    bytes: 133834240,
+    role: "system firmware"
+  },
+  "PSP2UPDAT.PUP": {
+    md5: "59dcf059d3328fb67be7e51f8aa33418",
+    bytes: 56778752,
+    role: "font firmware"
+  }
+};
+
+function verifiedCachedPsVitaFirmware() {
+  const folder = path.join(biosCachePath, "psvita");
+  const files = {};
+  for (const [fileName, spec] of Object.entries(psVitaFirmwareInstallers)) {
+    const localPath = path.join(folder, fileName);
+    if (!fs.existsSync(localPath) || fs.statSync(localPath).size !== spec.bytes) return null;
+    const md5 = crypto.createHash("md5").update(fs.readFileSync(localPath)).digest("hex");
+    if (md5 !== spec.md5) return null;
+    files[fileName] = { ...spec, localPath };
+  }
+  return files;
+}
+
+async function getPsVitaFirmwareStatus(device) {
+  if (!device || device.access !== "ssh") return { installed: false };
+  const checks = Object.entries(psVitaFirmwareInstallers).map(([fileName, spec]) =>
+    `test "$(md5sum ${shellSingleQuoted(`/userdata/bios/psvita/${fileName}`)} 2>/dev/null | awk '{print $1}')" = '${spec.md5}'`
+  );
+  const command = `${checks.join(" && ")} && test -d /userdata/saves/psvita/vs0/sys/external && test -s /userdata/saves/psvita/sa0/data/font/pvf/ltn0.pvf && echo yes || echo no`;
+  return { installed: (await execSsh(device, command, 30000)).trim() === "yes" };
+}
+
+async function installCachedPsVitaFirmware(device) {
+  const files = verifiedCachedPsVitaFirmware();
+  if (!files) throw new Error("Ready Player One needs both verified PS Vita files from Medicine: PSVUPDAT.PUP and PSP2UPDAT.PUP.");
+  await sftpWithDevice(device, async sftp => {
+    await mkdirpSftp(sftp, "/userdata/bios/psvita");
+    for (const [fileName, spec] of Object.entries(files)) {
+      const temporary = `/userdata/bios/psvita/.${fileName}.upload`;
+      const destination = `/userdata/bios/psvita/${fileName}`;
+      await fastPutSftp(sftp, spec.localPath, temporary);
+      await new Promise(resolve => sftp.unlink(destination, () => resolve()));
+      await new Promise((resolve, reject) => sftp.rename(temporary, destination, error => error ? reject(error) : resolve()));
+    }
+  });
+  const environment = "HOME=/userdata/system XDG_CONFIG_HOME=/userdata/system/configs XDG_CACHE_HOME=/userdata/system/cache XDG_DATA_HOME=/userdata/saves DISPLAY=${DISPLAY:-:0.0}";
+  for (const fileName of Object.keys(psVitaFirmwareInstallers)) {
+    const remote = `/userdata/bios/psvita/${fileName}`;
+    await execSsh(device, `test -x /usr/bin/vita3k/Vita3K || { echo 'Vita3K is not installed on this Batocera build.' >&2; exit 44; }; ${environment} timeout 180 /usr/bin/vita3k/Vita3K --firmware ${shellSingleQuoted(remote)}`, 200000);
+  }
+  const status = await getPsVitaFirmwareStatus(device);
+  if (!status.installed) throw new Error("Vita3K did not verify both the PS Vita system modules and font package after installation.");
+  return { installed: true, files: Object.keys(psVitaFirmwareInstallers), remoteDir: "/userdata/bios/psvita" };
+}
+
 const medicinePs2Bios = require('./medicine-ps2-bios')({
   root, cachePath: biosCachePath, spec: largeBiosInstallers.ps2,
   execSsh, installCached: installCachedLargeBios
@@ -6722,6 +6873,7 @@ function cachedBiosStatus() {
     ps2: { cached: fs.existsSync(path.join(biosCachePath, largeBiosInstallers.ps2.fileName)), fileName: largeBiosInstallers.ps2.fileName },
     ps3: { cached: fs.existsSync(path.join(biosCachePath, largeBiosInstallers.ps3.fileName)), fileName: largeBiosInstallers.ps3.fileName },
     ps4: { cached: requiredPs4Modules.every(name => ps4Names.has(name.toLowerCase())), fileName: "15 shadPS4 .sprx modules" },
+    psvita: { cached: Boolean(verifiedCachedPsVitaFirmware()), fileName: "PSVUPDAT.PUP and PSP2UPDAT.PUP" },
     wiiu: { cached: wiiuKeyCount > 0, fileName: "keys.txt", keyCount: wiiuKeyCount },
     xbox: { cached: xboxCached, fileName: "mcpx_1.0.bin and Complex_4627.bin" }
   };
@@ -10702,6 +10854,17 @@ print(node.get('value') if node is not None else '__RP1_DEFAULT__')
       // removal that actually fails is restored immediately by the frontend,
       // while successful removals are committed atomically by /api/systems/remove.
       const reconciledVisibleSystems = Array.isArray(savedVisibleSystems) ? [...savedVisibleSystems] : null;
+      // RP1 owns Kodi's standalone launcher and removes that launcher when the
+      // Kodi console is unchecked.  Therefore a Kodi console reported by the
+      // live machine is authoritative and must repair an older saved checkbox
+      // list that predates Kodi support.  Do not broadly merge ROM folders:
+      // Batocera ships many empty built-in folders the user did not select.
+      if (Array.isArray(reconciledVisibleSystems) && systems.includes("kodi") && !reconciledVisibleSystems.includes("kodi")) {
+        reconciledVisibleSystems.push("kodi");
+        const settings = readDeviceSettings();
+        settings[deviceName] = {...(settings[deviceName] || {}), visibleSystems: reconciledVisibleSystems};
+        writeDeviceSettings(settings);
+      }
       sendJson(res, 200, {ok:true, systems, visibleSystems:reconciledVisibleSystems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
       return;
     }
@@ -11163,6 +11326,7 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
       systems.movies = (await getMoviesStatus(device)).installed;
       systems.pikaraoke = (await getPiKaraokeStatus(device)).installed;
       systems.kodi = (await getKodiStatus(device)).installed;
+      systems.psvita = (await getPsVitaFirmwareStatus(device)).installed;
       systems.xbox360 = (await getXbox360XeniaStatus(device)).installed;
       systems.windows = (await getWindowsWineStatus(device)).installed;
       systems['3dsen'] = (await execSsh(device, "test -L /userdata/roms/3dsen && grep -Fq '<name>3dsen</name>' /userdata/system/configs/emulationstation/es_systems.cfg && test -s /userdata/system/ready-player-one/3dsen-runtime/3dSen.pc/autorun.cmd && echo yes || echo no")).trim() === 'yes';
@@ -11219,8 +11383,10 @@ tree.write(temporary,encoding='UTF-8',xml_declaration=True); os.replace(temporar
       try { version = (await execSsh(device, check)).match(/CE_VERSION=([^\r\n]+)/)?.[1] || ''; } catch {}
       if (req.method === 'POST' && !version) {
         const command = `set -e
-mkdir -p ${runtime}
-python3 -m venv --without-pip ${runtime}/venv
+mkdir -p ${runtime}/venv/lib64
+# NTFS-backed userdata cannot create the lib64 symlink used by venv; an
+# existing directory avoids that link, and --copies avoids executable links.
+python3 -m venv --copies --without-pip ${runtime}/venv
 if ! ${runtime}/venv/bin/python -m pip --version >/dev/null 2>&1; then
   curl --connect-timeout 15 --max-time 120 --retry 2 -fL https://bootstrap.pypa.io/get-pip.py -o ${runtime}/get-pip.py
   ${runtime}/venv/bin/python ${runtime}/get-pip.py
@@ -11266,6 +11432,15 @@ ${check}
 
       const status = await installKaraoke(device);
       sendJson(res, 200, { ok: true, ...status });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/media-system/background") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device || device.access !== 'ssh' || (device.platform && device.platform !== 'batocera')) throw new Error('Select a connected Batocera machine with SSH access.');
+      await installMediaSystemBackground(device, body.system);
+      sendJson(res, 200, {ok:true});
       return;
     }
 
@@ -11446,6 +11621,7 @@ ${check}
       }
       let installed;
       if (system === "ps1") installed = await installCachedPs1Bios(device);
+      else if (system === "psvita") installed = await installCachedPsVitaFirmware(device);
       else if (system === "ps4") {
         const modules = await installPs4Modules(device);
         const setup = await installPs4System(device);

@@ -11,4 +11,7 @@ assert(html.includes('Connections: ${visibleConnections.join(", ")}'));
 assert(html.includes('data-connection="wifi"'));
 assert(html.includes('data-connection="ethernet"'));
 assert(html.includes('data-connection="usb-c"'));
+assert(html.includes('const visible = type === "wifi" || connectionStates[type];'));
+assert(html.includes('symbol.classList.toggle("inactive", type === "wifi" && !connectionStates[type]);'));
+assert(html.includes('.machine-connection-symbol.inactive'));
 console.log('PASS: machine cards expose simultaneous USB Type-C, Ethernet display, and Wi-Fi symbols.');

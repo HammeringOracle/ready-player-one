@@ -17,6 +17,8 @@ assert.match(appearance, /machine-behavior-machines/u, 'Machine Behavior must sh
 assert.match(appearance, /Start screensaver after/u, 'screensaver timing must be configurable');
 assert.match(appearance, /Put machine to sleep after/u, 'system sleep must be independently configurable');
 assert.match(appearance, /Wi-Fi Power Saver/u, 'Wi-Fi power saving must be configurable');
+assert.match(appearance, /EmulationStation theme[\s\S]*name="themeSet"/u, 'installed EmulationStation themes must be selectable');
+assert.match(server, /installedThemes[\s\S]*ThemeSet/u, 'Machine Behavior must read installed themes and the active theme');
 assert.doesNotMatch(appearance, /data-control="xeniaProfile"|machine-behavior-xenia-profile/u, 'Xenia profile must not appear inside Machine Behavior');
 assert.match(server, /iw dev wlan0 set power_save/u, 'Wi-Fi power saving must be applied to Batocera');
 assert.match(server, /READY PLAYER ONE WIFI STABILITY BEGIN/u, 'disabled Wi-Fi power saving must persist after reboot');
@@ -24,5 +26,6 @@ assert.match(server, /platform === "batocera"[\s\S]*platform === "recalbox"[\s\S
 assert.match(server, /url\.pathname === "\/api\/machine-behavior"/u, 'Machine Behavior API must exist');
 assert.match(server, /machineBehaviorStatePath/u, 'previous settings must be retained for restoration');
 assert.match(server, /S31emulationstation stop[\s\S]*S31emulationstation start/u, 'EmulationStation settings must be applied across a clean frontend restart');
+assert.match(server, /Batocera front end did not return after applying Machine Behavior settings/u, 'Machine Behavior must verify that EmulationStation restarted');
 
 console.log('PASS: compact per-machine behavior controls are wired to the machine context menu.');
