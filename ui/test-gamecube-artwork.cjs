@@ -10,7 +10,7 @@ assert(theme.includes('<maxSize>1.10 1.10</maxSize>'));
 assert(theme.includes('<cornerSize>0 0</cornerSize><padding>-38 -38</padding>'));
 assert(theme.includes('/userdata/roms/gamecube/media/rp1-gamecube-blank.png'));
 assert(theme.includes('/userdata/roms/gamecube/media/rp1-gamecube-selector.png'));
-assert(theme.includes('<animateColor>F2C94CFF</animateColor>'));
+assert(!theme.includes('<animateColor>'));
 
 const pending = [path.join(root, 'covers', 'gamecube')];
 let pngs = 0;

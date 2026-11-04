@@ -10,7 +10,7 @@ assert(theme.includes('<maxSize>1.08 1.08</maxSize>'));
 assert(theme.includes('<cornerSize>8 8</cornerSize><padding>-18 -18</padding>'));
 assert(theme.includes('/userdata/roms/wiiu/media/rp1-wiiu-blank.png'));
 assert(theme.includes('/userdata/roms/wiiu/media/rp1-wiiu-selector.png'));
-assert(theme.includes('<animateColor>F2C94CFF</animateColor>'));
+assert(!theme.includes('<animateColor>'));
 
 const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 assert(server.includes('const localWiiUArtwork = system === "wiiu"'));

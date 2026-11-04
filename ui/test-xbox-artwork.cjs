@@ -18,7 +18,7 @@ for (const system of ['xbox', 'xbox360']) {
   assert(theme.includes('<cornerSize>0 0</cornerSize><padding>-40 -40</padding>'));
   assert(theme.includes(`/userdata/roms/${system}/media/rp1-${system}-blank.png`));
   assert(theme.includes(`/userdata/roms/${system}/media/rp1-${system}-selector.png`));
-  assert(theme.includes('<animateColor>F2C94CFF</animateColor>'));
+  assert(!theme.includes('<animateColor>'));
 }
 
 function countPngs(directory) {

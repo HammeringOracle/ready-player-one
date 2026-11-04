@@ -15,12 +15,14 @@ module.exports = function nesPictureTheme(base) {
       <gameImage>/userdata/roms/nes/media/rp1-nes-blank.png</gameImage>
     </imagegrid>
     <gridtile name="default">
+      <size>1 1</size>
       <padding>0 0</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
       <backgroundCenterColor>00000000</backgroundCenterColor>
       <backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
+      <size>1 1</size>
       <padding>0 0</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
       <backgroundCenterColor>00000000</backgroundCenterColor>
@@ -33,7 +35,7 @@ module.exports = function nesPictureTheme(base) {
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/nes/media/rp1-nes-selector.png</path>
       <cornerSize>64 64</cornerSize><padding>-8 -8</padding><color>4FA9FFFF</color>
-      <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
+      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

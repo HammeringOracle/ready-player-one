@@ -33,6 +33,9 @@ function displayGameTitle(system, fileName) {
     const embeddedTitle = readWiiTitle(localPath);
     if (embeddedTitle) return embeddedTitle;
   }
+  if (system === "psvita") {
+    return cleanRomName(fileName).replace(/\s*\[PCS[A-Z]\d{5}\]\s*$/i, "").trim();
+  }
   if (system === "movies") return movieDisplayTitle(fileName);
   return cleanRomName(fileName);
 }
@@ -86,7 +89,7 @@ const systemArtCachePath = path.join(root, "system-art-cache");
 const batoceraSystemArtFolders = new Set([
   "c64",
   "mame", "nes", "snes", "megadrive", "gba", "psx", "ps2", "n64", "gb", "gbc", "nds", "3ds", "gc", "wii",
-  "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "xegs", "jaguar", "jaguarcd", "atari800", "atarist", "pcengine",
+  "mastersystem", "gamegear", "segacd", "saturn", "dreamcast", "psp", "psvita", "neogeo", "atari2600", "atari5200", "atari7800", "lynx", "xegs", "jaguar", "jaguarcd", "atari800", "atarist", "pcengine",
   "wiiu", "ps3", "ps4", "xbox", "xbox360", "music", "movies"
 ]);
 const snapshotSystemAliases = {
@@ -675,7 +678,9 @@ const localExtensions = {
   saturn: [".cue", ".iso", ".chd", ".m3u"],
   dreamcast: [".cdi", ".cue", ".gdi", ".chd", ".m3u"],
   psp: [".iso", ".cso", ".pbp", ".chd"],
-  psvita: [".vpk", ".psvita"],
+  // RP1 installs raw VPKs into Vita3K after transfer, then writes Batocera's
+  // small .psvita launch pointer. Keep all three supported source forms.
+  psvita: [".vpk", ".psvita", ".zip"],
   xbox: [".iso", ".xiso", ".squashfs"],
   xbox360: [".iso", ".xex", ".xbox360"],
   neogeo: [".zip", ".7z"],
@@ -2035,7 +2040,9 @@ function runSoftReset(device) {
         "grep -q \"^menu_show_load_content[[:space:]]*=.*true\" \"$cfg\" || exit 3; " +
         "(systemctl restart retroarch.service >/dev/null 2>&1 || systemctl restart retroarch >/dev/null 2>&1 || killall -HUP retroarch >/dev/null 2>&1 || true) & " +
         "echo OK'"
-      : "sh -c \"old=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
+      : "sh -c \"settings=/userdata/system/configs/emulationstation/es_settings.cfg; " +
+        "if [ -f \"$settings\" ]; then sed -i 's/name=\"subset.systembackground\" value=\"[^\"]*\"/name=\"subset.systembackground\" value=\"consoles\"/; s/name=\"subset.storyboards\" value=\"[^\"]*\"/name=\"subset.storyboards\" value=\"no\"/; s/name=\"subset.animatedInfobar\" value=\"[^\"]*\"/name=\"subset.animatedInfobar\" value=\"no\"/; s/name=\"subset.animatedCovers\" value=\"[^\"]*\"/name=\"subset.animatedCovers\" value=\"no\"/; s/name=\"GameTransitionStyle\" value=\"[^\"]*\"/name=\"GameTransitionStyle\" value=\"fast slide\"/; s/name=\"HideWindow\" value=\"[^\"]*\"/name=\"HideWindow\" value=\"false\"/' \"$settings\"; grep -q 'name=\"GameTransitionStyle\"' \"$settings\" || sed -i 's#</config>#<string name=\"GameTransitionStyle\" value=\"fast slide\" />& #' \"$settings\"; grep -q 'name=\"HideWindow\"' \"$settings\" || sed -i 's#</config>#<bool name=\"HideWindow\" value=\"false\" />& #' \"$settings\"; fi; " +
+        "old=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
         "(batocera-es-swissknife --emukill 5 >/dev/null 2>&1 || true); " +
         "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)); " +
         "i=0; while [ \\$i -lt 25 ]; do new=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
@@ -2857,6 +2864,9 @@ EOF
 mv -f "$target.rp1-new" "$target"
 grep -Fq 'READY PLAYER ONE PIKARAOKE CONSOLE ICON' "$target"`;
   await execSsh(device, command, 15000);
+  // Carbon's Icons view used minSize, which fills each tile by cropping a
+  // portrait box cover. Keep full cover art visible after RP1 installs Vita.
+  await execSsh(device, `icons=/userdata/themes/$(sed -n 's/.*name="ThemeSet" value="\\([^"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n1)/views/icons.xml; test -f "$icons" && sed -i '0,/<minSize>1 0.84<\\/minSize>/s//<maxSize>1 0.84<\\/maxSize>/' "$icons"`, 15000);
 }
 
 async function getKodiStatus(device) {
@@ -3869,6 +3879,13 @@ function verifiedRemoteDisplayDevice(host) {
 
 async function decorateAdHocDisplayPresence(statuses) {
   const result = Object.fromEntries(Object.entries(statuses || {}).map(([name, status]) => [name, {...status}]));
+  // The direct display subnet is fixed by RP1. Keep its destination with every
+  // saved Batocera card even when Wi-Fi is off, discovery is in progress, or
+  // the cable is temporarily absent. It is an expected route, not proof that
+  // the remote address is reachable.
+  for (const [name, status] of Object.entries(result)) {
+    if (devices[name] && status?.platform !== "batocera-usb") status.directDisplayHost = "10.77.0.2";
+  }
   const deviceName = verifiedRemoteDisplayDevice("10.77.0.2");
   if (!deviceName) return result;
   const normalStatus = result[deviceName] || {};
@@ -4281,13 +4298,18 @@ function firstWiredWindowsAdapter() {
 function configureWindowsDirectAdapter(alias) {
   const elevated = `$ErrorActionPreference='Stop';$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;if($adapter.Status -ne 'Up'){throw 'The selected Ethernet adapter has no active cable link.'};Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -eq '10.77.0.1' -and $_.InterfaceIndex -ne $adapter.ifIndex} | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue;& netsh.exe interface ipv4 set address name=$env:RP1_ADAPTER static 10.77.0.1 255.255.255.0 none | Out-Null;Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction SilentlyContinue;$address=Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop | Where-Object IPAddress -eq '10.77.0.1';$route=Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue;if(-not $address -or -not $route){throw 'Windows did not create the direct-link address and route.'}`;
   const encoded = Buffer.from(elevated, "utf16le").toString("base64");
-  const launcher = `$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-EncodedCommand',$env:RP1_DIRECT_CONFIG);exit $p.ExitCode`;
+  const launcher = `$p=Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile','-EncodedCommand',$env:RP1_DIRECT_CONFIG);exit $p.ExitCode`;
   return new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", launcher], {
     windowsHide:true, timeout:120000,
     env:{...process.env, RP1_ADAPTER:alias, RP1_DIRECT_CONFIG:encoded}
   }, error => error ? reject(new Error("Windows could not configure the direct Ethernet adapter and route. Approve the administrator prompt and try again.")) : resolve()));
 }
 function windowsAdapterHasDirectRoute(alias) {
+  // Windows automatically installs the on-link route for an IPv4 interface
+  // address. Prefer Node's live interface table so a slow PowerShell query
+  // cannot reject a healthy address or trigger a needless elevation prompt.
+  const localAddresses = os.networkInterfaces()[alias] || [];
+  if (localAddresses.some(address => address.family === "IPv4" && address.address === "10.77.0.1" && !address.internal)) return true;
   try {
     const script = `$adapter=Get-NetAdapter -Name $env:RP1_ADAPTER -ErrorAction Stop;$address=[bool](Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -eq '10.77.0.1');$correct=[bool](Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue);$conflict=[bool](Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '10.77.0.0/24' -ErrorAction SilentlyContinue | Where-Object InterfaceIndex -ne $adapter.ifIndex);[pscustomobject]@{ready=($address -and $correct -and -not $conflict);address=$address;route=$correct;conflict=$conflict}|ConvertTo-Json -Compress`;
     const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {windowsHide:true, encoding:"utf8", timeout:8000, env:{...process.env,RP1_ADAPTER:alias}}).trim();
@@ -4301,6 +4323,19 @@ async function waitForDirectPort(host, port, totalMs = 20000, localAddress = "10
     await new Promise(resolve => setTimeout(resolve, 500));
   } while (Date.now() < deadline);
   return false;
+}
+
+async function directPortIsOpen(port, totalMs = 20000) {
+  // Normally bind the probe to the private adapter.  A few Windows USB
+  // Ethernet drivers intermittently reject an explicitly-bound socket for a
+  // moment after resume even though their 10.77.0.0/24 route is usable.  In
+  // that case retry unbound, but only when Windows itself confirms that the
+  // private address is present; this can never turn a Wi-Fi host into a
+  // direct-link success.
+  if (await waitForDirectPort("10.77.0.2", port, totalMs, "10.77.0.1")) return true;
+  const hasDirectAddress = Object.values(os.networkInterfaces()).some(addresses =>
+    (addresses || []).some(address => address.family === "IPv4" && address.address === "10.77.0.1" && !address.internal));
+  return hasDirectAddress && await waitForDirectPort("10.77.0.2", port, Math.min(totalMs, 4000), "");
 }
 
 function usefulFailureMessage(error, fallback = "The operation failed without returning diagnostic details.") {
@@ -4318,30 +4353,75 @@ function usefulFailureMessage(error, fallback = "The operation failed without re
 
 const activeAdHocDisplayPreparations = new Map();
 
+function directEthernetBootServiceScript() {
+  // ConnMan's Ethernet service identifier can change after a Batocera reboot,
+  // and its runtime state is not a dependable place to keep RP1's private
+  // display link. This user-data service survives power-off and continuously
+  // restores only the private /24 route; it never installs a default route or
+  // interferes with Wi-Fi.
+  return `#!/bin/bash
+log=/userdata/system/logs/rp1_direct_ethernet.log
+pidfile=/var/run/rp1_direct_ethernet.pid
+find_iface() {
+  for p in /sys/class/net/*; do
+    n=\${p##*/}
+    case "$n" in lo|wl*|wlan*) continue;; esac
+    test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { printf '%s' "$n"; return 0; }
+  done
+  return 1
+}
+configure_link() {
+  iface="$(find_iface)" || return 0
+  ip link set "$iface" up 2>/dev/null || true
+  ip addr replace 10.77.0.2/24 dev "$iface" 2>/dev/null || return 0
+  ip route replace 10.77.0.0/24 dev "$iface" src 10.77.0.2 scope link 2>/dev/null || true
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT
+    iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT
+  fi
+}
+case "$1" in
+  monitor) while :; do configure_link; sleep 2; done ;;
+  start) test -f "$pidfile" && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0; mkdir -p /userdata/system/logs; nohup "$0" monitor >>"$log" 2>&1 </dev/null & echo $! >"$pidfile" ;;
+  stop) test -f "$pidfile" && kill "$(cat "$pidfile")" 2>/dev/null || true; rm -f "$pidfile" ;;
+  restart) "$0" stop; "$0" start ;;
+esac
+`;
+}
+
 async function prepareAdHocDisplayOnce(deviceName, device) {
   let stage = "validating the selected Batocera machine";
   try {
-  // A successful direct SSH connection proves the adapter address and route.
-  // Do not make an already-working link depend on slow Windows management
-  // cmdlets or an unnecessary administrator prompt.
-  stage = "detecting the connected Windows Ethernet adapter";
-  const adapter = firstWiredWindowsAdapter();
-  if (!adapter?.Name) throw new Error(adapter?.Diagnostic || "No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
-  let directLinkReady = await waitForDirectPort("10.77.0.2", 22, 3000);
+  // Test the already-configured link first. A working direct SSH connection
+  // proves the route and must not be blocked by adapter enumeration or UAC.
+  const savedDeviceSettings = readDeviceSettings();
+  const directLinkWasConfigured = Boolean(savedDeviceSettings[deviceName]?.directDisplayConfigured);
+  let directLinkReady = await directPortIsOpen(22, 3000);
+  const directInterface = Object.entries(os.networkInterfaces()).find(([, addresses]) =>
+    (addresses || []).some(address => address.family === "IPv4" && address.address === "10.77.0.1" && !address.internal));
+  let adapter = directLinkReady ? {Name:directInterface?.[0] || "Ethernet", Detection:"verified direct link"} : null;
   if (!directLinkReady) {
+    stage = "detecting the connected Windows Ethernet adapter";
+    adapter = firstWiredWindowsAdapter();
+    if (!adapter?.Name) throw new Error(adapter?.Diagnostic || "No connected USB-C/Ethernet adapter was found. Connect the adapter and Ethernet cable, then try again.");
     // A saved 10.77.0.1 address is enough while the peer is restarting.
-    // Get-NetRoute can omit its route while the cable is down, and trying to
-    // reconfigure that adapter merely raises an unnecessary UAC prompt.
+    // The OS-reported interface address is authoritative: Windows creates the
+    // connected /24 route when that address is assigned. Do not require a
+    // second PowerShell route query, which can spuriously trigger UAC.
     if (!windowsAdapterHasDirectRoute(adapter.Name)) {
       stage = `configuring Windows adapter ${adapter.Name} as 10.77.0.1`;
       await configureWindowsDirectAdapter(adapter.Name);
-      for (let attempt = 0; attempt < 10 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
+      for (let attempt = 0; attempt < 20 && !windowsAdapterHasDirectRoute(adapter.Name); attempt += 1) await new Promise(resolve => setTimeout(resolve, 250));
     }
     stage = `verifying Windows adapter ${adapter.Name} and its direct route`;
     if (!windowsAdapterHasDirectRoute(adapter.Name)) throw new Error("Windows could not verify the 10.77.0.1 direct-link address and route on the selected Ethernet adapter.");
-    directLinkReady = await waitForDirectPort("10.77.0.2", 22, 12000);
+    directLinkReady = await directPortIsOpen(22, 12000);
+  }
+  // Once this Batocera has been configured for the private cable, do not
+  // quietly fall back to its old Wi-Fi address. That fallback both fails when
+  // offline and masks the actual issue: the saved direct peer did not answer.
+  if (!directLinkReady && directLinkWasConfigured) {
+    throw new Error("The direct Ethernet adapter is ready at 10.77.0.1, but Batocera did not answer at its saved direct address 10.77.0.2. RP1 did not fall back to the old Wi-Fi address.");
   }
   // Prefer the cable before touching the saved Wi-Fi address. Once Batocera
   // owns 10.77.0.2, Ad Hoc Display must work with Wi-Fi completely disabled.
@@ -4349,14 +4429,57 @@ async function prepareAdHocDisplayOnce(deviceName, device) {
     throw new Error("The direct Ethernet address is not ready. Connect Batocera to Wi-Fi once for the initial direct-link setup, then Wi-Fi can remain off.");
   }
   const directDevice = {...device, host:"10.77.0.2", access:"ssh"};
-  const setupDevice = directLinkReady ? directDevice : device;
+  let setupDevice = directLinkReady ? directDevice : device;
   const executable = findMoonlightExecutable();
+  // The direct cable is a display-only path. Keep the existing Wi-Fi service
+  // connected and prevent ConnMan's new wired service from becoming the
+  // default route; otherwise Batocera loses its normal LAN address and RP1
+  // briefly discovers the machine before it disappears.
+  const directServicePayload = Buffer.from(directEthernetBootServiceScript(), "utf8").toString("base64");
+  const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 0.0.0.0 >/dev/null 2>&1 || { echo 'ConnMan could not save Batocera Ethernet as 10.77.0.2.'; exit 1; }; timeout 12 connmanctl connect "$svc" >/dev/null 2>&1 || true; if test -n "$wifi_svc"; then timeout 12 connmanctl connect "$wifi_svc" >/dev/null 2>&1 || true; fi; sleep 3; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; ip -4 addr show dev "$iface" | grep -q '10[.]77[.]0[.]2/24' || { echo 'Batocera did not retain the direct-link address on Ethernet.'; exit 1; }; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; mkdir -p /userdata/system/services /userdata/system/logs; printf '%s' '${directServicePayload}' | base64 -d > /userdata/system/services/rp1_direct_ethernet; chmod 755 /userdata/system/services/rp1_direct_ethernet; batocera-services enable rp1_direct_ethernet >/dev/null 2>&1 || true; /userdata/system/services/rp1_direct_ethernet restart; sleep 3`;
+  if (!directLinkReady) {
+    stage = "configuring Batocera Ethernet as 10.77.0.2";
+    try {
+      await execSsh(device, command, 20000);
+    } catch (error) {
+    // ConnMan can rebuild its routes as soon as the wired address is applied,
+    // which closes the original Wi-Fi SSH channel before it reports success.
+    // Treat that disconnect as successful only when the new direct SSH route
+    // is already live; real configuration failures still surface normally.
+      if (!await waitForDirectPort("10.77.0.2", 22)) throw error;
+    }
+  } else {
+    // Even an already-working address may have been assigned only for the
+    // current boot. Re-save it through ConnMan before accepting the fast path.
+    stage = "saving Batocera Ethernet as 10.77.0.2 for future boots";
+    try {
+      await execSsh(directDevice, command, 20000);
+    } catch (error) {
+      // ConnMan may momentarily restart the wired service while it commits the
+      // same address. The direct port is the authoritative completion check.
+      if (!await waitForDirectPort("10.77.0.2", 22, 12000)) throw error;
+    }
+  }
+  // The `connmanctl config` call above is deliberately first. It writes the
+  // static Ethernet service configuration that ConnMan reloads after a full
+  // Batocera power-off. Previously video/encoder preparation could fail before
+  // this line, leaving only a temporary `ip addr` address for that session.
+  directLinkReady = await directPortIsOpen(22, 3000);
+  if (directLinkReady) {
+    const settings = readDeviceSettings();
+    if (settings[deviceName] && !settings[deviceName].directDisplayConfigured) {
+      settings[deviceName].directDisplayConfigured = true;
+      settings[deviceName].directDisplayHost = "10.77.0.2";
+      writeDeviceSettings(settings);
+    }
+  }
+  setupDevice = directLinkReady ? directDevice : device;
   // Offline fast path: the cable, Sunshine control port, and installation-
   // scoped pairing receipt are sufficient. Do not repeat installation or
   // Wi-Fi-oriented setup when Batocera's Wi-Fi radio is intentionally off.
   const directPairingReceipt = executable && anyRemoteDisplayPairingVerified("10.77.0.2");
   const directMoonlightCertificate = executable && await moonlightHostIsPaired(executable, "10.77.0.2");
-  const directSunshineReady = directLinkReady && await waitForDirectPort("10.77.0.2", 47990, 3000);
+  const directSunshineReady = directLinkReady && await directPortIsOpen(47990, 3000);
   const directSunshinePaired = directSunshineReady && await sunshineHasPairedClients(deviceName, directDevice);
   if (directLinkReady && directMoonlightCertificate && directSunshineReady && directSunshinePaired) {
     if (!directPairingReceipt) markRemoteDisplayPairingVerified(deviceName, "10.77.0.2");
@@ -4372,9 +4495,8 @@ async function prepareAdHocDisplayOnce(deviceName, device) {
   }
   // A clean Batocera image may have no Sunshine service even though this PC's
   // Moonlight registry still contains a pairing for an older installation or
-  // its Wi-Fi address. Ad hoc Display must be self-contained: install/start
-  // the host before changing routes, while the normal machine address is
-  // known to work.
+  // its Wi-Fi address. The network address has already been made permanent,
+  // so the remaining display preparation can safely run over the direct link.
   stage = "checking Sunshine and Moonlight";
   let displayStatus = await remoteDisplayStatus(setupDevice);
   if (!displayStatus.sunshineInstalled) {
@@ -4383,23 +4505,6 @@ async function prepareAdHocDisplayOnce(deviceName, device) {
   }
   stage = "verifying the Batocera video encoder";
   await ensureRemoteDisplayEncoder(setupDevice);
-  // The direct cable is a display-only path. Keep the existing Wi-Fi service
-  // connected and prevent ConnMan's new wired service from becoming the
-  // default route; otherwise Batocera loses its normal LAN address and RP1
-  // briefly discovers the machine before it disappears.
-  const command = `wifi_svc=$(connmanctl services | sed -n '/^\\*/s/.* \\(wifi_[^ ]*\\)$/\\1/p' | head -n1); svc=$(connmanctl services | sed -n 's/.* \\(ethernet_[^ ]*_cable\\)$/\\1/p' | head -n1); test -n "$svc" || { echo 'Batocera did not detect the Ethernet cable.'; exit 1; }; connmanctl config "$svc" --ipv4 manual 10.77.0.2 255.255.255.0 >/dev/null 2>&1 || true; iface=$(for p in /sys/class/net/*; do n=\${p##*/}; case "$n" in lo|wl*|wlan*) continue;; esac; test "$(cat "$p/carrier" 2>/dev/null)" = 1 && { echo "$n"; break; }; done); test -n "$iface" || { echo 'Batocera Ethernet has no cable carrier.'; exit 1; }; if test -n "$wifi_svc"; then timeout 12 connmanctl connect "$wifi_svc" >/dev/null 2>&1 || true; fi; sleep 3; ip link set "$iface" up; ip addr replace 10.77.0.2/24 dev "$iface"; ip route del default dev "$iface" 2>/dev/null || true; ip route del 0.0.0.0 dev "$iface" 2>/dev/null || true; if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p tcp -m multiport --dports 22,47984,47989,47990,48010 -j ACCEPT; iptables -C INPUT -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -i "$iface" -s 10.77.0.0/24 -p udp --dport 47998:48010 -j ACCEPT; fi; sleep 3`;
-  if (!directLinkReady) {
-    stage = "configuring Batocera Ethernet as 10.77.0.2";
-    try {
-      await execSsh(device, command, 20000);
-    } catch (error) {
-    // ConnMan can rebuild its routes as soon as the wired address is applied,
-    // which closes the original Wi-Fi SSH channel before it reports success.
-    // Treat that disconnect as successful only when the new direct SSH route
-    // is already live; real configuration failures still surface normally.
-      if (!await waitForDirectPort("10.77.0.2", 22)) throw error;
-    }
-  }
   stage = "reaching Batocera at 10.77.0.2";
   if (!await waitForDirectPort("10.77.0.2", 22)) {
     const diagnostics = await execSsh(device, `printf 'LINKS='; for p in /sys/class/net/*; do n=\${p##*/}; printf '%s:%s ' "$n" "$(cat "$p/carrier" 2>/dev/null)"; done; printf '\\nADDR='; ip -br -4 addr; printf '\\nLISTEN='; ss -lnt 2>/dev/null | grep -E ':(22|47990) ' || true; printf '\\nFILTER='; iptables -S INPUT 2>/dev/null | head -12 || true`, 10000).catch(() => "");
@@ -5063,7 +5168,7 @@ PY`;
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
         !installed.includes(`rp1-${system}-selector.png`) ||
         !installed.includes(`<gameImage>/userdata/roms/${folder}/media/rp1-${system}-blank.png</gameImage>`) ||
-        !installed.includes('<animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime>') ||
+        installed.includes('<animateColor>') ||
         installed.includes('{game:image}') || (system !== "movies" && installed.includes('<itemTemplate>'))) {
       throw new Error(`Ready Player One could not verify the ${system.toUpperCase()} picture layout on ${device.host}.`);
     }
@@ -5716,6 +5821,17 @@ async function publishConsoleSystemUnlocked(device, system, entries, artwork, en
     await mkdirpSftp(sftp, mediaDir);
     for (const item of artwork) await fastPutSftp(sftp, item.localPath, `${mediaDir}/${item.fileName}`);
   });
+  // Full-resolution PNGs decode on Batocera's UI thread and make a cover tile
+  // visibly jump as it arrives. Downscale only oversized cache artwork into a
+  // temporary PNG, then atomically replace it only when the result is smaller.
+  // The fit-inside scale preserves the whole cover and its aspect ratio.
+  const uploadedPngs = artwork
+    .map(item => `${mediaDir}/${item.fileName}`)
+    .filter(fileName => path.posix.extname(fileName).toLowerCase() === ".png");
+  if (uploadedPngs.length) {
+    const remoteFiles = uploadedPngs.map(shellSingleQuoted).join(" ");
+    await execSsh(device, `for cover in ${remoteFiles}; do [ -f "$cover" ] && [ "$(wc -c < "$cover")" -gt 1048576 ] || continue; tmp="${'$'}{cover}.rp1-opt-${'$'}{RANDOM}.png"; if timeout 90 ffmpeg -v error -y -i "$cover" -vf 'scale=640:640:force_original_aspect_ratio=decrease' -frames:v 1 -pix_fmt rgb24 -compression_level 9 "$tmp" && [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -lt "$(wc -c < "$cover")" ]; then mv -f "$tmp" "$cover"; else rm -f "$tmp"; fi; done`, 120000);
+  }
   if (!entries.length) return;
   const xml = `<?xml version="1.0"?>\n<gameList>\n${entries.join("\n")}\n</gameList>\n`;
   const encoded = Buffer.from(xml, "utf8").toString("base64");
@@ -6661,11 +6777,23 @@ async function getPsVitaFirmwareStatus(device) {
   return { installed: (await execSsh(device, command, 30000)).trim() === "yes" };
 }
 
+async function installPsVitaConsolePicture(device) {
+  const command = `set -e; theme=$(sed -n 's/.*name="ThemeSet" value="\\([^\"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n1); base=/userdata/themes/$theme/theme.xml; test -f "$base" || base=/usr/share/emulationstation/themes/es-theme-carbon/theme.xml; image=/userdata/themes/$theme/art/consoles/psvita.png; test -s "$image" || image=/usr/share/emulationstation/themes/es-theme-carbon/art/consoles/psvita.png; test -s "$image"; cat > /userdata/roms/psvita/theme.xml <<EOF
+<!-- READY PLAYER ONE PS VITA CONSOLE PICTURE -->
+<theme><formatVersion>7</formatVersion><include>$base</include><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$image</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><customView name="Icons" inherits="grid"><imagegrid name="gamegrid"><itemTemplate><container name="contentRoot"><container name="inside"><image name="imageOfGame"><minSize>0 0</minSize><maxSize>1 0.84</maxSize><origin>0.5</origin><pos>0.5 0.42</pos><linearSmooth>true</linearSmooth></image></container></container></itemTemplate></imagegrid></customView></theme>
+EOF
+grep -Fq 'READY PLAYER ONE PS VITA CONSOLE PICTURE' /userdata/roms/psvita/theme.xml`;
+  await execSsh(device, command, 15000);
+}
+
 async function installCachedPsVitaFirmware(device) {
   const files = verifiedCachedPsVitaFirmware();
   if (!files) throw new Error("Ready Player One needs both verified PS Vita files from Medicine: PSVUPDAT.PUP and PSP2UPDAT.PUP.");
   await sftpWithDevice(device, async sftp => {
     await mkdirpSftp(sftp, "/userdata/bios/psvita");
+    // Firmware installation alone does not create the EmulationStation ROM
+    // root. Ensure the selected PS Vita console has its Batocera folder too.
+    await mkdirpSftp(sftp, "/userdata/roms/psvita");
     for (const [fileName, spec] of Object.entries(files)) {
       const temporary = `/userdata/bios/psvita/.${fileName}.upload`;
       const destination = `/userdata/bios/psvita/${fileName}`;
@@ -6674,13 +6802,16 @@ async function installCachedPsVitaFirmware(device) {
       await new Promise((resolve, reject) => sftp.rename(temporary, destination, error => error ? reject(error) : resolve()));
     }
   });
-  const environment = "HOME=/userdata/system XDG_CONFIG_HOME=/userdata/system/configs XDG_CACHE_HOME=/userdata/system/cache XDG_DATA_HOME=/userdata/saves DISPLAY=${DISPLAY:-:0.0}";
+  // Vita3K uses Qt and refuses Batocera's minimal C/ANSI locale.  Give it a
+  // UTF-8 locale explicitly and keep all of its writable paths under userdata.
+  const environment = "LANG=en_US.utf8 LC_ALL=en_US.utf8 HOME=/userdata/system XDG_CONFIG_HOME=/userdata/system/configs XDG_CACHE_HOME=/userdata/system/cache XDG_DATA_HOME=/userdata/saves DISPLAY=${DISPLAY:-:0.0}";
   for (const fileName of Object.keys(psVitaFirmwareInstallers)) {
     const remote = `/userdata/bios/psvita/${fileName}`;
     await execSsh(device, `test -x /usr/bin/vita3k/Vita3K || { echo 'Vita3K is not installed on this Batocera build.' >&2; exit 44; }; ${environment} timeout 180 /usr/bin/vita3k/Vita3K --firmware ${shellSingleQuoted(remote)}`, 200000);
   }
   const status = await getPsVitaFirmwareStatus(device);
   if (!status.installed) throw new Error("Vita3K did not verify both the PS Vita system modules and font package after installation.");
+  await installPsVitaConsolePicture(device);
   return { installed: true, files: Object.keys(psVitaFirmwareInstallers), remoteDir: "/userdata/bios/psvita" };
 }
 
@@ -7108,6 +7239,35 @@ function collapseRemoteMultiDiscEntries(system, names) {
   return collapseLogicalMultiDiscEntries(system, names);
 }
 
+function psVitaTitleId(fileName) {
+  return String(fileName || "").match(/(?:^|[^A-Za-z0-9])(PCS[A-Z]\d{5})(?=[^A-Za-z0-9]|$)/i)?.[1]?.toUpperCase() || null;
+}
+
+function psVitaPointerFileName(fileName) {
+  const titleId = psVitaTitleId(fileName);
+  if (!titleId) throw new Error("PS Vita games must include their title ID (for example [PCSA00029]) in the filename.");
+  const base = path.basename(String(fileName || ""), path.extname(String(fileName || "")))
+    .replace(/\s*\[PCS[A-Z]\d{5}\]\s*/gi, " ")
+    .replace(/\s+/g, " ").trim();
+  return `${base || titleId} [${titleId}].psvita`;
+}
+
+function collapsePsVitaPackageEntries(names) {
+  // A Vita title has two files in the ROM folder: its raw VPK package and
+  // RP1's small .psvita launch pointer. The pointer is the actual game entry;
+  // showing both lets a checkbox remove only half a title.
+  const installedTitles = new Set(names
+    .filter(name => path.extname(name).toLowerCase() === ".psvita")
+    .map(psVitaTitleId)
+    .filter(Boolean));
+  return names.filter(name => {
+    const extension = path.extname(name).toLowerCase();
+    if (extension === ".psvita") return true;
+    const titleId = psVitaTitleId(name);
+    return !(titleId && installedTitles.has(titleId) && [".vpk", ".zip"].includes(extension));
+  });
+}
+
 function ps1TransferFiles(system, fileName) {
   const primaryPath = safeLocalRomPath(system, fileName);
   const files = [{ name: fileName, localPath: primaryPath }];
@@ -7345,8 +7505,8 @@ function listLocalLibrary() {
       ? musicFolderRows(names, "This computer / music")
       : logicalEntries
         .sort((a, b) => {
-          const left = ["mame", "wii"].includes(system) ? displayGameTitle(system, a.name) : a.name;
-          const right = ["mame", "wii"].includes(system) ? displayGameTitle(system, b.name) : b.name;
+          const left = ["mame", "wii", "psvita"].includes(system) ? displayGameTitle(system, a.name) : a.name;
+          const right = ["mame", "wii", "psvita"].includes(system) ? displayGameTitle(system, b.name) : b.name;
           return left.localeCompare(right, undefined, { numeric: true });
         })
         .map(entry => {
@@ -7362,7 +7522,7 @@ function listLocalLibrary() {
             ? "folder"
             : "file";
           return [name, note, entry.type || ext, "OK", kind, null,
-            entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, name) : null),
+            entry.discSet?.title || (["mame", "wii", "psvita"].includes(system) ? displayGameTitle(system, name) : null),
             null, null, entry.discSet || null];
         });
 
@@ -7636,9 +7796,10 @@ async function listRemoteRoms(device, system) {
         .sort((a, b) => a.localeCompare(b));
       remoteNames = hideMameSupportFiles(system, remoteNames);
       if (system === "ps1") remoteNames = collapsePs1Sidecars(remoteNames);
+      if (system === "psvita") remoteNames = collapsePsVitaPackageEntries(remoteNames);
       const rows = collapseRemoteMultiDiscEntries(system, remoteNames)
         .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
-          entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, entry.name) : null),
+          entry.discSet?.title || (["mame", "wii", "psvita"].includes(system) ? displayGameTitle(system, entry.name) : null),
           null, null, entry.discSet || null]);
 
       if (system !== 'windows') {
@@ -7762,7 +7923,7 @@ function listRemoteRomsSmb(device, system) {
   if (system === "ps1") names = collapsePs1Sidecars(names);
   return collapseRemoteMultiDiscEntries(system, names.sort((a, b) => a.localeCompare(b)))
     .map(entry => [entry.name, remoteDir, entry.type, null, null, null,
-      entry.discSet?.title || (["mame", "wii"].includes(system) ? displayGameTitle(system, entry.name) : null),
+      entry.discSet?.title || (["mame", "wii", "psvita"].includes(system) ? displayGameTitle(system, entry.name) : null),
       null, null, entry.discSet || null]);
 }
 
@@ -8536,6 +8697,34 @@ with open(os.path.join(destination,'autorun.cmd'),'w',newline='\\n') as output: 
   return { installed: true, source: path.basename(archive), runtime };
 }
 
+async function installTransferredPsVitaVpk(device, fileName) {
+  const extension = path.extname(fileName).toLowerCase();
+  if (device.access !== "ssh" || ![".vpk", ".zip"].includes(extension)) return;
+  const titleId = psVitaTitleId(fileName);
+  if (!titleId) throw new Error("PS Vita VPK files must include their title ID (for example [PCSA00029]) in the filename.");
+  const remoteDir = remoteDirFor("psvita", device);
+  const packagePath = `${remoteDir}/${fileName}`;
+  const app = `/userdata/saves/psvita/ux0/app/${titleId}`;
+  const packageStore = "/userdata/system/ready-player-one/vita-packages";
+  const pointer = `${remoteDir}/${psVitaPointerFileName(fileName)}`;
+  const command = [
+    "set -e",
+    `test -s ${shellSingleQuoted(packagePath)}`,
+    `stage=$(mktemp -d /tmp/rp1-vita.XXXXXX)`,
+    `trap 'rm -rf "$stage"' EXIT`,
+    `rm -rf ${shellSingleQuoted(app)}`,
+    `mkdir -p ${shellSingleQuoted(app)} ${shellSingleQuoted(packageStore)} /userdata/system/logs`,
+    extension === ".zip"
+      ? `unzip -o ${shellSingleQuoted(packagePath)} -d "$stage" > /userdata/system/logs/rp1-vita-${titleId}-package.log; vpk=$(find "$stage" -type f -iname '*.vpk' -print -quit); if test -n "$vpk"; then unzip -o "$vpk" -d ${shellSingleQuoted(app)} > /userdata/system/logs/rp1-vita-${titleId}.log; else cp -a "$stage"/. ${shellSingleQuoted(app)}/; fi`
+      : `unzip -o ${shellSingleQuoted(packagePath)} -d ${shellSingleQuoted(app)} > /userdata/system/logs/rp1-vita-${titleId}.log`,
+    `test -s ${shellSingleQuoted(`${app}/eboot.bin`)}`,
+    `test -s ${shellSingleQuoted(`${app}/sce_sys/param.sfo`)}`,
+    `touch ${shellSingleQuoted(pointer)}`,
+    `mv -f ${shellSingleQuoted(packagePath)} ${shellSingleQuoted(`${packageStore}/${fileName}`)}`
+  ].join("; ");
+  await execSsh(device, command, 240000);
+}
+
 async function uploadRom(device, system, fileName, progress = null, registerCancel = null) {
   if (isExcludedLibraryGame(system, fileName)) throw new Error("2048 is excluded from RP1's NES library and will not be installed.");
   if (system === 'ps2') await medicinePs2Bios.ensure(device, progress);
@@ -8667,6 +8856,7 @@ async function uploadRom(device, system, fileName, progress = null, registerCanc
   if (system === 'windows') {
     await execSsh(device, '[ ! -x /userdata/system/ready-player-one/windows-menu-sync.sh ] || /userdata/system/ready-player-one/windows-menu-sync.sh', 15000);
   }
+  if (system === "psvita") await installTransferredPsVitaVpk(device, fileName);
   if (system === "mame" && device.access !== "usb" && device.access !== "smb") {
     await configureMameGameEmulator(device, fileName);
   }
@@ -8847,6 +9037,15 @@ function removeRom(device, system, fileName) {
 
   return sftpWithDevice(device, async sftp => {
     const remoteDir = remoteDirFor(system,device);
+    if (system === "psvita" && psVitaTitleId(fileName)) {
+      const titleId = psVitaTitleId(fileName);
+      const entries = await new Promise((resolve, reject) => sftp.readdir(remoteDir, (error, list) => error ? reject(error) : resolve(list)));
+      const linkedFiles = entries.map(entry => entry.filename).filter(name =>
+        psVitaTitleId(name) === titleId && [".psvita", ".vpk", ".zip"].includes(path.extname(name).toLowerCase()));
+      for (const name of linkedFiles) await removeRemotePath(sftp, `${remoteDir}/${name}`);
+      await removeRemotePath(sftp, `/userdata/saves/psvita/ux0/app/${titleId}`);
+      return;
+    }
     if (system === 'windows') {
       const installedPath = `${remoteDir}/${fileName}`;
       const installerPath = `/userdata/roms/windows_installers/${fileName}`;
@@ -9072,6 +9271,25 @@ if os.path.exists(p):
   const resetApplied = (!device.platform || device.platform === "batocera") && !options.deferReset;
   if (resetApplied) await runSoftReset(device);
   return { resetApplied, removedRoots: contentRoots };
+}
+
+async function ensureSystem(device, system) {
+  if (!Object.prototype.hasOwnProperty.call(systemFolders, system) || system === "music") {
+    throw new Error("Unknown or non-restorable system.");
+  }
+  const folder = systemFolders[system];
+  if (device.access === "usb") {
+    fs.mkdirSync(usbPathForSystem(device, system), {recursive:true});
+    return {restored:true};
+  }
+  if (device.access === "smb") {
+    fs.mkdirSync(smbPathForSystem(device.host, system, device.platform), {recursive:true});
+    return {restored:true};
+  }
+  if (device.access !== "ssh") throw new Error("Reconnect this machine before restoring a console.");
+  const target = `/userdata/roms/${folder}`;
+  await execSsh(device, `mkdir -p -- ${shellSingleQuoted(target)} && test -d ${shellSingleQuoted(target)}`, 15000);
+  return {restored:true};
 }
 
 async function removeRemotePath(sftp, remotePath) {
@@ -9924,8 +10142,8 @@ const server = http.createServer(async (req, res) => {
       const extension = isSupplemental ? "png" : "svg";
       const cached = path.join(systemArtCachePath, `${folder}.${extension}`);
       if (!fs.existsSync(cached)) {
-        const bundled = path.join(uiRoot, "system-art", `${folder}.png`);
-        if (isSupplemental && fs.existsSync(bundled)) {
+        const bundled = path.join(uiRoot, "system-art", `${folder}.${extension}`);
+        if (fs.existsSync(bundled)) {
           fs.copyFileSync(bundled, cached);
         } else {
         const source = supplementalSystemArt[folder] ||
@@ -10845,9 +11063,14 @@ print(node.get('value') if node is not None else '__RP1_DEFAULT__')
         }
       }
       const deviceSettings = readDeviceSettings()[deviceName] || {};
-      const installationVerified = !devices[deviceName] ||
-        (deviceSettings.installationId && verifiedInstallationIds.get(deviceName) === deviceSettings.installationId);
-      const savedVisibleSystems = installationVerified ? deviceSettings.visibleSystems : null;
+      // This is RP1's own per-machine selection, not data reported by the
+      // remote machine. It must be returned immediately: waiting for the
+      // asynchronous installation-ID verification leaves a startup window in
+      // which the webview can restore a stale local cache and resurrect
+      // consoles the user explicitly removed (for example Ports or C64).
+      const savedVisibleSystems = Array.isArray(deviceSettings.visibleSystems)
+        ? deviceSettings.visibleSystems
+        : null;
       // Once RP1 has a saved Systems selection, it is authoritative. Batocera
       // exposes built-in and empty system folders that the user never added;
       // merging every discovered folder here repopulates the left pane. A
@@ -11815,7 +12038,8 @@ ${check}
           job.artworkPercent = 0;
           job.lastActivityAt = new Date().toISOString();
           scheduleTransferPersistence(true);
-          artwork = await withRejectingTimeout(publishTransferredRomArtwork(device, body.device, body.system, body.fileName, (percent, current) => {
+          const artworkFileName = body.system === "psvita" ? psVitaPointerFileName(body.fileName) : body.fileName;
+          artwork = await withRejectingTimeout(publishTransferredRomArtwork(device, body.device, body.system, artworkFileName, (percent, current) => {
             job.artworkPercent = percent;
             job.percent = Math.min(99.9, Number((75 + (Math.max(0, Math.min(100, Number(percent) || 0)) * 0.25)).toFixed(1)));
             job.current = /default/i.test(String(current || "")) ? "Transferring default cover" : "Transferring cover";
@@ -11842,7 +12066,11 @@ ${check}
         const installedAtLeastOneFile = Number(job.totalFiles || 0) > 0
           && Number(job.completedFiles || 0) >= Number(job.totalFiles || 0);
         job.resetNeeded = installedAtLeastOneFile && body.system !== "music";
-        if (job.resetNeeded) markSoftResetNeeded(body.device, body.system, body.fileName, job.finishedAt);
+        // Vita packages are converted into a .psvita launcher pointer on the
+        // machine.  Track that installed pointer, never the source ZIP/VPK,
+        // or the reset marker would resurrect a second, phantom right-pane row.
+        const installedResetName = body.system === "psvita" ? psVitaPointerFileName(body.fileName) : body.fileName;
+        if (job.resetNeeded) markSoftResetNeeded(body.device, body.system, installedResetName, job.finishedAt);
         scheduleTransferPersistence(true);
         sendJson(res, 200, { ok: true, item, artwork, presentation, job });
       } catch (error) {
@@ -12178,6 +12406,18 @@ ${check}
         writeDeviceSettings(settings);
       }
       sendJson(res, 200, {ok:true, system:body.system, resetApplied:Boolean(removal?.resetApplied), removedRoots:removal?.removedRoots || []});
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/systems/ensure") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const device = await getRuntimeDevice(body.device);
+      if (!device) {
+        sendJson(res, 404, {ok:false, error:"Device is not configured."});
+        return;
+      }
+      const result = await ensureSystem(device, String(body.system || ""));
+      sendJson(res, 200, {ok:true, system:String(body.system || ""), ...result});
       return;
     }
 

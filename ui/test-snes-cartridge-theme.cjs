@@ -19,7 +19,7 @@ assert.match(xml, /<autoLayout>4 2<\/autoLayout>/);
 assert.match(xml, /rp1-snes-selector\.png/);
 assert.match(xml, /<cornerSize>11 11<\/cornerSize>/);
 assert.match(xml, /<color>4FA9FFFF<\/color>/);
-assert.match(xml, /<animateColor>F2C94CFF<\/animateColor>/);
+assert(!xml.includes('<animateColor>'));
 assert.match(server, /system === "snes" \? "11 11"/);
 assert.match(server, /const snesShape = .*AddArc\(24,24,11,11/);
 assert.match(server, /system === "snes" \? snesShape/);

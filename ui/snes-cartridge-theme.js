@@ -14,6 +14,7 @@ module.exports = function snesPictureTheme(base) {
       <gameImage>/userdata/roms/snes/media/rp1-snes-blank.png</gameImage>
     </imagegrid>
     <gridtile name="default">
+      <size>1 1</size>
       <padding>0 0</padding>
       <selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
@@ -21,6 +22,7 @@ module.exports = function snesPictureTheme(base) {
       <backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
+      <size>1 1</size>
       <padding>0 0</padding>
       <selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor>
@@ -33,7 +35,7 @@ module.exports = function snesPictureTheme(base) {
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/snes/media/rp1-snes-selector.png</path>
       <cornerSize>11 11</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
-      <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
+      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

@@ -32,10 +32,12 @@ module.exports = function localMediaTheme(base, system) {
       <gameImage>/userdata/roms/${folder}/media/rp1-${system}-blank.png</gameImage>
     </imagegrid>
     <gridtile name="default">
+      <size>1 1</size>
       <padding>${tilePadding}</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
+      <size>1 1</size>
       <padding>${tilePadding}</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
@@ -49,7 +51,7 @@ module.exports = function localMediaTheme(base, system) {
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/${folder}/media/rp1-${system}-selector.png</path>
       <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding><color>4FA9FFFF</color>
-      <animateColor>F2C94CFF</animateColor><animateColorTime>720</animateColorTime><zIndex>100</zIndex>
+      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

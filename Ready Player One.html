@@ -415,7 +415,9 @@
       opacity: 1;
     }
 
-    .device-card.ad-hoc-display {
+    /* Blue is the normal selected-machine outline. Magenta is reserved for
+       the selected card only when its confirmed path is direct Ad Hoc. */
+    .device-card.selected.ad-hoc-display {
       border-color: rgba(255, 48, 210, 0.96) !important;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.34), 0 3px 8px rgba(0,0,0,.42), 0 0 0 1px rgba(255,118,226,.4), 0 0 8px 2px rgba(255,48,210,.3), 0 0 20px 6px rgba(255,48,210,.16), 0 0 36px 13px rgba(255,48,210,.055) !important;
       opacity: 1;
@@ -681,6 +683,14 @@
       background: var(--yellow);
       box-shadow: 0 0 14px var(--yellow);
       animation: machine-status-blink .85s ease-in-out infinite;
+    }
+
+    /* Direct Ad Hoc SSH is a confirmed, working display connection even
+       though the normal Wi-Fi/LAN probe is intentionally offline. */
+    .device-card.ad-hoc-display::after {
+      background: var(--green);
+      box-shadow: 0 0 16px var(--green);
+      animation: none;
     }
 
     @keyframes machine-status-blink {
@@ -1313,6 +1323,14 @@
       box-shadow: inset 0 1px 0 #fff, inset 0 -1px 1px rgba(9,44,91,.72), 0 1px 1px rgba(0,0,0,.78), 0 0 8px rgba(105,187,255,.88);
     }
     .systems-add:active { transform: translateY(1px); background: transparent; box-shadow: none; }
+    .systems-add:disabled {
+      cursor: not-allowed;
+      opacity: .38;
+      filter: grayscale(1);
+    }
+    .systems-add:disabled::before, .systems-add:disabled::after {
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 1px rgba(0,0,0,.7), 0 1px 1px rgba(0,0,0,.6);
+    }
 
     .system-picker-grid {
       display: grid;
@@ -4644,8 +4662,7 @@
     function updateFooterFromCurrentInventory(device = selectedDevice, system = selectedSystem) {
       if (device !== selectedDevice || system !== selectedSystem) return;
       const localNames = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []);
-      const installed = new Set(activeNames);
-      const completed = localNames.reduce((total, fileName) => total + Number(installed.has(fileName)), 0);
+      const completed = localNames.reduce((total, fileName) => total + Number(machineHasGame(fileName, system)), 0);
       const scope = footerProgressScope(device, system);
       const previous = footerProgressByScope.get(scope) || {};
       const stableCompleted = previous.active
@@ -4890,7 +4907,7 @@
       mame:"mame", nes:"nes", snes:"snes", sega:"megadrive", gba:"gba", ps1:"psx", ps2:"ps2",
       n64:"n64", gb:"gb", gbc:"gbc", nds:"nds", "3ds":"3ds", gamecube:"gc", wii:"wii",
       mastersystem:"mastersystem", gamegear:"gamegear", segacd:"segacd", saturn:"saturn",
-      dreamcast:"dreamcast", psp:"psp", neogeo:"neogeo", atari2600:"atari2600",
+      dreamcast:"dreamcast", psp:"psp", psvita:"psvita", neogeo:"neogeo", atari2600:"atari2600",
       atari5200:"atari5200", atari7800:"atari7800", atarilynx:"lynx", xegs:"xegs",
       jaguar:"jaguar", jaguarcd:"jaguarcd", atari800:"atari800", atarist:"atarist", pcengine:"pcengine"
       , wiiu:"wiiu", ps3:"ps3", ps4:"ps4", xbox:"xbox", xbox360:"xbox360", music:"music", movies:"movies"
@@ -4992,6 +5009,15 @@
     let musicFolderView = "";
     let selectedController = "arcade";
     let activeNames = new Set();
+    function psVitaTitleId(fileName) {
+      return String(fileName || '').match(/(?:^|[^A-Za-z0-9])(PCS[A-Z]\d{5})(?=[^A-Za-z0-9]|$)/i)?.[1]?.toUpperCase() || '';
+    }
+    function machineHasGame(fileName, system = selectedSystem) {
+      if (activeNames.has(fileName)) return true;
+      if (system !== 'psvita') return false;
+      const titleId = psVitaTitleId(fileName);
+      return Boolean(titleId && [...activeNames].some(installed => psVitaTitleId(installed) === titleId));
+    }
     let activeListScope = "";
     const pendingResetGamesByScope = new Map();
     function pendingResetScope(device = selectedDevice, system = selectedSystem) {
@@ -5208,6 +5234,13 @@
 
     const systemInventoryLoading = new Set();
     const systemVisibilityServerChecked = new Set();
+    // Keep Batocera's live inventory separate from RP1's Systems-pane list.
+    // If an old list hides an existing machine-side system, the picker still
+    // needs to show it as checked so an explicit uncheck removes it.
+    const machineSystemInventory = new Map();
+    function detectedSystemsFor(device = selectedDevice) {
+      return new Set(machineSystemInventory.get(device) || []);
+    }
     function steamDiscoveryKey(device) {
       return `${visibilityStorageKey(device)}.steamDiscovery.v2`;
     }
@@ -5242,8 +5275,9 @@
         const result = await response.json();
         if (!response.ok || !result.ok || !Array.isArray(result.systems)) throw new Error(result.error || "Unable to read systems");
         systemVisibilityServerChecked.add(device);
+        const valid = new Set([...rows].map(row => row.dataset.system));
+        machineSystemInventory.set(device, result.systems.filter(system => valid.has(system)));
         if (Array.isArray(result.visibleSystems)) {
-          const valid = new Set([...rows].map(row => row.dataset.system));
           const persisted = new Set(result.visibleSystems.filter(system => valid.has(system)));
           localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...persisted]));
           localStorage.setItem(steamDiscoveryKey(device), 'done');
@@ -5277,7 +5311,6 @@
           }
           return;
         }
-        const valid = new Set([...rows].map(row => row.dataset.system));
         const installed = result.systems.filter(system => valid.has(system));
         const reconciled = new Set(installed);
         localStorage.setItem(visibilityStorageKey(device), JSON.stringify([...reconciled]));
@@ -5433,6 +5466,7 @@
       systemPickerDevice = selectedDevice;
       explicitlyUncheckedSystems.clear();
       const visible = readVisibleSystems();
+      const detected = detectedSystemsFor(systemPickerDevice);
       const alphabeticalRows = [...rows].sort((left, right) => systemLabelForRow(left).localeCompare(systemLabelForRow(right), undefined, { sensitivity: "base", numeric: true }));
       systemPickerGrid.innerHTML = alphabeticalRows.map(row => {
         const system = row.dataset.system;
@@ -5441,7 +5475,7 @@
         const label = systemLabelForRow(row);
         const pickerLabel = ['atari800', 'atarist'].includes(system)
           ? `Atari<span class="atari-model">${label.replace(/^Atari\s+/i, '')}</span>` : label;
-        return `<label class="system-picker-option${unsupported ? ' unsupported' : ''}"${unsupported ? ' title="Not Supported"' : ''}><input type="checkbox" value="${system}" ${!unsupported && visible.has(system) ? "checked" : ""} ${unsupported ? 'disabled' : ''}><span>${pickerLabel}</span>${unsupported ? '<span class="support-note">Not Supported</span>' : requirement}</label>`;
+        return `<label class="system-picker-option${unsupported ? ' unsupported' : ''}"${unsupported ? ' title="Not Supported"' : ''}><input type="checkbox" value="${system}" ${!unsupported && (visible.has(system) || detected.has(system)) ? "checked" : ""} ${unsupported ? 'disabled' : ''}><span>${pickerLabel}</span>${unsupported ? '<span class="support-note">Not Supported</span>' : requirement}</label>`;
       }).join("");
       updateSystemRequirementWarning();
       systemPickerModal.classList.add("open");
@@ -5480,10 +5514,16 @@
       const automaticSetupPlatform = !targetStatus?.platform || ['batocera','retrobat'].includes(targetStatus.platform);
       const machines = automaticSetupPlatform && targetStatus?.online && (targetStatus.access === 'ssh' || targetStatus.platform==='retrobat') ? [visibilityDevice] : [];
       const previous = readVisibleSystems(visibilityDevice);
+      const detected = detectedSystemsFor(visibilityDevice);
       // Only this edit's checkbox changes are actionable. A legacy unchecked
       // system must never turn unrelated unchecked consoles into deletions.
-      const removed = new Set([...previous, ...explicitlyUncheckedSystems].filter(system => !selected.has(system)));
-      const added = new Set([...selected].filter(system => !previous.has(system)));
+      // A live Batocera system is different: the picker checks it, and an
+      // explicit uncheck removes that actual machine-side system.
+      const removalCandidates = new Set([...previous, ...detected, ...explicitlyUncheckedSystems]);
+      const removed = new Set([...removalCandidates].filter(system => !selected.has(system)));
+      // A detected system is already on Batocera. Once removed it drops from
+      // the next inventory, so checking it later correctly restores it.
+      const added = new Set([...selected].filter(system => !previous.has(system) && !detected.has(system)));
       if (removed.size && !machines.length) {
         await showXboxBiosDialog({title:'Machine Unavailable', device:visibilityDevice, message:'Reconnect this machine before removing a console. RP1 will not merely hide it while its files remain on the machine.', confirmLabel:'OK'});
         return;
@@ -5698,6 +5738,7 @@
             const confirmed = readVisibleSystems(removal.device);
             confirmed.delete(removal.system);
             localStorage.setItem(visibilityStorageKey(removal.device), JSON.stringify([...confirmed]));
+            machineSystemInventory.set(removal.device, [...detectedSystemsFor(removal.device)].filter(system => system !== removal.system));
             if (removal.device === selectedDevice) applyVisibleSystems(confirmed);
             const selections = readDeviceTransferSelections(removal.device);
             delete selections[removal.system];
@@ -5753,6 +5794,15 @@
             continue;
           }
           if (!setup[system]) {
+            if (!virtualCollectionSystems.has(system)) {
+              try {
+                await request('/api/systems/ensure', {device, system});
+                machineSystemInventory.set(device, [...detectedSystemsFor(device), system]);
+                results.push(`${resultPrefix(device)}${label}: Added back to Batocera.`);
+              } catch (error) {
+                results.push(`${resultPrefix(device)}${label}: FAILED to add back — ${error.message}`);
+              }
+            }
             if (manual.has(system) && !previous.has(system)) results.push(`${resultPrefix(device)}${label}: Manual setup required`);
             if (contributesToProgress) advanceSetupProgress();
             continue;
@@ -6819,7 +6869,7 @@
       return `
         <div class="game${rowIsActive ? " active" : ""}${isBad ? " bad-rom" : ""}" data-system="${selectedSystem}" data-name="${item[0]}" data-meta="${item[1]}" data-type="${item[2]}" data-valid="${item[3] || "OK"}" data-kind="${item[4] || "file"}" data-size="${Number(item[7] || 0)}">
           <div class="game-head">
-            ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${activeNames.has(item[0]) || transferIsPending(item[0]) || optimisticallyChecked ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
+            ${isMusicFolder ? "" : `<input class="game-check" type="checkbox"${machineHasGame(item[0]) || transferIsPending(item[0]) || optimisticallyChecked ? " checked" : ""} aria-label="Add ${displayName} to selected device">`}
             <div class="cover ${iconClass(item, selectedSystem)}" title="${isFolder ? "Open folder — " : ""}${iconTitle(item, selectedSystem)}" ${isFolder ? 'data-expandable="true"' : ""}></div>
             <div>
               <div class="game-name"><span class="game-name-text">${displayName}</span>${discCount}</div>
@@ -8471,7 +8521,11 @@
         if (!game.isConnected) continue;
         if (gameCheckbox) {
           const selectionKey = transferSelectionKey(selectedDevice, selectedSystem, gameName);
-          const installed = activeNames.has(gameName) && !runningNames.has(gameName);
+          // Vita installs a .psvita launcher while the warehouse retains the
+          // original ZIP/VPK.  Use the same title-ID-aware comparison as the
+          // initial row render so a later inventory refresh cannot uncheck an
+          // already-installed Vita game.
+          const installed = machineHasGame(gameName, selectedSystem) && !runningNames.has(gameName);
           const authoritative = installed || runningNames.has(gameName) || transferIsPending(gameName);
           // Only the live machine inventory, a real backend job, or the user's
           // click while its request is in flight may check a row. Persisted
@@ -9749,10 +9803,10 @@
         // Keep the saved card in the DOM for rediscovery, but never show a
         // disconnected red tag. A recently confirmed machine remains visible
         // as yellow through its retry grace period.
-        card.hidden = !['true'].some(value =>
-          card.dataset.online === value || card.dataset.reachable === value ||
-          card.dataset.searching === value || card.dataset.communicating === value ||
-          card.dataset.adHocDisplay === value);
+        // Saved machines stay in the list through transient discovery misses.
+        // Only removable USB cards disappear when the drive is no longer present.
+        card.hidden = card.dataset.platform === 'batocera-usb' &&
+          !['true'].some(value => card.dataset.online === value || card.dataset.reachable === value);
       });
       // Confirmed machines first, initial communication next, saved/offline
       // placeholders last. Keep the existing order within each group.
@@ -9775,6 +9829,15 @@
       }
     }
 
+    function updateSystemPickerAvailability(card = [...deviceCards].find(item => item.dataset.device === selectedDevice)) {
+      const directDisplayOnly = card?.dataset.adHocDisplay === "true";
+      openSystemPicker.disabled = directDisplayOnly;
+      openSystemPicker.title = directDisplayOnly
+        ? "Console changes require the normal Wi-Fi or LAN connection."
+        : "Choose consoles";
+      openSystemPicker.setAttribute("aria-disabled", String(directDisplayOnly));
+    }
+
     function selectDeviceCard(card, { userInitiated = false } = {}) {
       if (userInitiated) startupGreenMachineSelected = true;
       if (card.dataset.device === selectedDevice && card.classList.contains("selected")
@@ -9787,6 +9850,7 @@
       document.body.classList.remove("machine-unselected");
       deviceCards.forEach(item => item.classList.remove("selected"));
       card.classList.add("selected");
+      updateSystemPickerAvailability(card);
       selectedDevice = card.dataset.device || "Batocera";
       // Switch the heading immediately, even before this machine has any systems.
       ++activeLoadGeneration;
@@ -9833,7 +9897,11 @@
       // Reachability begins the visible discovery phase; identity and service
       // confirmation below decide when blinking yellow becomes solid yellow.
       const reachable = rawReachable || withinDisconnectGrace;
-      const searching = Boolean(status?.searching);
+      // A saved network machine with no current response is still a known
+      // machine. Keep its card visible and present the lookup state instead of
+      // making the card vanish between discovery polls.
+      const searching = Boolean(status?.searching) ||
+        (card.dataset.platform !== 'batocera-usb' && !online && !rawReachable);
       const checks = status?.checks || {};
       const identityConfirmed = Boolean(status?.identity || status?.platform || status?.usb);
       const serviceDetected = Boolean(checks.ssh || checks.smb || checks.web || checks.usb || status?.access);
@@ -9898,7 +9966,8 @@
       card.classList.toggle("communicating", communicating);
       card.classList.toggle("ad-hoc-display", Boolean(status?.adHocDisplay));
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
-      card.hidden = !(online || reachable || searching || communicating || status?.adHocDisplay);
+      card.hidden = card.dataset.platform === 'batocera-usb' && !(online || reachable);
+      if (card.classList.contains("selected")) updateSystemPickerAvailability(card);
 
       let connectionSymbols = card.querySelector(".machine-connection-symbols");
       if (!connectionSymbols) {
@@ -9938,7 +10007,10 @@
         const hostName = String(status?.hostName || status?.displayName || "").trim();
         meta.textContent = status?.platform === 'windows' ? (status.displayName || host || 'Windows PC') : status?.usb
           ? `${host || "USB"} • ${!online ? "Disconnected" : status.usbMode === "direct" ? "Direct" : "Staged"}`
-          : host ? [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") : "Waiting for IP…";
+          : status?.adHocDisplay && status?.directDisplayConnected ? `${status.directDisplayHost || "10.77.0.2"}`
+          : status?.directDisplayConnected ? `${status.directDisplayHost || "10.77.0.2"}`
+          : searching && !online ? `Looking for IP…${status?.directDisplayHost ? ` • Direct: ${status.directDisplayHost}` : ""}`
+          : host ? [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") : `Looking for IP…${status?.directDisplayHost ? ` • Direct: ${status.directDisplayHost}` : ""}`;
       }
 
       if (card.classList.contains("selected")) {

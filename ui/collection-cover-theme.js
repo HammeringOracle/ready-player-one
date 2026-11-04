@@ -15,10 +15,12 @@ module.exports = function collectionCoverTheme(_base, label) {
       <imageSource>image</imageSource>
     </imagegrid>
     <gridtile name="default">
+      <size>1 1</size>
       <padding>-10 -10</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor>
     </gridtile>
     <gridtile name="selected">
+      <size>1 1</size>
       <padding>-10 -10</padding><selectionMode>image</selectionMode>
       <backgroundColor>00000000</backgroundColor><backgroundCenterColor>4FA9FF20</backgroundCenterColor><backgroundEdgeColor>4FA9FFFF</backgroundEdgeColor>
     </gridtile>

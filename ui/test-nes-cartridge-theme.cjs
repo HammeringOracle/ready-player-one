@@ -19,6 +19,6 @@ assert.match(xml, /<ninepatch name="gridtile\.background:selected">/);
 assert.match(xml, /<cornerSize>32 32<\/cornerSize><padding>-18 -18<\/padding>/);
 assert.match(xml, /rp1-nes-selector\.png/);
 assert.match(xml, /<color>4FA9FFFF<\/color>/);
-assert.match(xml, /<animateColor>F2C94CFF<\/animateColor><animateColorTime>720<\/animateColorTime>/);
+assert(!xml.includes('<animateColor>'));
 assert.doesNotMatch(xml, /storyboard/);
 console.log('NES picture-theme generation checks passed.');
