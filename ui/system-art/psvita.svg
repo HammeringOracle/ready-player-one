@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PS Vita">
+  <rect width="512" height="512" fill="none"/>
+  <g fill="none" stroke="#111827" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="43" y="151" width="426" height="210" rx="72" stroke-width="22"/>
+    <rect x="142" y="183" width="228" height="146" rx="15" stroke-width="13"/>
+    <path d="M92 256h58m-29-29v58" stroke-width="15"/>
+    <circle cx="412" cy="228" r="12" fill="#111827" stroke="none"/>
+    <circle cx="383" cy="256" r="12" fill="#111827" stroke="none"/>
+    <circle cx="441" cy="256" r="12" fill="#111827" stroke="none"/>
+    <circle cx="412" cy="284" r="12" fill="#111827" stroke="none"/>
+  </g>
+  <text x="256" y="275" text-anchor="middle" fill="#111827" font-family="Segoe UI, sans-serif" font-size="42" font-weight="700" letter-spacing="4">PS VITA</text>
+</svg>

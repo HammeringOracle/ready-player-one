@@ -109,6 +109,7 @@
       gap: 14px;
       justify-self: end;
     }
+    .header-code-tools { display:flex; align-items:center; gap:8px; flex:0 0 auto; transform:translateX(12px); }
 
     .soft-reset {
       min-width: 112px;
@@ -149,7 +150,7 @@
       box-shadow: 0 0 0 3px rgba(38, 168, 255, 0.14);
     }
 
-    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle) {
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #openEditCode, #advancedToggle) {
       position: relative;
       overflow: hidden;
       border: 1px solid var(--header-glass-border);
@@ -158,7 +159,7 @@
       text-shadow: 0 1px 1px rgba(0,0,0,.72);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.4), 0 3px 7px rgba(0,0,0,.46);
     }
-    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle)::before {
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #openEditCode, #advancedToggle)::before {
       content: '';
       position: absolute;
       inset: 1px 4px auto;
@@ -167,14 +168,14 @@
       background: linear-gradient(180deg, rgba(255,255,255,.36), rgba(255,255,255,.03));
       pointer-events: none;
     }
-    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle):hover {
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #openEditCode, #advancedToggle):hover {
       color: #fff;
       border-color: var(--header-glass-border);
       background: linear-gradient(180deg, rgba(255,255,255,.31) 0%, var(--header-glass-mid) 43%, var(--header-glass-bottom) 100%);
       filter: brightness(1.12);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.54), inset 0 -1px 0 rgba(0,0,0,.4), 0 4px 9px rgba(0,0,0,.52);
     }
-    :is(#softReset, #saveTransferLayout, #openTransferLayout, #advancedToggle):active {
+    :is(#softReset, #saveTransferLayout, #openTransferLayout, #openEditCode, #advancedToggle):active {
       transform: translateY(1px);
       box-shadow: inset 0 2px 4px rgba(0,0,0,.52), 0 1px 2px rgba(0,0,0,.36);
     }
@@ -195,6 +196,17 @@
       --header-glass-mid: rgba(65,105,178,.7);
       --header-glass-bottom: rgba(28,42,89,.92);
       --header-glass-text: #f4f7ff;
+    }
+    #openEditCode {
+      --header-glass-border: rgba(143,187,255,.9);
+      --header-glass-mid: rgba(65,105,178,.7);
+      --header-glass-bottom: rgba(28,42,89,.92);
+      --header-glass-text: #f4f7ff;
+      height: 30px;
+      min-width: 92px;
+      margin-left: 0;
+      font-size: 11px;
+      white-space: nowrap;
     }
 
     .find-machines {
@@ -738,7 +750,7 @@
 
     .advanced-features {
       position: relative;
-      margin-left: auto;
+      margin-left: 0;
       flex: 0 0 auto;
       justify-self: end;
     }
@@ -3866,6 +3878,42 @@
         <button class="soft-reset" id="softReset">Soft Reset</button>
         <button class="layout-button" id="saveTransferLayout" type="button">Save As...</button>
         <button class="layout-button" id="openTransferLayout" type="button">Open Layout</button>
+        <div class="header-code-tools">
+          <button id="openEditCode" type="button">Edit Code</button>
+          <div class="advanced-features" id="advancedFeatures">
+            <button class="advanced-toggle" id="advancedToggle" type="button" aria-expanded="false">Advanced Features <span class="chevron" aria-hidden="true"></span></button>
+            <div class="advanced-menu" id="advancedMenu">
+              <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
+              <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
+              <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
+              <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
+              <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
+              <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
+              <button class="advanced-item" id="openUsbImage" type="button">USB Image</button>
+              <input class="hidden-file-input" id="ps1BiosFile" type="file" accept=".bin,application/octet-stream">
+              <input class="hidden-file-input" id="largeBiosFile" type="file" accept=".bin,.pup,application/octet-stream">
+              <input class="hidden-file-input" id="xboxBiosFiles" type="file" accept=".bin,application/octet-stream" multiple>
+              <input class="hidden-file-input" id="wiiUKeysFile" type="file" accept=".txt,text/plain">
+            </div>
+          </div>
+        </div>
+        <button id="openEditCode" type="button">Edit Code</button>
+        <div class="advanced-features" id="advancedFeatures">
+          <button class="advanced-toggle" id="advancedToggle" type="button" aria-expanded="false">Advanced Features <span class="chevron" aria-hidden="true"></span></button>
+          <div class="advanced-menu" id="advancedMenu">
+            <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
+            <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
+            <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
+            <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
+            <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
+            <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
+            <button class="advanced-item" id="openUsbImage" type="button">USB Image</button>
+            <input class="hidden-file-input" id="ps1BiosFile" type="file" accept=".bin,application/octet-stream">
+            <input class="hidden-file-input" id="largeBiosFile" type="file" accept=".bin,.pup,application/octet-stream">
+            <input class="hidden-file-input" id="xboxBiosFiles" type="file" accept=".bin,application/octet-stream" multiple>
+            <input class="hidden-file-input" id="wiiUKeysFile" type="file" accept=".txt,text/plain">
+          </div>
+        </div>
         <input class="hidden-file-input" id="transferLayoutFile" type="file" accept="application/json,.json">
       </div>
     </header>
@@ -3887,24 +3935,6 @@
         </div>
         <span class="machine-connection-symbols" aria-label="Connections"></span>
       </article>
-      </div>
-      <div class="advanced-features" id="advancedFeatures">
-        <button class="advanced-toggle" id="advancedToggle" type="button" aria-expanded="false">
-          Advanced Features <span class="chevron" aria-hidden="true"></span>
-        </button>
-        <div class="advanced-menu" id="advancedMenu">
-          <button class="advanced-item" id="openReadyPlayerTwo" type="button">Ready Player Two</button>
-          <button class="advanced-item" id="openBackupRestore" type="button">Back Up &amp; Restore</button>
-          <button class="advanced-item" id="openVolumeUp" type="button">Music over Games</button>
-          <button class="advanced-item" id="openKeypad" type="button">Remapper</button>
-          <button class="advanced-item" id="openMusicScraper" type="button">Scraper (Music)</button>
-          <button class="advanced-item" id="openSnapshots" type="button">Console Snapshots</button>
-          <button class="advanced-item" id="openUsbImage" type="button">USB Image</button>
-          <input class="hidden-file-input" id="ps1BiosFile" type="file" accept=".bin,application/octet-stream">
-          <input class="hidden-file-input" id="largeBiosFile" type="file" accept=".bin,.pup,application/octet-stream">
-          <input class="hidden-file-input" id="xboxBiosFiles" type="file" accept=".bin,application/octet-stream" multiple>
-          <input class="hidden-file-input" id="wiiUKeysFile" type="file" accept=".txt,text/plain">
-        </div>
       </div>
     </section>
 
@@ -4730,6 +4760,7 @@
     const controllerModal = document.querySelector("#controllerModal");
     const advancedFeatures = document.querySelector("#advancedFeatures");
     const advancedToggle = document.querySelector("#advancedToggle");
+    const openEditCode = document.querySelector("#openEditCode");
     const openBackupRestore = document.querySelector("#openBackupRestore");
     const backupRestoreModal = document.querySelector("#backupRestoreModal");
     const backupRestoreDevice = document.querySelector("#backupRestoreDevice");
@@ -10300,6 +10331,16 @@
       event.stopPropagation();
       const isOpen = advancedFeatures.classList.toggle("open");
       advancedToggle.setAttribute("aria-expanded", String(isOpen));
+    });
+    openEditCode?.addEventListener("click", () => {
+      if (window.__TAURI__?.core?.invoke) {
+        window.__TAURI__.core.invoke("open_edit_code_window").catch(error => {
+          console.error("Could not open Edit Code window:", error);
+          window.location.assign(`${apiBase}/visual-code.html`);
+        });
+      } else {
+        window.open(`${apiBase}/visual-code.html`, "rp1VisualCode", "popup=yes,width=1500,height=735,resizable=yes,scrollbars=no");
+      }
     });
 
     let backupRestorePoll = null;

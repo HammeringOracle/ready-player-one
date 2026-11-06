@@ -1,3 +1,5 @@
+const { selectorAnimationXml } = require('./selector-animation');
+
 // SNES uses the same picture-only tile behavior as NES.
 module.exports = function snesPictureTheme(base) {
   const escaped = base.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -34,8 +36,7 @@ module.exports = function snesPictureTheme(base) {
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/snes/media/rp1-snes-selector.png</path>
-      <cornerSize>11 11</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
-      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
+      <cornerSize>11 11</cornerSize><padding>-22 -22</padding>${selectorAnimationXml()}<zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

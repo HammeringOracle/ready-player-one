@@ -1,3 +1,5 @@
+const { selectorAnimationXml } = require('./selector-animation');
+
 module.exports = function localMediaTheme(base, system) {
   const escaped = base.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const folder = system === 'ps1' ? 'psx' : system;
@@ -8,13 +10,14 @@ module.exports = function localMediaTheme(base, system) {
   // This keeps Wii aligned with PSX/PS2/PS3 in the shared 5x2 layout.
   const imageSize = isDisc ? '1.10 1.10' : isMovies || system === 'wiiu' ? '1.08 1.08' : system === 'ps4' ? '0.98 0.98' : '0.95 0.95';
   const tilePadding = isDisc ? '-18 -18' : '0 0';
-  // Wii's selector is a complete circular image. A zero corner size makes
-  // Batocera scale it as one piece instead of nine-slicing and deforming it.
-  const selectorCorners = isDisc ? '0 0' : ['ps4', 'wiiu', 'movies'].includes(system) ? '8 8' : '32 32';
+  // Keep the nine-patch corners smaller than a grid tile. A 256px corner can
+  // overlap and crop the center when Batocera renders the 512px selector into
+  // a smaller tile, leaving only a fraction of the artwork visible.
+  const selectorCorners = isDisc || system === 'n64' ? '32 32' : ['ps4', 'wiiu', 'movies'].includes(system) ? '8 8' : '32 32';
   // The circular selector has a protected transparent edge so its glow cannot
   // be clipped by the grid tile. Expand its tile footprint to keep the ring
   // fully outside the unchanged disc artwork.
-  const selectorPadding = isDisc ? '-40 -40' : '-18 -18';
+  const selectorPadding = isDisc ? '-38 -38' : system === 'n64' ? '-8 -8' : '-18 -18';
   return `<!-- READY PLAYER ONE ${label} PICTURES -->
 <theme>
   <formatVersion>7</formatVersion>
@@ -50,8 +53,7 @@ module.exports = function localMediaTheme(base, system) {
     <text name="gridtile:selected"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.030</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>FFFFFFFF</color></text>` : ''}
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/${folder}/media/rp1-${system}-selector.png</path>
-      <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding><color>4FA9FFFF</color>
-      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
+      <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding>${selectorAnimationXml()}<zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

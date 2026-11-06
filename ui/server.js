@@ -359,6 +359,7 @@ let discoveryCache = { at: 0, devices: null };
 let fastDeviceStatusCache = { at: 0, devices: null };
 let discoveryNetworkSignature = "";
 let usbDiscoveryCache = { at: 0, devices: [] };
+let visualCodePageCache = "";
 const verifiedOnlineUntil = new Map();
 let lastScanCandidates = [];
 let deepDiscoveryPromise = null;
@@ -2027,6 +2028,23 @@ async function getRuntimeDevice(name, { skipConnectionProbe = false } = {}) {
 }
 
 function runSoftReset(device) {
+  const batoceraResetScript = `old=$(pidof -s emulationstation 2>/dev/null || true)
+batocera-es-swissknife --emukill 3 >/dev/null 2>&1 || true
+sleep 1
+if pgrep -x batocera-launch >/dev/null 2>&1; then
+  echo 'The active emulator did not exit.' >&2
+  exit 5
+fi
+if [ -n "$old" ]; then kill -TERM "$old" 2>/dev/null || true; fi
+i=0
+while [ "$i" -lt 15 ]; do
+  new=$(pidof -s emulationstation 2>/dev/null || true)
+  if [ -n "$new" ] && { [ -z "$old" ] || [ "$new" != "$old" ]; }; then echo OK; exit 0; fi
+  i=$((i+1))
+  sleep 1
+done
+echo 'EmulationStation did not confirm its restart.' >&2
+exit 4`;
   return new Promise((resolve, reject) => {
     const client = new Client();
     const command = device.platform === "lakka"
@@ -2040,18 +2058,11 @@ function runSoftReset(device) {
         "grep -q \"^menu_show_load_content[[:space:]]*=.*true\" \"$cfg\" || exit 3; " +
         "(systemctl restart retroarch.service >/dev/null 2>&1 || systemctl restart retroarch >/dev/null 2>&1 || killall -HUP retroarch >/dev/null 2>&1 || true) & " +
         "echo OK'"
-      : "sh -c \"settings=/userdata/system/configs/emulationstation/es_settings.cfg; " +
-        "if [ -f \"$settings\" ]; then sed -i 's/name=\"subset.systembackground\" value=\"[^\"]*\"/name=\"subset.systembackground\" value=\"consoles\"/; s/name=\"subset.storyboards\" value=\"[^\"]*\"/name=\"subset.storyboards\" value=\"no\"/; s/name=\"subset.animatedInfobar\" value=\"[^\"]*\"/name=\"subset.animatedInfobar\" value=\"no\"/; s/name=\"subset.animatedCovers\" value=\"[^\"]*\"/name=\"subset.animatedCovers\" value=\"no\"/; s/name=\"GameTransitionStyle\" value=\"[^\"]*\"/name=\"GameTransitionStyle\" value=\"fast slide\"/; s/name=\"HideWindow\" value=\"[^\"]*\"/name=\"HideWindow\" value=\"false\"/' \"$settings\"; grep -q 'name=\"GameTransitionStyle\"' \"$settings\" || sed -i 's#</config>#<string name=\"GameTransitionStyle\" value=\"fast slide\" />& #' \"$settings\"; grep -q 'name=\"HideWindow\"' \"$settings\" || sed -i 's#</config>#<bool name=\"HideWindow\" value=\"false\" />& #' \"$settings\"; fi; " +
-        "old=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
-        "(batocera-es-swissknife --emukill 5 >/dev/null 2>&1 || true); " +
-        "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)); " +
-        "i=0; while [ \\$i -lt 25 ]; do new=\\$(pidof emulationstation 2>/dev/null | awk '{print \\$1}'); " +
-        "if [ -n \\\"\\$new\\\" ] && { [ -z \\\"\\$old\\\" ] || [ \\\"\\$new\\\" != \\\"\\$old\\\" ]; }; then echo OK; exit 0; fi; " +
-        "i=\\$((i+1)); sleep 1; done; echo 'EmulationStation did not confirm its restart.' >&2; exit 4\"";
+      : `sh -s <<'RP1_SOFT_RESET'\n${batoceraResetScript}\nRP1_SOFT_RESET`;
     let settled = false;
     const timeout = setTimeout(() => {
       fail(new Error("Soft reset command timed out before the machine confirmed receipt."));
-    }, device.platform === "lakka" ? 12000 : 32000);
+    }, device.platform === "lakka" ? 12000 : 25000);
 
     const fail = error => {
       if (!settled) {
@@ -2285,7 +2296,7 @@ async function getKaraokeStatus(device) {
   const command = [
     "missing='';",
     "test -f /userdata/system/configs/emulationstation/es_systems_karaoke.cfg || missing=\"$missing system\";",
-    "test -x /userdata/system/scripts/karaoke-vlc.sh || missing=\"$missing launcher\";",
+    "test -x /userdata/system/ready-player-one/karaoke-vlc.sh || missing=\"$missing launcher\";",
     "test -d /userdata/roms/karaoke || missing=\"$missing folder\";",
     "test -f /userdata/roms/karaoke/media/images/karaoke.png || missing=\"$missing image\";",
     "test -s /userdata/roms/karaoke/media/images/karaoke-title.png || missing=\"$missing title\";",
@@ -2303,7 +2314,7 @@ async function getKaraokeStatus(device) {
 
 function karaokeInstallCommand() {
   return `
-mkdir -p /userdata/roms/karaoke/media/images /userdata/system/scripts /userdata/system/configs/emulationstation /userdata/system/logs
+mkdir -p /userdata/roms/karaoke/media/images /userdata/system/ready-player-one /userdata/system/configs/emulationstation /userdata/system/logs
 cat > /userdata/system/configs/emulationstation/es_systems_karaoke.cfg <<'EOF'
 <?xml version="1.0"?>
 <systemList>
@@ -2315,14 +2326,14 @@ cat > /userdata/system/configs/emulationstation/es_systems_karaoke.cfg <<'EOF'
     <hardware>media</hardware>
     <path>/userdata/roms/karaoke</path>
     <extension>.cdg .CDG</extension>
-    <command>/userdata/system/scripts/karaoke-vlc.sh "%ROM%"</command>
+    <command>/userdata/system/ready-player-one/karaoke-vlc.sh "%ROM%"</command>
     <platform>pc</platform>
     <theme>karaoke</theme>
     <group>karaoke</group>
   </system>
 </systemList>
 EOF
-cat > /userdata/system/scripts/karaoke-vlc.sh <<'EOF'
+cat > /userdata/system/ready-player-one/karaoke-vlc.sh <<'EOF'
 #!/bin/sh
 log=/userdata/system/logs/bw-karaoke-vlc.log
 killall vlc cvlc 2>/dev/null || true
@@ -2384,7 +2395,8 @@ fi
 exec /usr/bin/cvlc -I dummy --vout xcb_x11 --fullscreen --play-and-exit --no-video-title-show "$rom" >> "$log" 2>&1
 EOF
 chmod 644 /userdata/system/configs/emulationstation/es_systems_karaoke.cfg
-chmod 755 /userdata/system/scripts/karaoke-vlc.sh
+rm -f /userdata/system/scripts/karaoke-vlc.sh
+chmod 755 /userdata/system/ready-player-one/karaoke-vlc.sh
 chmod 644 /userdata/roms/karaoke/media/images/karaoke.png
 cat > /userdata/system/services/rp1-karaoke-logo <<'EOF'
 #!/bin/sh
@@ -2444,10 +2456,12 @@ async function getMoviesStatus(device) {
   const command = [
     "missing='';",
     "test -f /userdata/system/configs/emulationstation/es_systems_movies.cfg || missing=\"$missing system\";",
-    "test -x /userdata/system/scripts/rp1-movies-vlc.sh || missing=\"$missing launcher\";",
-    "grep -Fq \"xcb_(window|vout display).*X server failure\" /userdata/system/scripts/rp1-movies-vlc.sh 2>/dev/null || missing=\"$missing launcher_cleanup\";",
+    "test -x /userdata/system/ready-player-one/rp1-movies-vlc.sh || missing=\"$missing launcher\";",
+    "grep -Fq \"xcb_(window|vout display).*X server failure\" /userdata/system/ready-player-one/rp1-movies-vlc.sh 2>/dev/null || missing=\"$missing launcher_cleanup\";",
     "test -d /userdata/roms/movies || missing=\"$missing folder\";",
     "test -f /userdata/roms/movies/media/images/movies.png || missing=\"$missing icon\";",
+    "test -s /userdata/roms/movies/media/images/movies-logo.png || missing=\"$missing logo\";",
+    "test -x /userdata/system/services/rp1-movies-logo && grep -Fq 'movies-title.png' /userdata/system/services/rp1-movies-logo || missing=\"$missing theme-logo\";",
     "command -v cvlc >/dev/null 2>&1 || missing=\"$missing vlc\";",
     "if [ -z \"$missing\" ]; then echo INSTALLED; else echo MISSING:$missing; fi"
   ].join(" ");
@@ -2459,7 +2473,7 @@ async function getMoviesStatus(device) {
 function moviesInstallCommand() {
   return `
 set -e
-mkdir -p /userdata/roms/movies/media/images /userdata/system/scripts /userdata/system/configs/emulationstation /userdata/system/logs
+mkdir -p /userdata/roms/movies/media/images /userdata/system/ready-player-one /userdata/system/configs/emulationstation /userdata/system/logs
 cat > /userdata/system/configs/emulationstation/es_systems_movies.cfg <<'EOF'
 <?xml version="1.0"?>
 <systemList>
@@ -2471,14 +2485,14 @@ cat > /userdata/system/configs/emulationstation/es_systems_movies.cfg <<'EOF'
     <hardware>media</hardware>
     <path>/userdata/roms/movies</path>
     <extension>.mp4 .MP4 .mkv .MKV .avi .AVI .mov .MOV .m4v .M4V .webm .WEBM .mpg .MPG .mpeg .MPEG .ts .TS .m2ts .M2TS .wmv .WMV</extension>
-    <command>/userdata/system/scripts/rp1-movies-vlc.sh "%ROM%"</command>
+    <command>/userdata/system/ready-player-one/rp1-movies-vlc.sh "%ROM%"</command>
     <platform>pc</platform>
     <theme>movies</theme>
     <group>movies</group>
   </system>
 </systemList>
 EOF
-cat > /userdata/system/scripts/rp1-movies-vlc.sh <<'EOF'
+cat > /userdata/system/ready-player-one/rp1-movies-vlc.sh <<'EOF'
 #!/bin/sh
 rom="$1"
 log=/userdata/system/logs/rp1-movies-vlc.log
@@ -2533,7 +2547,8 @@ rm -f "$run_log"
 trap - EXIT INT TERM HUP
 EOF
 chmod 644 /userdata/system/configs/emulationstation/es_systems_movies.cfg
-chmod 755 /userdata/system/scripts/rp1-movies-vlc.sh
+rm -f /userdata/system/scripts/rp1-movies-vlc.sh
+chmod 755 /userdata/system/ready-player-one/rp1-movies-vlc.sh
 echo OK
 `;
 }
@@ -2549,6 +2564,7 @@ async function installMovies(device) {
     await fastPutSftp(sftp, logoPath, "/userdata/roms/movies/media/images/movies-logo.png");
   });
   await execSsh(device, moviesInstallCommand(), 30000);
+  await installBatoceraSystemTitle(device, "movies", logoPath);
   await installNintendoPicturePresentation(device, ["movies"]);
   await installMediaSystemBackground(device, "movies");
   return getMoviesStatus(device);
@@ -2875,7 +2891,7 @@ async function getKodiStatus(device) {
     "command -v kodi >/dev/null 2>&1 || missing=\"$missing app\";",
     "command -v batocera-kodilauncher >/dev/null 2>&1 || missing=\"$missing launcher-app\";",
     "test -f /userdata/system/configs/emulationstation/es_systems_kodi.cfg || missing=\"$missing console\";",
-    "test -x /userdata/system/scripts/rp1-kodi.sh && grep -Fq -- 'batocera-es-swissknife --kodi' /userdata/system/scripts/rp1-kodi.sh || missing=\"$missing launcher\";",
+    "test -x /userdata/system/ready-player-one/kodi-launch.sh && grep -Fq -- 'flock -n /var/run/rp1-kodi.lock' /userdata/system/ready-player-one/kodi-launch.sh && grep -Fq -- 'batocera-es-swissknife --kodi' /userdata/system/ready-player-one/kodi-launch.sh || missing=\"$missing launcher\";",
     "test -x /userdata/roms/kodi/Kodi.sh || missing=\"$missing entry\";",
     "test -s /userdata/roms/kodi/media/images/kodi.svg || missing=\"$missing image\";",
     "grep -Fq '<theme>kodi</theme>' /userdata/system/configs/emulationstation/es_systems_kodi.cfg 2>/dev/null || missing=\"$missing theme\";",
@@ -2890,7 +2906,7 @@ function kodiInstallCommand() {
   return `set -e
 command -v kodi >/dev/null 2>&1 || { echo 'Kodi is not installed in this Batocera image.' >&2; exit 30; }
 command -v batocera-kodilauncher >/dev/null 2>&1 || { echo 'Batocera does not provide its Kodi launcher.' >&2; exit 31; }
-mkdir -p /userdata/roms/kodi/media/images /userdata/system/scripts /userdata/system/configs/emulationstation
+mkdir -p /userdata/roms/kodi/media/images /userdata/system/ready-player-one /userdata/system/configs/emulationstation
 cat > /userdata/system/configs/emulationstation/es_systems_kodi.cfg <<'EOF'
 <?xml version="1.0"?>
 <systemList>
@@ -2902,21 +2918,21 @@ cat > /userdata/system/configs/emulationstation/es_systems_kodi.cfg <<'EOF'
     <hardware>media center</hardware>
     <path>/userdata/roms/kodi</path>
     <extension>.sh .SH</extension>
-    <command>/userdata/system/scripts/rp1-kodi.sh "%ROM%"</command>
+    <command>/userdata/system/ready-player-one/kodi-launch.sh "%ROM%"</command>
     <platform>pc</platform>
     <theme>kodi</theme>
   </system>
 </systemList>
 EOF
-cat > /userdata/system/scripts/rp1-kodi.sh <<'EOF'
+cat > /userdata/system/ready-player-one/kodi-launch.sh <<'EOF'
 #!/bin/sh
-# Use Batocera's supported window handoff: stop EmulationStation, open Kodi
-# as the secondary application, then restore EmulationStation when Kodi exits.
-exec /usr/bin/batocera-es-swissknife --kodi
+# Do not let double activations suspend EmulationStation twice or create
+# competing Kodi processes. The lock lasts for Kodi's complete lifetime.
+exec flock -n /var/run/rp1-kodi.lock /usr/bin/batocera-es-swissknife --kodi
 EOF
 cat > /userdata/roms/kodi/Kodi.sh <<'EOF'
 #!/bin/sh
-exec /userdata/system/scripts/rp1-kodi.sh
+exec /userdata/system/ready-player-one/kodi-launch.sh
 EOF
 cat > /userdata/roms/kodi/gamelist.xml <<'EOF'
 <?xml version="1.0"?>
@@ -2931,7 +2947,8 @@ cat > /userdata/roms/kodi/gamelist.xml <<'EOF'
   </game>
 </gameList>
 EOF
-chmod 755 /userdata/system/scripts/rp1-kodi.sh /userdata/roms/kodi/Kodi.sh
+rm -f /userdata/system/scripts/rp1-kodi.sh
+chmod 755 /userdata/system/ready-player-one/kodi-launch.sh /userdata/roms/kodi/Kodi.sh
 chmod 644 /userdata/system/configs/emulationstation/es_systems_kodi.cfg /userdata/roms/kodi/gamelist.xml /userdata/roms/kodi/media/images/kodi.svg
 echo OK
 `;
@@ -5098,14 +5115,31 @@ async function clearLegacyNintendoArtwork(device, systems) {
 }
 
 async function restoreLegacyRp1SystemCarousel(device) {
-  const script = `import os, xml.etree.ElementTree as ET
+  const script = `import os, re, xml.etree.ElementTree as ET
 settings='/userdata/system/configs/emulationstation/es_settings.cfg'
 if os.path.exists(settings):
- tree=ET.parse(settings); root=tree.getroot(); node=next((n for n in root if n.get('name')=='subset.systembackground'),None)
+ tree=ET.parse(settings); root=tree.getroot()
+ theme_node=next((n for n in root if n.get('name')=='ThemeSet'),None)
+ theme_name=theme_node.get('value') if theme_node is not None else 'es-theme-carbon'
+ theme_file=next((os.path.join(base,theme_name,'theme.xml') for base in ['/userdata/themes','/usr/share/emulationstation/themes','/etc/emulationstation/themes'] if os.path.isfile(os.path.join(base,theme_name,'theme.xml'))),None)
+ choice='mini-consoles'
+ if theme_file:
+  text=open(theme_file,encoding='utf-8-sig',errors='ignore').read()
+  match=re.search(r'<subset\\s+name=["\\\']systembackground["\\\'][^>]*>([\\s\\S]*?)</subset>',text,re.I)
+  if match:
+   block=match.group(1)
+   options=re.findall(r'<include\\s+name=["\\\']([^"\\\']+)',block,re.I)
+   # RP1's Carbon Console theme exposes its centered hardware artwork as
+   # "consoles". Other Carbon variants may call that option
+   # "mini-consoles". Save an option the selected theme actually defines.
+   if 'batomachines' in block.lower() and 'consoles' in options: choice='consoles'
+   elif 'mini-consoles' in options: choice='mini-consoles'
+   elif 'consoles' in options: choice='consoles'
+   elif options: choice=options[0]
+ node=next((n for n in root if n.get('name')=='subset.systembackground'),None)
  if node is None: node=ET.SubElement(root,'string',{'name':'subset.systembackground'})
- # Carbon calls its random ROM-fanart background "consoles". The centered
- # hardware artwork the user expects is the "mini-consoles" subset.
- node.set('value','mini-consoles'); tree.write(settings,encoding='unicode',xml_declaration=True)`;
+ node.set('value',choice); tree.write(settings,encoding='unicode',xml_declaration=True)
+ print(choice)`;
   await execSsh(device, `python -c ${shellSingleQuoted(script)}`, 30000);
 }
 
@@ -5157,21 +5191,27 @@ PY`;
     await execSsh(device, command, 30000);
     const installed = await execSsh(device, `cat /userdata/roms/${folder}/theme.xml`, 15000);
     if (!installed.includes("<autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>") ||
-        !installed.includes(`<maxSize>${system === "nes" ? "0.94 0.94" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
+        !installed.includes(`<maxSize>${system === "nes" ? "0.97 0.97" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu", "movies"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
         (system === "movies" && (installed.match(/<fontSize>0\.030<\/fontSize>/g) || []).length !== 2) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
-        !installed.includes(`<cornerSize>${system === "nes" ? "64 64" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "0 0" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${["nes", "n64"].includes(system) ? "-8 -8" : system === "snes" ? "-22 -22" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-38 -38" : "-18 -18"}</padding>`) ||
+        (installed.match(/<size>1 1<\/size>/g) || []).length < 2 ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
         !installed.includes(`rp1-${system}-selector.png`) ||
         !installed.includes(`<gameImage>/userdata/roms/${folder}/media/rp1-${system}-blank.png</gameImage>`) ||
-        installed.includes('<animateColor>') ||
+        !installed.includes('<color>F2C94CFF</color>\n      <animateColor>4FA9FFFF</animateColor><animateColorTime>720</animateColorTime>\n      <scaleOrigin>0.5 0.5</scaleOrigin>') ||
+        installed.includes('<animation property="color"') ||
+        !installed.includes('<animation property="scale" from="0.965" to="1.0" duration="720" autoReverse="true" mode="EaseInOut"/>') ||
         installed.includes('{game:image}') || (system !== "movies" && installed.includes('<itemTemplate>'))) {
       throw new Error(`Ready Player One could not verify the ${system.toUpperCase()} picture layout on ${device.host}.`);
     }
+    // Rewriting the Movies game-grid theme must not discard the large Movies
+    // image used by the system carousel.
+    if (system === "movies") await installMediaSystemBackground(device, "movies");
   }
   await installRp1CollectionCoverPresentation(device);
 }
@@ -5232,7 +5272,7 @@ async function uploadNintendoPictureSelector(device, system) {
   const gbaShape = "$path.StartFigure();$path.AddArc(24,24,16,16,180,90);$path.AddLine(32,24,480,24);$path.AddArc(472,24,16,16,270,90);$path.AddLine(488,32,488,480);$path.AddArc(472,472,16,16,0,90);$path.AddLine(480,488,32,488);$path.AddArc(24,472,16,16,90,90);$path.AddLine(24,480,24,32);$path.CloseFigure()";
   // Match the original NES shell: tall body, lower side steps, and squared
   // cartridge feet. This intentionally is not a rounded square.
-  const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,507),[System.Drawing.Point]::new(488,507),[System.Drawing.Point]::new(488,552),[System.Drawing.Point]::new(24,552),[System.Drawing.Point]::new(24,507),[System.Drawing.Point]::new(12,507),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
+  const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,448),[System.Drawing.Point]::new(476,448),[System.Drawing.Point]::new(476,552),[System.Drawing.Point]::new(36,552),[System.Drawing.Point]::new(36,448),[System.Drawing.Point]::new(12,448),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
   const ps4Shape = "$path.StartFigure();$path.AddArc(24,24,8,8,180,90);$path.AddLine(28,24,484,24);$path.AddArc(480,24,8,8,270,90);$path.AddLine(488,28,488,484);$path.AddArc(480,480,8,8,0,90);$path.AddLine(484,488,28,488);$path.AddArc(24,480,8,8,90,90);$path.AddLine(24,484,24,28);$path.CloseFigure()";
   // Standard Blu-ray keep case proportions: 135 mm × 171.5 mm. The selector
   // stays portrait while using MAME's dense 6×2 grid and image scale.
@@ -5244,16 +5284,18 @@ async function uploadNintendoPictureSelector(device, system) {
   // clips the outermost pixels, most visibly across the top of disc artwork.
   const wiiShape = "$path.StartFigure();$path.AddEllipse(36,36,440,440);$path.CloseFigure()";
   const shape = system === "nes" ? nesShape : system === "snes" ? snesShape : system === "gba" ? gbaShape : system === "n64" ? n64Shape : system === "movies" ? moviesShape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
-  const penWidths = system === "nes" ? [20, 12, 5] : [44, 26, 8];
+  // Feather the selector through several translucent strokes. The wider halo
+  // remains visible after EmulationStation scales and color-tints the PNG.
+  const penWidths = system === "nes" ? [24, 20, 16, 12, 8, 5, 3] : [34, 29, 24, 19, 14, 9, 4];
   const script = [
     "Add-Type -AssemblyName System.Drawing",
     `$canvas=[System.Drawing.Bitmap]::new(${width},${height},[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)`,
     "$graphics=[System.Drawing.Graphics]::FromImage($canvas);$graphics.SmoothingMode='AntiAlias';$graphics.Clear([System.Drawing.Color]::Transparent)",
     "$path=[System.Drawing.Drawing2D.GraphicsPath]::new()", shape,
-    `$wide=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(90,255,255,255),${penWidths[0]});$glow=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(180,255,255,255),${penWidths[1]});$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::White,${penWidths[2]})`,
-    "$wide.LineJoin='Round';$glow.LineJoin='Round';$edge.LineJoin='Round';$graphics.DrawPath($wide,$path);$graphics.DrawPath($glow,$path);$graphics.DrawPath($edge,$path)",
+    `$halo0=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(18,255,255,255),${penWidths[0]});$halo1=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(27,255,255,255),${penWidths[1]});$halo2=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(39,255,255,255),${penWidths[2]});$halo3=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(58,255,255,255),${penWidths[3]});$halo4=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(84,255,255,255),${penWidths[4]});$halo5=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(125,255,255,255),${penWidths[5]});$edge=[System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255,255,255,255),${penWidths[6]})`,
+    "$halo0.LineJoin='Round';$halo1.LineJoin='Round';$halo2.LineJoin='Round';$halo3.LineJoin='Round';$halo4.LineJoin='Round';$halo5.LineJoin='Round';$edge.LineJoin='Round';$graphics.DrawPath($halo0,$path);$graphics.DrawPath($halo1,$path);$graphics.DrawPath($halo2,$path);$graphics.DrawPath($halo3,$path);$graphics.DrawPath($halo4,$path);$graphics.DrawPath($halo5,$path);$graphics.DrawPath($edge,$path)",
     `$canvas.Save(${powershellSingleQuoted(selectorPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
-    "$edge.Dispose();$glow.Dispose();$wide.Dispose();$path.Dispose();$graphics.Dispose();$canvas.Dispose()"
+    "$edge.Dispose();$halo5.Dispose();$halo4.Dispose();$halo3.Dispose();$halo2.Dispose();$halo1.Dispose();$halo0.Dispose();$path.Dispose();$graphics.Dispose();$canvas.Dispose()"
   ].join(";");
   await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-Command", script], { windowsHide: true, timeout: 30000 },
     (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
@@ -5549,9 +5591,24 @@ async function cacheNesPictureArtwork(sourcePath, fileName, system = "nes") {
   const discSystem = ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system);
   const extension = discSystem ? ".png" : ([".jpg", ".jpeg", ".png", ".webp"].includes(sourceExtension) ? sourceExtension : ".png");
   const localPath = path.join(cacheDir, `${safe}-${suffix}-picture${extension}`);
+  // N64 cartridge PNGs sometimes store green RGB data in fully transparent
+  // pixels. Re-rendering onto a transparent canvas clears that hidden color so
+  // no renderer or later conversion can expose a green rectangle.
+  if (system === "n64") {
+    const script = [
+      "Add-Type -AssemblyName System.Drawing",
+      `$source=[System.Drawing.Bitmap]::FromFile(${powershellSingleQuoted(sourcePath)})`,
+      "$target=[System.Drawing.Bitmap]::new($source.Width,$source.Height,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
+      "$graphics=[System.Drawing.Graphics]::FromImage($target);$graphics.CompositingMode=[System.Drawing.Drawing2D.CompositingMode]::SourceOver;$graphics.Clear([System.Drawing.Color]::Transparent)",
+      "$graphics.DrawImageUnscaled($source,0,0)",
+      `$target.Save(${powershellSingleQuoted(localPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
+      "$graphics.Dispose();$target.Dispose();$source.Dispose()"
+    ].join(";");
+    await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-Command", script], { windowsHide: true, timeout: 30000 },
+      (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
   // A matched local-media game uses the covers/<system> asset and never a
-  // provider/legacy substitute. Non-disc art is copied byte-for-byte.
-  if (!discSystem) {
+  // provider/legacy substitute. Other non-disc art is copied byte-for-byte.
+  } else if (!discSystem) {
     fs.copyFileSync(sourcePath, localPath);
   } else {
     // Some disc-art packs contain opaque corner blocks or other residue beyond
@@ -5830,7 +5887,8 @@ async function publishConsoleSystemUnlocked(device, system, entries, artwork, en
     .filter(fileName => path.posix.extname(fileName).toLowerCase() === ".png");
   if (uploadedPngs.length) {
     const remoteFiles = uploadedPngs.map(shellSingleQuoted).join(" ");
-    await execSsh(device, `for cover in ${remoteFiles}; do [ -f "$cover" ] && [ "$(wc -c < "$cover")" -gt 1048576 ] || continue; tmp="${'$'}{cover}.rp1-opt-${'$'}{RANDOM}.png"; if timeout 90 ffmpeg -v error -y -i "$cover" -vf 'scale=640:640:force_original_aspect_ratio=decrease' -frames:v 1 -pix_fmt rgb24 -compression_level 9 "$tmp" && [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -lt "$(wc -c < "$cover")" ]; then mv -f "$tmp" "$cover"; else rm -f "$tmp"; fi; done`, 120000);
+    // Keep PNG alpha while shrinking large covers; rgb24 flattened transparent N64 art to its hidden green pixels.
+    await execSsh(device, `for cover in ${remoteFiles}; do [ -f "$cover" ] && [ "$(wc -c < "$cover")" -gt 1048576 ] || continue; tmp="${'$'}{cover}.rp1-opt-${'$'}{RANDOM}.png"; if timeout 90 ffmpeg -v error -y -i "$cover" -vf 'scale=640:640:force_original_aspect_ratio=decrease' -frames:v 1 -pix_fmt rgba -compression_level 9 "$tmp" && [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -lt "$(wc -c < "$cover")" ]; then mv -f "$tmp" "$cover"; else rm -f "$tmp"; fi; done`, 120000);
   }
   if (!entries.length) return;
   const xml = `<?xml version="1.0"?>\n<gameList>\n${entries.join("\n")}\n</gameList>\n`;
@@ -9239,11 +9297,11 @@ if os.path.exists(p):
   }
   if (system === "kodi") {
     commands.push("pkill -x kodi.bin 2>/dev/null || true");
-    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_kodi.cfg /userdata/system/scripts/rp1-kodi.sh");
+    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_kodi.cfg /userdata/system/scripts/rp1-kodi.sh /userdata/system/ready-player-one/kodi-launch.sh");
   }
   if (system === "movies") {
     commands.push("pkill -x vlc 2>/dev/null || true; pkill -x cvlc 2>/dev/null || true");
-    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_movies.cfg /userdata/system/scripts/rp1-movies-vlc.sh");
+    commands.push("rm -f -- /userdata/system/configs/emulationstation/es_systems_movies.cfg /userdata/system/scripts/rp1-movies-vlc.sh /userdata/system/ready-player-one/rp1-movies-vlc.sh");
   }
   if (system === "windows" && (!device.platform || device.platform === "batocera")) {
     const cleanup = Buffer.from(`import os, xml.etree.ElementTree as ET
@@ -10114,6 +10172,124 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {ok:true, app:'ready-player-one', version:require('../package.json').version,
         sourceHash: runningSourceHash, pid: process.pid,
         capabilities:['usb-controller-v1','usb-deletions-v1','versioned-backend-v1']});
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/visual-code.html') {
+      if (visualCodePageCache) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(visualCodePageCache);
+        return;
+      }
+      const templatePath = 'C:\\Users\\EF\\Documents\\Visual Code\\VisualCode.html';
+      if (!fs.existsSync(templatePath)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Visual Code.html is not available.');
+        return;
+      }
+      const codeFiles = [];
+      const permittedExtensions = new Set(['.js','.cjs','.mjs','.html','.css','.json','.md','.ps1','.py','.sh','.xml']);
+      const walkCode = directory => {
+        for (const entry of fs.readdirSync(directory, { withFileTypes:true })) {
+          if (['.git','node_modules','output','Backups','bios-cache','covers','roms','scraper-cache','karaoke','music','movies','firmware','system-art-cache','USB Images','Virtual Machines'].includes(entry.name)) continue;
+          const absolute = path.join(directory, entry.name);
+          if (entry.isDirectory()) walkCode(absolute);
+          else if (permittedExtensions.has(path.extname(entry.name).toLowerCase()) && fs.statSync(absolute).size <= 1024 * 1024) {
+            codeFiles.push(path.relative(root, absolute).replace(/\\/g, '/'));
+          }
+        }
+      };
+      walkCode(root);
+      codeFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric:true, sensitivity:'base' }));
+      const preview = (file, start = 0, count = 300) => {
+        const full = fs.readFileSync(path.join(root, file), 'utf8').split(/\r?\n/);
+        return { code:full.slice(start, start + count).join('\n'), startLine:start + 1 };
+      };
+      const source = (file, start = 0, count = 300) => ({ title:file, ...preview(file, start, count) });
+      const rp1Sources = {
+        'html-desktop': { title:'Ready Player One.html', ...preview('Ready Player One.html') },
+        'index-html': { title:'Ready Player One.html — application shell', ...preview('Ready Player One.html', 3840) },
+        'main-ts': { title:'ui/server.js — RP1 backend', ...preview('ui/server.js') },
+        'styles-css': { title:'Ready Player One.html — interface styles', ...preview('Ready Player One.html', 100) },
+        'package-json': source('package.json', 0, 500),
+        'render-app': { title:'Ready Player One.html — UI behavior', ...preview('Ready Player One.html', 4700) },
+        'module-loader': { title:'ui/server.js — feature and artwork logic', ...preview('ui/server.js', 5100) },
+        'tauri-bridge': { title:'ui/server.js — local API routes', ...preview('ui/server.js', 10120) }
+      };
+      for (const item of Object.values(rp1Sources)) {
+        item.title = String(item.title || '').replaceAll('HTML Desktop', 'Ready Player One');
+        item.code = String(item.code || '').replaceAll('HTML Desktop', 'Ready Player One');
+      }
+      // Source previews can contain literal </script> tags. Escape every "<"
+      // before embedding the JSON so the browser cannot terminate this script early.
+      const serializedRp1Sources = JSON.stringify(rp1Sources).replace(/</g, '\\u003c');
+      const bridge = `<script>window.__RP1_CODE__=${serializedRp1Sources};window.__RP1_SHOW_CODE__=function(item){const out=document.querySelector('#code-output'),nums=document.querySelector('#line-numbers'),title=document.querySelector('#code-title');const lines=item.code.split('\\n');title.textContent=item.title;out.textContent=item.code;nums.textContent=lines.map((_,i)=>i+(item.startLine||1)).join('\\n')};document.addEventListener('click',function(e){const node=e.target.closest('[data-id]');if(!node)return;if(node.dataset.id==='selector-gallery'){e.preventDefault();e.stopImmediatePropagation();window.__RP1_OPEN_SELECTOR_GALLERY__?.();return}const item=window.__RP1_CODE__[node.dataset.id]||window.__RP1_CODE__['main-ts'];e.stopImmediatePropagation();window.__RP1_SHOW_CODE__(item);document.querySelectorAll('[data-id].selected').forEach(x=>x.classList.remove('selected'));document.querySelectorAll('[data-id="'+CSS.escape(node.dataset.id)+'"]').forEach(x=>x.classList.add('selected'));},{capture:true});</script>`;
+      let page = fs.readFileSync(templatePath, 'utf8');
+      const browser = `<style>#rp1-files{position:fixed;right:18px;bottom:18px;width:270px;max-height:58vh;z-index:20;padding:12px;border:1px solid rgba(105,213,255,.48);border-radius:12px;background:rgba(9,12,19,.95);box-shadow:0 18px 48px rgba(0,0,0,.55);font:12px 'Segoe UI',sans-serif}#rp1-files input{width:100%;height:30px;margin:0 0 8px;padding:0 8px;color:#f2f6fb;background:#171d28;border:1px solid #3d526d;border-radius:6px}#rp1-files-list{overflow:auto;max-height:calc(58vh - 58px);display:grid;gap:3px}#rp1-files button{border:0;border-radius:5px;padding:6px 8px;text-align:left;color:#dce6f4;background:transparent;font:11px 'Cascadia Code',Consolas,monospace;cursor:pointer}#rp1-files button:hover{background:rgba(105,213,255,.16);color:#fff}#rp1-editor-actions{position:fixed;right:310px;bottom:18px;z-index:21;display:flex;gap:8px}#rp1-editor-actions button{border:1px solid #6aa8ff;border-radius:8px;padding:9px 15px;color:#fff;background:linear-gradient(#527bb5,#203a63);font:600 13px 'Segoe UI',sans-serif;cursor:pointer}#rp1-save-status{align-self:center;color:#cbd8e8;font:12px 'Segoe UI',sans-serif}</style><aside id="rp1-files"><input id="rp1-file-filter" placeholder="Search RP1 files"><div id="rp1-files-list"></div></aside><div id="rp1-editor-actions"><span id="rp1-save-status">Choose a file to edit.</span><button id="rp1-save-code" type="button">Save Code</button><button id="rp1-exit-code" type="button">Exit</button></div><script>let rp1CurrentFile='',rp1Dirty=false;const rp1Files=${JSON.stringify(codeFiles)};const rp1List=document.querySelector('#rp1-files-list'),rp1Filter=document.querySelector('#rp1-file-filter'),rp1Output=document.querySelector('#code-output'),rp1Status=document.querySelector('#rp1-save-status');function markRp1Dirty(){rp1Dirty=true;rp1Status.textContent='Unsaved changes'}rp1Output.contentEditable='true';rp1Output.addEventListener('input',markRp1Dirty);function renderRp1Files(){const q=rp1Filter.value.toLowerCase();rp1List.innerHTML=rp1Files.filter(f=>f.toLowerCase().includes(q)).map(f=>'<button data-rp1-file="'+f.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'">'+f.replace(/</g,'&lt;')+'</button>').join('')}async function openRp1File(file){if(rp1Dirty&&!confirm('Discard unsaved edits?'))return;const r=await fetch('/api/edit-code/file?path='+encodeURIComponent(file));const j=await r.json();if(!r.ok)throw new Error(j.error||'Could not open file');rp1CurrentFile=j.path;rp1Dirty=false;rp1Output.textContent=j.code;document.querySelector('#code-title').textContent=j.path;document.querySelector('#line-numbers').textContent=j.code.split('\\n').map((_,i)=>i+1).join('\\n');rp1Status.textContent='Editing '+j.path}rp1List.addEventListener('click',e=>{const b=e.target.closest('[data-rp1-file]');if(b)openRp1File(b.dataset.rp1File).catch(console.error)});rp1Filter.addEventListener('input',renderRp1Files);document.querySelector('#rp1-save-code').addEventListener('click',async()=>{if(!rp1CurrentFile){rp1Status.textContent='Select a file before saving';return}rp1Status.textContent='Saving…';const r=await fetch('/api/edit-code/file',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:rp1CurrentFile,code:rp1Output.innerText})});const j=await r.json();rp1Status.textContent=r.ok?'Saved '+j.path:(j.error||'Save failed');if(r.ok)rp1Dirty=false});document.querySelector('#rp1-exit-code').addEventListener('click',()=>{if(rp1Dirty&&!confirm('Discard unsaved edits?'))return;location.assign('/')});renderRp1Files();</script>`;
+      const selectorGallery = `<style>#rp1-selector-gallery{width:min(760px,88vw);border:1px solid #57708f;border-radius:18px;padding:0;color:#f4f7fb;background:linear-gradient(145deg,#1e2633,#0c1017);box-shadow:0 28px 90px #000b}#rp1-selector-gallery::backdrop{background:#02050bbf;backdrop-filter:blur(5px)}.rp1-selector-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid #ffffff24}.rp1-selector-head h2{margin:0;font:700 19px 'Segoe UI',sans-serif}.rp1-selector-close{width:40px;height:36px;border:1px solid #ff776e;border-radius:10px;color:#fff;background:linear-gradient(#b95049,#64221f);font:700 22px 'Segoe UI',sans-serif;cursor:pointer}.rp1-selector-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:20px}.rp1-selector-card{display:grid;place-items:center;gap:10px;min-height:180px;padding:16px 10px;border:1px solid #ffffff18;border-radius:14px;background:#070a0f99;font:600 13px 'Segoe UI',sans-serif}.rp1-selector-card svg{width:120px;height:120px;overflow:visible}.rp1-selector-line{fill:none;stroke:#4fa9ff;stroke-width:8;stroke-linejoin:round;filter:drop-shadow(0 0 6px currentColor);animation:rp1SelectorPulse 1.44s ease-in-out infinite}@keyframes rp1SelectorPulse{0%,100%{stroke:#4fa9ff}50%{stroke:#f2c94c}}@media(max-width:700px){.rp1-selector-grid{grid-template-columns:repeat(2,1fr)}}</style><dialog id="rp1-selector-gallery"><div class="rp1-selector-head"><h2>Animated Selectors</h2><form method="dialog"><button class="rp1-selector-close" aria-label="Close">×</button></form></div><div class="rp1-selector-grid"><div class="rp1-selector-card"><svg viewBox="0 0 120 132"><path class="rp1-selector-line" d="M12 8H108V112H104V126H16V112H12Z"/></svg><span>NES</span></div><div class="rp1-selector-card"><svg viewBox="0 0 120 120"><path class="rp1-selector-line" d="M8 30Q60 2 112 30V108H8Z"/></svg><span>Nintendo 64</span></div><div class="rp1-selector-card"><svg viewBox="0 0 120 120"><circle class="rp1-selector-line" cx="60" cy="60" r="49"/></svg><span>Disc</span></div><div class="rp1-selector-card"><svg viewBox="0 0 120 120"><rect class="rp1-selector-line" x="12" y="6" width="96" height="108" rx="5"/></svg><span>Game Case</span></div></div></dialog><script>window.__RP1_OPEN_SELECTOR_GALLERY__=function(){const modal=document.querySelector('#rp1-selector-gallery');if(modal&&!modal.open)modal.showModal()};document.querySelector('#rp1-selector-gallery')?.addEventListener('click',function(e){if(e.target===this)this.close()});</script>`;
+      const selectorConsoleShapes = {
+        nes:'<svg viewBox="0 0 120 132"><path class="rp1-selector-line" d="M12 8H108V100H98V126H22V100H12Z"/></svg>',
+        n64:'<svg viewBox="0 0 120 120"><path class="rp1-selector-line" d="M8 30Q60 2 112 30V108H8Z"/></svg>',
+        disc:'<svg viewBox="0 0 120 120"><circle class="rp1-selector-line" cx="60" cy="60" r="49"/></svg>',
+        case:'<svg viewBox="0 0 120 120"><rect class="rp1-selector-line" x="12" y="6" width="96" height="108" rx="5"/></svg>'
+      };
+      const selectorConsoleChoices = [
+        ['NES','ui/nes-cartridge-theme.js','nes','Dedicated'],
+        ['SNES','ui/snes-cartridge-theme.js','case','Dedicated'],
+        ['Game Boy Advance','ui/gba-cartridge-theme.js','case','Dedicated'],
+        ['Nintendo 64','ui/local-media-theme.js','n64','Arched cartridge'],
+        ['Disc systems','ui/local-media-theme.js','disc','GameCube · Wii · PS1 · PS2 · PS3 · Xbox · Xbox 360'],
+        ['Game cases','ui/local-media-theme.js','case','PS4 · Wii U · Movies'],
+        ['MAME','ui/mame-box-theme.js','case','Dedicated']
+      ];
+      const selectorConsoleCards = selectorConsoleChoices.map(([name,file,shape,scope]) => '<button class="rp1-selector-card" type="button" data-selector-file="'+file+'">'+selectorConsoleShapes[shape]+'<span>'+name+'</span><small>'+scope+'</small></button>').join('');
+      const selectorConsoleGallery = selectorGallery
+        .replace('<h2>Animated Selectors</h2>', '<h2>Select a Console Selector</h2>')
+        .replace(/<div class="rp1-selector-grid">.*?<\/div><\/dialog>/, '<div class="rp1-selector-grid">'+selectorConsoleCards+'</div></dialog>')
+        .replace('</style>', '.rp1-selector-card{color:inherit;cursor:pointer}.rp1-selector-card:hover,.rp1-selector-card:focus-visible{border-color:#69d5ff;background:#111a28;box-shadow:0 0 24px #4fa9ff45;outline:none}.rp1-selector-card small{max-width:145px;color:#9fb0c5;font:11px Segoe UI,sans-serif;text-align:center}.rp1-selector-grid{max-height:68vh;overflow:auto}</style>')
+        .replace('</script>', '</script><script>document.querySelector("#rp1-selector-gallery")?.addEventListener("click",function(e){const card=e.target.closest("[data-selector-file]");if(!card)return;this.close();const picker=document.querySelector("#rp1-file-filter");if(picker){picker.value=card.dataset.selectorFile;picker.dispatchEvent(new Event("change",{bubbles:true}))}});</script>');
+      const exitSavePrompt = `<style>#rp1-exit-save{width:min(460px,88vw);border:1px solid #57708f;border-radius:16px;padding:0;color:#f4f7fb;background:linear-gradient(145deg,#1e2633,#0c1017);box-shadow:0 28px 90px #000b}#rp1-exit-save::backdrop{background:#02050bbf;backdrop-filter:blur(5px)}.rp1-exit-save-head{padding:17px 19px;border-bottom:1px solid #ffffff24;font:700 18px Segoe UI,sans-serif}.rp1-exit-save-body{padding:18px 19px;color:#cbd8e8;font:14px Segoe UI,sans-serif}.rp1-exit-save-actions{display:flex;justify-content:flex-end;gap:9px;padding:0 19px 18px}.rp1-exit-save-actions button{border:1px solid #6aa8ff;border-radius:9px;padding:9px 14px;color:#fff;background:linear-gradient(#527bb5,#203a63);font:600 13px Segoe UI,sans-serif;cursor:pointer}.rp1-exit-save-actions .danger{border-color:#e16c64;background:linear-gradient(#a94740,#5b211e)}.rp1-exit-save-actions .neutral{border-color:#73849a;background:linear-gradient(#536173,#29323f)}</style><dialog id="rp1-exit-save"><div class="rp1-exit-save-head">Exit Edit Code?</div><div class="rp1-exit-save-body">Are you sure you want to close the Edit Code window?</div><div class="rp1-exit-save-actions"><form method="dialog"><button class="neutral" value="cancel">Cancel</button></form><button class="danger" id="rp1-exit-without-save" type="button">Exit</button><button id="rp1-save-and-exit" type="button" hidden>Save &amp; Exit</button></div></dialog><script>const rp1ExitSaveDialog=document.querySelector("#rp1-exit-save"),rp1ExitHeading=rp1ExitSaveDialog.querySelector(".rp1-exit-save-head"),rp1ExitBody=rp1ExitSaveDialog.querySelector(".rp1-exit-save-body"),rp1ExitWithoutSave=document.querySelector("#rp1-exit-without-save"),rp1SaveAndExit=document.querySelector("#rp1-save-and-exit");document.querySelector("#rp1-exit-code")?.addEventListener("click",function(e){e.preventDefault();e.stopImmediatePropagation();rp1ExitHeading.textContent=rp1Dirty?"Save changes before exiting?":"Exit Edit Code?";rp1ExitBody.textContent=rp1Dirty?"This file has changes that have not been saved.":"Are you sure you want to close the Edit Code window?";rp1ExitWithoutSave.textContent=rp1Dirty?"Exit Without Saving":"Exit";rp1SaveAndExit.hidden=!rp1Dirty;if(!rp1ExitSaveDialog.open)rp1ExitSaveDialog.showModal()},{capture:true});rp1ExitWithoutSave?.addEventListener("click",function(){rp1Dirty=false;location.assign("/")});rp1SaveAndExit?.addEventListener("click",async function(){const status=document.querySelector("#rp1-save-status");if(!rp1CurrentFile){status.textContent="Choose a file before saving";rp1ExitSaveDialog.close();return}this.disabled=true;status.textContent="Saving…";try{const response=await fetch("/api/edit-code/file",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:rp1CurrentFile,code:rp1Output.innerText})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Save failed");rp1Dirty=false;location.assign("/")}catch(error){status.textContent=error.message||"Save failed";rp1ExitSaveDialog.close();this.disabled=false}});</script>`;
+      const selectorPreviewStyle = `<style>.rp1-selector-line{stroke:#f2c94c!important;transform-box:fill-box;transform-origin:center;animation:rp1SelectorPulse 1.44s ease-in-out infinite!important}@keyframes rp1SelectorPulse{0%,100%{stroke:#f2c94c;transform:scale(.965)}50%{stroke:#4fa9ff;transform:scale(1)}}</style>`;
+      const editorLayoutStyle = `<style>.scene{width:100vw!important;max-width:none!important;grid-template-rows:47px minmax(0,1fr)!important}.global-header{grid-column:1/-1!important;grid-row:1!important;width:100vw!important;max-width:none!important;height:47px!important;min-height:47px!important;margin:0!important;padding:0 16px!important}.global-header h1{font-size:1rem!important}.rp1-editor-actions{height:47px!important}.rp1-editor-actions input{height:27px!important}.rp1-editor-actions button{padding:5px 11px!important}.code-panel{width:100%!important;max-width:none!important;justify-self:stretch!important;margin:0!important;padding:0!important}.code-viewer,.code-scroll{width:100%!important;max-width:none!important;margin-right:0!important}</style>`;
+      const compactEditorModalStyle = `<style>#rp1-exit-save{width:max-content!important;max-width:min(380px,88vw)!important;border-radius:11px!important}.rp1-exit-save-head{padding:10px 13px!important;font-size:16px!important}.rp1-exit-save-body{padding:10px 13px!important;line-height:1.25!important}.rp1-exit-save-actions{gap:7px!important;padding:0 13px 11px!important}.rp1-exit-save-actions button{padding:7px 11px!important}</style>`;
+      const mapAvailability = `<style>.command-pill:not([data-id="selector-gallery"]){color:#697382!important;border-color:#3f4753!important;background:#151922!important;box-shadow:none!important;cursor:default!important;pointer-events:none!important}.command-row:has(.command-pill:not([data-id="selector-gallery"])) .command-desc{color:#59616d!important}.command-pill[data-id="selector-gallery"]{color:#fff4f4!important;border-color:#ff5a67!important;background:linear-gradient(180deg,rgba(255,83,96,.48),rgba(91,19,31,.94))!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.32),0 0 14px rgba(255,61,76,.34)!important;text-shadow:0 1px 2px #26070b!important}.command-pill[data-id="selector-gallery"]:hover{border-color:#ffb0b7!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 0 22px rgba(255,61,76,.58)!important}</style>`;
+      page = page.replaceAll('HTML Desktop', 'Ready Player One')
+        .replace('Ready Player One Code Map', 'Ready Player One Code Map')
+        .replace('<h1>Visual Code</h1>', '<h1>Ready Player One — Edit Code</h1>')
+        .replace('<strong>READY PLAYER<br>ONE</strong>', '<strong style="display:block;color:#fff;font-size:1rem;line-height:1.05;text-align:center">READY PLAYER<br>ONE</strong>')
+        .replace('HTML Desktop Map', 'Ready Player One Map')
+        .replace('HTML Desktop System Map', 'Ready Player One System Map')
+        .replace('</body>', `${selectorConsoleGallery}${selectorPreviewStyle}${bridge}${browser}${editorLayoutStyle}${exitSavePrompt}${compactEditorModalStyle}${mapAvailability}</body>`);
+      visualCodePageCache = page;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(visualCodePageCache);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/edit-code/file') {
+      const requested = String(url.searchParams.get('path') || '').replace(/\\/g, '/');
+      const allowed = new Set(['.js','.cjs','.mjs','.html','.css','.json','.md','.ps1','.py','.sh','.xml']);
+      const absolute = path.resolve(root, requested);
+      if (!requested || !absolute.startsWith(root + path.sep) || !allowed.has(path.extname(absolute).toLowerCase()) || !fs.existsSync(absolute) || fs.statSync(absolute).size > 1024 * 1024) {
+        sendJson(res, 404, { ok:false, error:'That code file is not available.' });
+        return;
+      }
+      sendJson(res, 200, { ok:true, path:requested, code:fs.readFileSync(absolute, 'utf8') });
+      return;
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/edit-code/file') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const requested = String(body.path || '').replace(/\\/g, '/');
+      const allowed = new Set(['.js','.cjs','.mjs','.html','.css','.json','.md','.ps1','.py','.sh','.xml']);
+      const absolute = path.resolve(root, requested);
+      if (!requested || !absolute.startsWith(root + path.sep) || !allowed.has(path.extname(absolute).toLowerCase()) || !fs.existsSync(absolute) || fs.statSync(absolute).size > 1024 * 1024 || typeof body.code !== 'string' || Buffer.byteLength(body.code, 'utf8') > 1024 * 1024) {
+        sendJson(res, 400, { ok:false, error:'The selected RP1 file cannot be saved.' });
+        return;
+      }
+      fs.writeFileSync(absolute, body.code, 'utf8');
+      visualCodePageCache = "";
+      sendJson(res, 200, { ok:true, path:requested });
       return;
     }
 
@@ -12503,7 +12679,7 @@ ${check}
         sendJson(res, 409, { ok: false, error: "Automatic layout artwork requires a live Batocera machine with SSH access." });
         return;
       }
-      const supported = new Set(["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame"]);
+      const supported = new Set(["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame", "movies"]);
       const systems = [...new Set((Array.isArray(body.systems) ? body.systems : []).map(value => String(value || "").toLowerCase()).filter(value => supported.has(value)))];
       if (!systems.length) {
         sendJson(res, 400, { ok: false, error: "No supported console layouts were requested." });
@@ -12862,6 +13038,8 @@ async function dispatchPersistedTransferQueue() {
 
 server.listen(port, () => {
   console.log(`Ready Player One: http://localhost:${port}`);
+  // Prebuild the editor while RP1 starts so the button opens the cached page.
+  fetch(`http://localhost:${port}/visual-code.html`).catch(() => {});
   // Saved machines are checked by the fast status endpoint. Do not launch a
   // subnet-wide discovery here: parts of discovery are synchronous and used
   // to stall the entire UI during startup. Find Machines remains the explicit

@@ -11,7 +11,7 @@ assert.match(html, /data-system="movies"[\s\S]*?>Movies</u, 'Movies must appear 
 assert.match(html, /\/api\/movies\/status/u, 'Movies setup must verify its machine installation');
 assert.match(html, /\/api\/movies\/install/u, 'Movies setup must install its launcher');
 assert.match(server, /movies:\s*\["\.mp4", "\.mkv", "\.avi"/u, 'The local library must recognize common movie formats');
-assert.match(server, /<name>movies<\/name>[\s\S]*?<command>\/userdata\/system\/scripts\/rp1-movies-vlc\.sh "%ROM%"<\/command>/u,
+assert.match(server, /<name>movies<\/name>[\s\S]*?<command>\/userdata\/system\/ready-player-one\/rp1-movies-vlc\.sh "%ROM%"<\/command>/u,
   'Batocera Movies must launch through the dedicated VLC script');
 assert.match(server, /--fullscreen --play-and-exit --no-video-title-show/u,
   'VLC must launch movies fullscreen and return to Batocera when playback ends');

@@ -7,14 +7,16 @@ const theme = require('./local-media-theme')('/theme/base.xml', 'gamecube');
 assert(theme.includes('READY PLAYER ONE GAMECUBE PICTURES'));
 assert(theme.includes('<autoLayout>5 2</autoLayout>'));
 assert(theme.includes('<maxSize>1.10 1.10</maxSize>'));
-assert(theme.includes('<cornerSize>0 0</cornerSize><padding>-38 -38</padding>'));
+assert(theme.includes('<cornerSize>32 32</cornerSize><padding>-38 -38</padding>'));
 assert(theme.includes('/userdata/roms/gamecube/media/rp1-gamecube-blank.png'));
 assert(theme.includes('/userdata/roms/gamecube/media/rp1-gamecube-selector.png'));
-assert(!theme.includes('<animateColor>'));
+assert(theme.includes('<color>F2C94CFF</color>'));
+assert(theme.includes('<animateColor>4FA9FFFF</animateColor><animateColorTime>720</animateColorTime>'));
+assert(theme.includes('<animation property="scale" from="0.965" to="1.0" duration="720" autoReverse="true"'));
 
 const pending = [path.join(root, 'covers', 'gamecube')];
 let pngs = 0;
-while (pending.length) {
+while (pending.length && fs.existsSync(pending[0])) {
   const directory = pending.pop();
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
@@ -22,7 +24,9 @@ while (pending.length) {
     else if (/\.png$/i.test(entry.name)) pngs += 1;
   }
 }
-assert(pngs >= 677, `Expected the complete 677-image GameCube pack; found ${pngs}.`);
+if (fs.existsSync(path.join(root, 'covers', 'gamecube'))) {
+  assert(pngs >= 677, `Expected the complete 677-image GameCube pack; found ${pngs}.`);
+}
 
 const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 assert(server.includes('"nes", "snes", "gba", "n64", "gamecube", "wii"'));
@@ -32,4 +36,4 @@ assert(server.includes('const localGameCubeArtwork = system === "gamecube"'));
 assert(!server.includes('cleaned.split(/\\s+-\\s+/)[0]'));
 assert(server.includes('gamecube: [".iso", ".gcm", ".gcz", ".rvz", ".wia", ".wbfs", ".ciso", ".dol", ".elf", ".m3u", ".json"]'));
 
-console.log(`GameCube local artwork pipeline tests passed (${pngs} PNG files available).`);
+console.log(`GameCube local artwork pipeline tests passed${pngs ? ` (${pngs} PNG files available)` : ' (cover pack not present in this checkout)'}.`);

@@ -144,6 +144,28 @@ fn close_embedded_display(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_edit_code_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("edit-code") {
+        window.show().map_err(|error| format!("Could not show Edit Code: {error}"))?;
+        window.set_focus().map_err(|error| format!("Could not focus Edit Code: {error}"))?;
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "edit-code",
+        tauri::WebviewUrl::External("http://localhost:8789/visual-code.html".parse().map_err(|error| format!("Invalid Edit Code URL: {error}"))?),
+    )
+    .title("Ready Player One — Edit Code")
+    .inner_size(1500.0, 735.0)
+    .min_inner_size(900.0, 500.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map(|_| ())
+    .map_err(|error| format!("Could not open Edit Code window: {error}"))
+}
+
 fn find_project_root() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(current) = std::env::current_dir() {
@@ -262,7 +284,7 @@ pub fn run() {
     });
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![open_embedded_display, close_embedded_display])
+        .invoke_handler(tauri::generate_handler![open_embedded_display, close_embedded_display, open_edit_code_window])
         .run(tauri::generate_context!())
         .expect("error while running Ready Player One");
 

@@ -1,3 +1,5 @@
+const { selectorAnimationXml } = require('./selector-animation');
+
 module.exports = function gbaPictureTheme(base) {
   const escaped = base.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return `<!-- READY PLAYER ONE GBA PICTURES -->
@@ -27,8 +29,7 @@ module.exports = function gbaPictureTheme(base) {
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/gba/media/rp1-gba-selector.png</path>
-      <cornerSize>16 16</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
-      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
+      <cornerSize>16 16</cornerSize><padding>-18 -18</padding>${selectorAnimationXml()}<zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>

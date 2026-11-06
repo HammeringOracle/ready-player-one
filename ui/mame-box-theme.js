@@ -1,3 +1,5 @@
+const { selectorAnimationXml } = require('./selector-animation');
+
 module.exports = function mameBoxTheme(base) {
   const escaped = base.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return `<!-- READY PLAYER ONE MAME 3D BOXES -->
@@ -27,8 +29,7 @@ module.exports = function mameBoxTheme(base) {
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/mame/media/rp1-mame-selector.png</path>
-      <cornerSize>32 32</cornerSize><padding>-18 -18</padding><color>4FA9FFFF</color>
-      <animateColorTime>0</animateColorTime><zIndex>100</zIndex>
+      <cornerSize>32 32</cornerSize><padding>-18 -18</padding>${selectorAnimationXml()}<zIndex>100</zIndex>
     </ninepatch>
   </customView>
 </theme>
