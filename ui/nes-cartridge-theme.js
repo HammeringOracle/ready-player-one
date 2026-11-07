@@ -32,7 +32,7 @@ module.exports = function nesPictureTheme(base) {
     </gridtile>
     <image name="gridtile.image">
       <!-- Fill more of the selector while preserving the complete cartridge. -->
-      <maxSize>0.97 0.97</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
+      <maxSize>1.03 1.03</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex>
     </image>
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/nes/media/rp1-nes-selector.png</path>

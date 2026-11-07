@@ -8,16 +8,18 @@ module.exports = function localMediaTheme(base, system) {
   const isMovies = system === 'movies';
   // Every optical-disc system uses the exact same visible disc dimensions.
   // This keeps Wii aligned with PSX/PS2/PS3 in the shared 5x2 layout.
-  const imageSize = isDisc ? '1.10 1.10' : isMovies || system === 'wiiu' ? '1.08 1.08' : system === 'ps4' ? '0.98 0.98' : '0.95 0.95';
+  const imageSize = isDisc ? '1.10 1.10' : isMovies || system === 'wiiu' ? '1.08 1.08' : system === 'ps4' ? '0.98 0.98' : system === 'n64' ? '0.88 0.88' : '0.95 0.95';
   const tilePadding = isDisc ? '-18 -18' : '0 0';
   // Keep the nine-patch corners smaller than a grid tile. A 256px corner can
   // overlap and crop the center when Batocera renders the 512px selector into
   // a smaller tile, leaving only a fraction of the artwork visible.
-  const selectorCorners = isDisc || system === 'n64' ? '32 32' : ['ps4', 'wiiu', 'movies'].includes(system) ? '8 8' : '32 32';
+  // N64 needs wider protected shoulders so the nine-patch preserves both
+  // ends of its crown instead of stretching them into near-vertical corners.
+  const selectorCorners = system === 'n64' ? '96 96' : isDisc ? '0 0' : ['ps4', 'wiiu', 'movies'].includes(system) ? '8 8' : '32 32';
   // The circular selector has a protected transparent edge so its glow cannot
   // be clipped by the grid tile. Expand its tile footprint to keep the ring
   // fully outside the unchanged disc artwork.
-  const selectorPadding = isDisc ? '-38 -38' : system === 'n64' ? '-8 -8' : '-18 -18';
+  const selectorPadding = isDisc ? '-40 -40' : system === 'n64' ? '-28 -28' : '-18 -18';
   return `<!-- READY PLAYER ONE ${label} PICTURES -->
 <theme>
   <formatVersion>7</formatVersion>

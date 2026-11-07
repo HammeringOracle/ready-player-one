@@ -3906,6 +3906,8 @@ async function decorateAdHocDisplayPresence(statuses) {
   const deviceName = verifiedRemoteDisplayDevice("10.77.0.2");
   if (!deviceName) return result;
   const normalStatus = result[deviceName] || {};
+  const savedDevice = readDeviceSettings()[deviceName] || {};
+  const normalHost = String(normalStatus.host || savedDevice.discoveredHost || savedDevice.host || "").trim();
   // Magenta is a fallback-presence state, not an instruction to start Ad Hoc
   // Display. A healthy Wi-Fi or normal LAN connection always keeps the normal
   // machine color, even when the direct cable is also attached.
@@ -3917,12 +3919,15 @@ async function decorateAdHocDisplayPresence(statuses) {
   if (normalNetworkReady || !directDisplayConnected) {
     delete normalStatus.adHocDisplay;
     delete normalStatus.adHocDisplayHost;
+    normalStatus.preferredConnection = "wifi";
+    if (normalHost && normalHost !== "10.77.0.2") normalStatus.wifiHost = normalHost;
     return result;
   }
   result[deviceName] = {
     ...normalStatus,
     adHocDisplay: true,
-    adHocDisplayHost: "10.77.0.2"
+    adHocDisplayHost: "10.77.0.2",
+    preferredConnection: "ad-hoc"
   };
   return result;
 }
@@ -5191,13 +5196,13 @@ PY`;
     await execSsh(device, command, 30000);
     const installed = await execSsh(device, `cat /userdata/roms/${folder}/theme.xml`, 15000);
     if (!installed.includes("<autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>") ||
-        !installed.includes(`<maxSize>${system === "nes" ? "0.97 0.97" : system === "gba" ? "0.98 0.98" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
+        !installed.includes(`<maxSize>${system === "nes" ? "1.03 1.03" : system === "gba" ? "0.98 0.98" : system === "n64" ? "0.88 0.88" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu", "movies"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
         (system === "movies" && (installed.match(/<fontSize>0\.030<\/fontSize>/g) || []).length !== 2) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
-        !installed.includes(`<cornerSize>${system === "nes" ? "0 0" : system === "snes" ? "11 11" : system === "gba" ? "16 16" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${["nes", "n64"].includes(system) ? "-8 -8" : system === "snes" ? "-22 -22" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-38 -38" : "-18 -18"}</padding>`) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "0 0" : system === "snes" ? "11 11" : system === "gba" ? "28 28" : system === "n64" ? "96 96" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : system === "snes" ? "-22 -22" : system === "n64" ? "-28 -28" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<size>1 1<\/size>/g) || []).length < 2 ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
@@ -5259,7 +5264,7 @@ async function uploadNintendoPictureSelector(device, system) {
   const width = 512;
   // NES artwork is a portrait cartridge (roughly 0.9:1), not a square tile.
   // Keeping that aspect ratio preserves the shell and its lower feet.
-  const height = system === "nes" ? 568 : system === "movies" ? 652 : 512;
+  const height = system === "nes" ? 568 : system === "gba" ? 304 : system === "movies" ? 652 : 512;
   const selectorPath = path.join(root, "scraper-cache", system, `rp1-${system}-selector.png`);
   const transparentBlankPath = path.join(root, "scraper-cache", system, `rp1-${system}-transparent.png`);
   fs.mkdirSync(path.dirname(selectorPath), { recursive: true });
@@ -5268,11 +5273,12 @@ async function uploadNintendoPictureSelector(device, system) {
   // Keep the generated PNG and EmulationStation's nine-patch corner size in
   // agreement so the tighter corners do not stretch or clip at runtime.
   const snesShape = "$path.StartFigure();$path.AddArc(24,24,11,11,180,90);$path.AddLine(30,24,482,24);$path.AddArc(477,24,11,11,270,90);$path.AddLine(488,30,488,482);$path.AddArc(477,477,11,11,0,90);$path.AddLine(482,488,30,488);$path.AddArc(24,477,11,11,90,90);$path.AddLine(24,482,24,30);$path.CloseFigure()";
-  // GBA uses half of the standard selector curvature.
-  const gbaShape = "$path.StartFigure();$path.AddArc(24,24,16,16,180,90);$path.AddLine(32,24,480,24);$path.AddArc(472,24,16,16,270,90);$path.AddLine(488,32,488,480);$path.AddArc(472,472,16,16,0,90);$path.AddLine(480,488,32,488);$path.AddArc(24,472,16,16,90,90);$path.AddLine(24,480,24,32);$path.CloseFigure()";
+  // Follow the wide GBA shell: a rounded raised crown, short shoulder ledges,
+  // inset vertical sides, and gently rounded lower corners.
+  const gbaShape = "$path.StartFigure();$path.AddArc(22,14,36,36,180,90);$path.AddLine(40,14,472,14);$path.AddArc(454,14,36,36,270,90);$path.AddLine(490,32,490,66);$path.AddLine(490,66,478,78);$path.AddLine(478,78,478,270);$path.AddArc(450,258,28,28,0,90);$path.AddLine(464,286,48,286);$path.AddArc(34,258,28,28,90,90);$path.AddLine(34,272,34,78);$path.AddLine(34,78,22,66);$path.AddLine(22,66,22,32);$path.CloseFigure()";
   // Match the original NES shell: tall body, lower side steps, and squared
   // cartridge feet. This intentionally is not a rounded square.
-  const nesShape = "$path.StartFigure();$path.AddPolygon([System.Drawing.Point[]]@([System.Drawing.Point]::new(18,12),[System.Drawing.Point]::new(494,12),[System.Drawing.Point]::new(500,18),[System.Drawing.Point]::new(500,448),[System.Drawing.Point]::new(476,448),[System.Drawing.Point]::new(476,552),[System.Drawing.Point]::new(36,552),[System.Drawing.Point]::new(36,448),[System.Drawing.Point]::new(12,448),[System.Drawing.Point]::new(12,18)));$path.CloseFigure()";
+  const nesShape = "$path.StartFigure();$path.AddArc(14,10,24,24,180,90);$path.AddLine(26,10,486,10);$path.AddArc(474,10,24,24,270,90);$path.AddLine(498,22,498,448);$path.AddBezier(498,448,498,455,486,459,470,460);$path.AddLine(470,460,470,544);$path.AddArc(450,544,20,20,0,90);$path.AddLine(460,564,52,564);$path.AddArc(42,544,20,20,90,90);$path.AddLine(42,554,42,460);$path.AddBezier(42,460,26,459,14,455,14,448);$path.AddLine(14,448,14,22);$path.CloseFigure()";
   const ps4Shape = "$path.StartFigure();$path.AddArc(24,24,8,8,180,90);$path.AddLine(28,24,484,24);$path.AddArc(480,24,8,8,270,90);$path.AddLine(488,28,488,484);$path.AddArc(480,480,8,8,0,90);$path.AddLine(484,488,28,488);$path.AddArc(24,480,8,8,90,90);$path.AddLine(24,484,24,28);$path.CloseFigure()";
   // Standard Blu-ray keep case proportions: 135 mm × 171.5 mm. The selector
   // stays portrait while using MAME's dense 6×2 grid and image scale.
@@ -5323,6 +5329,10 @@ async function uploadNintendoPictureSelector(device, system) {
       // generated fallback in gamelist.xml. A visible grid-level fallback sits
       // behind transparent disc PNGs and creates a second white-disc overlay.
       await fastPutSftp(sftp, transparentBlankPath, `/userdata/roms/${folder}/media/rp1-${system}-blank.png`);
+    } else if (system === "psvita") {
+      const vitaCover = listLocalFilesRecursive(path.join(root, "covers", "psvita"), new Set([".png", ".jpg", ".jpeg", ".webp"]))[0];
+      if (!vitaCover) throw new Error("Ready Player One's PS Vita cover folder is empty.");
+      await fastPutSftp(sftp, path.join(root, "covers", "psvita", vitaCover), `/userdata/roms/${folder}/media/rp1-${system}-blank.png`);
     } else if (system === "movies") {
       // The same RP1 film-reel asset is both the Movies console picture and
       // the missing-cover placeholder; never synthesize a game-console shell.
@@ -5362,7 +5372,7 @@ async function cacheNintendoFallbackArtwork(system, fileName) {
   }
   if (!fs.existsSync(template)) throw new Error(`Missing local covers/${system}/${templateName} fallback.`);
   const safe = cleanRomName(fileName).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "game";
-  const suffix = crypto.createHash("sha1").update(fileName).digest("hex").slice(0, 8);
+  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : ""}`).digest("hex").slice(0, 8);
   const cacheDir = path.join(root, "scraper-cache", system);
   fs.mkdirSync(cacheDir, { recursive: true });
   const localPath = path.join(cacheDir, `${safe}-${suffix}-fallback.png`);
@@ -5584,28 +5594,18 @@ async function cacheLocalConsoleArtwork(sourcePath, system, fileName) {
 
 async function cacheNesPictureArtwork(sourcePath, fileName, system = "nes") {
   const safe = cleanRomName(fileName).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "game";
-  const suffix = crypto.createHash("sha1").update(fileName).digest("hex").slice(0, 8);
+  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : ""}`).digest("hex").slice(0, 8);
   const cacheDir = path.join(root, "scraper-cache", system);
   fs.mkdirSync(cacheDir, { recursive: true });
   const sourceExtension = path.extname(sourcePath).toLowerCase();
   const discSystem = ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system);
   const extension = discSystem ? ".png" : ([".jpg", ".jpeg", ".png", ".webp"].includes(sourceExtension) ? sourceExtension : ".png");
   const localPath = path.join(cacheDir, `${safe}-${suffix}-picture${extension}`);
-  // N64 cartridge PNGs sometimes store green RGB data in fully transparent
-  // pixels. Re-rendering onto a transparent canvas clears that hidden color so
-  // no renderer or later conversion can expose a green rectangle.
+  // N64 cartridge art is already a finished transparent asset. Preserve it
+  // byte-for-byte: re-rendering it through System.Drawing can select a scaled
+  // overload and permanently crop the cartridge before Batocera sees it.
   if (system === "n64") {
-    const script = [
-      "Add-Type -AssemblyName System.Drawing",
-      `$source=[System.Drawing.Bitmap]::FromFile(${powershellSingleQuoted(sourcePath)})`,
-      "$target=[System.Drawing.Bitmap]::new($source.Width,$source.Height,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
-      "$graphics=[System.Drawing.Graphics]::FromImage($target);$graphics.CompositingMode=[System.Drawing.Drawing2D.CompositingMode]::SourceOver;$graphics.Clear([System.Drawing.Color]::Transparent)",
-      "$graphics.DrawImageUnscaled($source,0,0)",
-      `$target.Save(${powershellSingleQuoted(localPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
-      "$graphics.Dispose();$target.Dispose();$source.Dispose()"
-    ].join(";");
-    await new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-Command", script], { windowsHide: true, timeout: 30000 },
-      (error, _stdout, stderr) => error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
+    fs.copyFileSync(sourcePath, localPath);
   // A matched local-media game uses the covers/<system> asset and never a
   // provider/legacy substitute. Other non-disc art is copied byte-for-byte.
   } else if (!discSystem) {
@@ -5621,8 +5621,12 @@ async function cacheNesPictureArtwork(sourcePath, fileName, system = "nes") {
       "$left=[int](($source.Width-$side)/2);$top=[int](($source.Height-$side)/2)",
       "$target=[System.Drawing.Bitmap]::new($side,$side,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
       "$graphics=[System.Drawing.Graphics]::FromImage($target);$graphics.SmoothingMode='AntiAlias';$graphics.InterpolationMode='HighQualityBicubic';$graphics.PixelOffsetMode='HighQuality';$graphics.Clear([System.Drawing.Color]::Transparent)",
-      "$disc=[System.Drawing.Drawing2D.GraphicsPath]::new();$disc.AddEllipse(1,1,$side-2,$side-2);$graphics.SetClip($disc)",
-      "$destination=[System.Drawing.Rectangle]::new(0,0,$side,$side);$sourceRect=[System.Drawing.Rectangle]::new($left,$top,$side,$side)",
+      // Put every disc on the same transparent canvas at the same diameter.
+      // Source packs mix edge-to-edge scans with files that have their own
+      // margin; without normalization the selector is covered inconsistently.
+      "$margin=[Math]::Max(2,[int]($side*0.055));$diameter=$side-(2*$margin)",
+      "$disc=[System.Drawing.Drawing2D.GraphicsPath]::new();$disc.AddEllipse($margin,$margin,$diameter,$diameter);$graphics.SetClip($disc)",
+      "$destination=[System.Drawing.Rectangle]::new($margin,$margin,$diameter,$diameter);$sourceRect=[System.Drawing.Rectangle]::new($left,$top,$side,$side)",
       "$graphics.DrawImage($source,$destination,$sourceRect,[System.Drawing.GraphicsUnit]::Pixel)",
       "$graphics.ResetClip()",
       `$target.Save(${powershellSingleQuoted(localPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
@@ -6836,11 +6840,20 @@ async function getPsVitaFirmwareStatus(device) {
 }
 
 async function installPsVitaConsolePicture(device) {
-  const command = `set -e; theme=$(sed -n 's/.*name="ThemeSet" value="\\([^\"]*\\)".*/\\1/p' /userdata/system/configs/emulationstation/es_settings.cfg | head -n1); base=/userdata/themes/$theme/theme.xml; test -f "$base" || base=/usr/share/emulationstation/themes/es-theme-carbon/theme.xml; image=/userdata/themes/$theme/art/consoles/psvita.png; test -s "$image" || image=/usr/share/emulationstation/themes/es-theme-carbon/art/consoles/psvita.png; test -s "$image"; cat > /userdata/roms/psvita/theme.xml <<EOF
+  await uploadNintendoPictureSelector(device, "psvita");
+  const vitaSelectorAnimation = require("./selector-animation").selectorAnimationXml();
+  const command = `set -e; settings=/userdata/system/configs/emulationstation/es_settings.cfg; theme=$(sed -n 's/.*name="ThemeSet" value="\\([^\"]*\\)".*/\\1/p' "$settings" | head -n1); base=/userdata/themes/$theme/theme.xml; test -f "$base" || base=/usr/share/emulationstation/themes/es-theme-carbon/theme.xml; image=/userdata/themes/$theme/art/consoles/psvita.png; test -s "$image" || image=/usr/share/emulationstation/themes/es-theme-carbon/art/consoles/psvita.png; test -s "$image"; cat > /userdata/roms/psvita/theme.xml <<EOF
 <!-- READY PLAYER ONE PS VITA CONSOLE PICTURE -->
-<theme><formatVersion>7</formatVersion><include>$base</include><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$image</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><customView name="Icons" inherits="grid"><imagegrid name="gamegrid"><itemTemplate><container name="contentRoot"><container name="inside"><image name="imageOfGame"><minSize>0 0</minSize><maxSize>1 0.84</maxSize><origin>0.5</origin><pos>0.5 0.42</pos><linearSmooth>true</linearSmooth></image></container></container></itemTemplate></imagegrid></customView></theme>
+<theme><formatVersion>7</formatVersion><include>$base</include><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$image</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><customView name="Icons" inherits="grid"><imagegrid name="gamegrid"><itemTemplate><container name="contentRoot"><container name="inside"><image name="imageOfGame"><minSize>0 0</minSize><maxSize>1 0.84</maxSize><origin>0.5</origin><pos>0.5 0.42</pos><linearSmooth>true</linearSmooth></image></container></container></itemTemplate></imagegrid><ninepatch name="gridtile.background:selected"><path>/userdata/roms/psvita/media/rp1-psvita-selector.png</path><cornerSize>8 8</cornerSize><padding>-18 -18</padding>${vitaSelectorAnimation}<zIndex>100</zIndex></ninepatch></customView></theme>
 EOF
-grep -Fq 'READY PLAYER ONE PS VITA CONSOLE PICTURE' /userdata/roms/psvita/theme.xml`;
+python - <<'PY'
+import xml.etree.ElementTree as ET
+p='/userdata/system/configs/emulationstation/es_settings.cfg'; t=ET.parse(p); r=t.getroot(); name='psvita.defaultView'
+n=next((x for x in r if x.get('name')==name),None)
+if n is None: n=ET.SubElement(r,'string',{'name':name})
+n.set('value','Icons'); t.write(p,encoding='unicode',xml_declaration=True)
+PY
+grep -Fq 'READY PLAYER ONE PS VITA CONSOLE PICTURE' /userdata/roms/psvita/theme.xml && grep -Fq 'rp1-psvita-selector.png' /userdata/roms/psvita/theme.xml`;
   await execSsh(device, command, 15000);
 }
 
@@ -10242,24 +10255,26 @@ const server = http.createServer(async (req, res) => {
         ['Game cases','ui/local-media-theme.js','case','PS4 · Wii U · Movies'],
         ['MAME','ui/mame-box-theme.js','case','Dedicated']
       ];
-      const selectorConsoleCards = selectorConsoleChoices.map(([name,file,shape,scope]) => '<button class="rp1-selector-card" type="button" data-selector-file="'+file+'">'+selectorConsoleShapes[shape]+'<span>'+name+'</span><small>'+scope+'</small></button>').join('');
+      const selectorConsoleCards = selectorConsoleChoices.map(([name,file,shape,scope],index) => '<div class="rp1-selector-card" data-selector-file="'+file+'" data-selector-key="selector-'+index+'"><button class="rp1-selector-open" type="button" aria-label="Open '+name+' selector code">'+selectorConsoleShapes[shape]+'<span>'+name+'</span><small>'+scope+'</small></button><button class="rp1-selector-lock" type="button" aria-label="Lock '+name+' selector code" title="Lock selector code">🔓</button></div>').join('');
       const selectorConsoleGallery = selectorGallery
         .replace('<h2>Animated Selectors</h2>', '<h2>Select a Console Selector</h2>')
         .replace(/<div class="rp1-selector-grid">.*?<\/div><\/dialog>/, '<div class="rp1-selector-grid">'+selectorConsoleCards+'</div></dialog>')
-        .replace('</style>', '.rp1-selector-card{color:inherit;cursor:pointer}.rp1-selector-card:hover,.rp1-selector-card:focus-visible{border-color:#69d5ff;background:#111a28;box-shadow:0 0 24px #4fa9ff45;outline:none}.rp1-selector-card small{max-width:145px;color:#9fb0c5;font:11px Segoe UI,sans-serif;text-align:center}.rp1-selector-grid{max-height:68vh;overflow:auto}</style>')
-        .replace('</script>', '</script><script>document.querySelector("#rp1-selector-gallery")?.addEventListener("click",function(e){const card=e.target.closest("[data-selector-file]");if(!card)return;this.close();const picker=document.querySelector("#rp1-file-filter");if(picker){picker.value=card.dataset.selectorFile;picker.dispatchEvent(new Event("change",{bubbles:true}))}});</script>');
+        .replace('</style>', '.rp1-selector-card{position:relative;color:inherit;cursor:default}.rp1-selector-card:hover,.rp1-selector-card:focus-within{border-color:#69d5ff;background:#111a28;box-shadow:0 0 24px #4fa9ff45;outline:none}.rp1-selector-card small{max-width:145px;color:#9fb0c5;font:11px Segoe UI,sans-serif;text-align:center}.rp1-selector-open{display:grid;place-items:center;gap:10px;width:100%;height:100%;padding:0;border:0;color:inherit;background:transparent;cursor:pointer;font:inherit}.rp1-selector-lock{position:absolute;top:8px;right:8px;width:34px;height:32px;padding:0;border:1px solid #71839a;border-radius:9px;color:#fff;background:linear-gradient(#55667c,#283444);font:17px Segoe UI Emoji,Segoe UI,sans-serif;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff45,0 3px 10px #0008}.rp1-selector-lock.locked{border-color:#ffd45d;background:linear-gradient(#b18528,#5d4310);box-shadow:inset 0 1px 0 #fff6b866,0 0 15px #f2c94c66}.rp1-selector-grid{max-height:68vh;overflow:auto}</style>')
+        .replace('</script>', '</script><script>const rp1SelectorGallery=document.querySelector("#rp1-selector-gallery");async function rp1LoadSelectorLocks(){const response=await fetch("/api/edit-code/selector-locks");const result=await response.json();if(!response.ok)return;rp1SelectorGallery?.querySelectorAll("[data-selector-key]").forEach(card=>{const locked=Boolean(result.locks?.[card.dataset.selectorKey]);const button=card.querySelector(".rp1-selector-lock");button.classList.toggle("locked",locked);button.textContent=locked?"🔒":"🔓";button.title=locked?"Unlock selector code":"Lock selector code"})}rp1SelectorGallery?.addEventListener("click",async function(e){const card=e.target.closest("[data-selector-file]");if(!card)return;const lock=e.target.closest(".rp1-selector-lock");if(lock){e.preventDefault();e.stopPropagation();lock.disabled=true;try{const next=!lock.classList.contains("locked");const response=await fetch("/api/edit-code/selector-locks",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:card.dataset.selectorKey,file:card.dataset.selectorFile,locked:next})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Could not change lock");await rp1LoadSelectorLocks()}catch(error){alert(error.message)}finally{lock.disabled=false}return}if(!e.target.closest(".rp1-selector-open"))return;this.close();const picker=document.querySelector("#rp1-file-filter");if(picker){picker.value=card.dataset.selectorFile;picker.dispatchEvent(new Event("change",{bubbles:true}))}});rp1LoadSelectorLocks().catch(console.error);</script>');
       const exitSavePrompt = `<style>#rp1-exit-save{width:min(460px,88vw);border:1px solid #57708f;border-radius:16px;padding:0;color:#f4f7fb;background:linear-gradient(145deg,#1e2633,#0c1017);box-shadow:0 28px 90px #000b}#rp1-exit-save::backdrop{background:#02050bbf;backdrop-filter:blur(5px)}.rp1-exit-save-head{padding:17px 19px;border-bottom:1px solid #ffffff24;font:700 18px Segoe UI,sans-serif}.rp1-exit-save-body{padding:18px 19px;color:#cbd8e8;font:14px Segoe UI,sans-serif}.rp1-exit-save-actions{display:flex;justify-content:flex-end;gap:9px;padding:0 19px 18px}.rp1-exit-save-actions button{border:1px solid #6aa8ff;border-radius:9px;padding:9px 14px;color:#fff;background:linear-gradient(#527bb5,#203a63);font:600 13px Segoe UI,sans-serif;cursor:pointer}.rp1-exit-save-actions .danger{border-color:#e16c64;background:linear-gradient(#a94740,#5b211e)}.rp1-exit-save-actions .neutral{border-color:#73849a;background:linear-gradient(#536173,#29323f)}</style><dialog id="rp1-exit-save"><div class="rp1-exit-save-head">Exit Edit Code?</div><div class="rp1-exit-save-body">Are you sure you want to close the Edit Code window?</div><div class="rp1-exit-save-actions"><form method="dialog"><button class="neutral" value="cancel">Cancel</button></form><button class="danger" id="rp1-exit-without-save" type="button">Exit</button><button id="rp1-save-and-exit" type="button" hidden>Save &amp; Exit</button></div></dialog><script>const rp1ExitSaveDialog=document.querySelector("#rp1-exit-save"),rp1ExitHeading=rp1ExitSaveDialog.querySelector(".rp1-exit-save-head"),rp1ExitBody=rp1ExitSaveDialog.querySelector(".rp1-exit-save-body"),rp1ExitWithoutSave=document.querySelector("#rp1-exit-without-save"),rp1SaveAndExit=document.querySelector("#rp1-save-and-exit");document.querySelector("#rp1-exit-code")?.addEventListener("click",function(e){e.preventDefault();e.stopImmediatePropagation();rp1ExitHeading.textContent=rp1Dirty?"Save changes before exiting?":"Exit Edit Code?";rp1ExitBody.textContent=rp1Dirty?"This file has changes that have not been saved.":"Are you sure you want to close the Edit Code window?";rp1ExitWithoutSave.textContent=rp1Dirty?"Exit Without Saving":"Exit";rp1SaveAndExit.hidden=!rp1Dirty;if(!rp1ExitSaveDialog.open)rp1ExitSaveDialog.showModal()},{capture:true});rp1ExitWithoutSave?.addEventListener("click",function(){rp1Dirty=false;location.assign("/")});rp1SaveAndExit?.addEventListener("click",async function(){const status=document.querySelector("#rp1-save-status");if(!rp1CurrentFile){status.textContent="Choose a file before saving";rp1ExitSaveDialog.close();return}this.disabled=true;status.textContent="Saving…";try{const response=await fetch("/api/edit-code/file",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:rp1CurrentFile,code:rp1Output.innerText})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Save failed");rp1Dirty=false;location.assign("/")}catch(error){status.textContent=error.message||"Save failed";rp1ExitSaveDialog.close();this.disabled=false}});</script>`;
       const selectorPreviewStyle = `<style>.rp1-selector-line{stroke:#f2c94c!important;transform-box:fill-box;transform-origin:center;animation:rp1SelectorPulse 1.44s ease-in-out infinite!important}@keyframes rp1SelectorPulse{0%,100%{stroke:#f2c94c;transform:scale(.965)}50%{stroke:#4fa9ff;transform:scale(1)}}</style>`;
-      const editorLayoutStyle = `<style>.scene{width:100vw!important;max-width:none!important;grid-template-rows:47px minmax(0,1fr)!important}.global-header{grid-column:1/-1!important;grid-row:1!important;width:100vw!important;max-width:none!important;height:47px!important;min-height:47px!important;margin:0!important;padding:0 16px!important}.global-header h1{font-size:1rem!important}.rp1-editor-actions{height:47px!important}.rp1-editor-actions input{height:27px!important}.rp1-editor-actions button{padding:5px 11px!important}.code-panel{width:100%!important;max-width:none!important;justify-self:stretch!important;margin:0!important;padding:0!important}.code-viewer,.code-scroll{width:100%!important;max-width:none!important;margin-right:0!important}</style>`;
+      const editorLayoutStyle = `<style>.scene{position:relative!important;width:100vw!important;max-width:none!important;grid-template-columns:minmax(360px,.82fr) minmax(0,1.18fr)!important;grid-template-rows:47px minmax(0,1fr)!important}.global-header{grid-column:1/-1!important;grid-row:1!important;width:100vw!important;max-width:none!important;height:47px!important;min-height:47px!important;margin:0!important;padding:0 16px!important}.global-header h1{font-size:1rem!important}.rp1-editor-actions{height:47px!important}.rp1-editor-actions input{height:27px!important}.rp1-editor-actions button{padding:5px 11px!important}.code-panel{grid-column:2!important;grid-row:2!important;width:100%!important;max-width:none!important;min-width:0!important;justify-self:stretch!important;align-self:stretch!important;margin:0!important;padding:0!important}.code-viewer{width:100%!important;max-width:none!important;min-width:0!important;margin:0!important;grid-template-columns:30px minmax(0,1fr)!important}.line-numbers{width:30px!important;padding-left:1px!important;padding-right:4px!important}.code-scroll{width:100%!important;max-width:none!important;min-width:0!important;margin:0!important;padding-right:8px!important}.rp1-editor-resizer{position:absolute;z-index:40;top:47px;bottom:0;width:5px;margin-left:-2px;cursor:col-resize;touch-action:none;background:linear-gradient(90deg,transparent 2px,#ff3b21 2px,#ff3b21 3px,transparent 3px)}.rp1-editor-resizer:hover,.rp1-editor-resizer.dragging{width:7px;margin-left:-3px;background:linear-gradient(90deg,transparent 2px,#ff5a42 2px,#ff5a42 5px,transparent 5px);filter:drop-shadow(0 0 4px #ff432b)}</style>`;
+      const editorResizeScript = `<script>(function(){const scene=document.querySelector('.scene'),visual=document.querySelector('.visual-pane');if(!scene||!visual)return;const handle=document.createElement('div');handle.className='rp1-editor-resizer';handle.setAttribute('role','separator');handle.setAttribute('aria-orientation','vertical');handle.setAttribute('aria-label','Resize visual and code panes');scene.append(handle);const apply=x=>{const min=360,max=Math.max(min,window.innerWidth-420),left=Math.max(min,Math.min(max,Math.round(x)));scene.style.setProperty('grid-template-columns',left+'px minmax(0,1fr)','important');handle.style.left=left+'px';return left};const saved=Number(localStorage.getItem('rp1-edit-code-divider'));let current=apply(Number.isFinite(saved)&&saved>0?saved:visual.getBoundingClientRect().right);handle.addEventListener('pointerdown',event=>{event.preventDefault();handle.classList.add('dragging');handle.setPointerCapture(event.pointerId)});handle.addEventListener('pointermove',event=>{if(!handle.hasPointerCapture(event.pointerId))return;current=apply(event.clientX)});const finish=event=>{if(handle.hasPointerCapture(event.pointerId))handle.releasePointerCapture(event.pointerId);handle.classList.remove('dragging');localStorage.setItem('rp1-edit-code-divider',String(current))};handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);window.addEventListener('resize',()=>{current=apply(current)})})();</script>`;
+      const commentHighlight = `<style>::highlight(rp1-line-comments){color:#ffb347}</style><script>(function(){const output=document.querySelector('#code-output');if(!output||!window.CSS?.highlights||typeof Highlight==='undefined')return;let timer=0;function paint(){clearTimeout(timer);timer=setTimeout(()=>{const highlight=new Highlight(),walker=document.createTreeWalker(output,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){const text=node.nodeValue||'';const pattern=/^[\\t ]*\\/\\/.*$/gm;let match;while((match=pattern.exec(text))){const range=new Range();range.setStart(node,match.index);range.setEnd(node,match.index+match[0].length);highlight.add(range)}}CSS.highlights.set('rp1-line-comments',highlight)},0)}output.addEventListener('input',paint);new MutationObserver(paint).observe(output,{childList:true,subtree:true,characterData:true});paint()})();</script>`;
       const compactEditorModalStyle = `<style>#rp1-exit-save{width:max-content!important;max-width:min(380px,88vw)!important;border-radius:11px!important}.rp1-exit-save-head{padding:10px 13px!important;font-size:16px!important}.rp1-exit-save-body{padding:10px 13px!important;line-height:1.25!important}.rp1-exit-save-actions{gap:7px!important;padding:0 13px 11px!important}.rp1-exit-save-actions button{padding:7px 11px!important}</style>`;
-      const mapAvailability = `<style>.command-pill:not([data-id="selector-gallery"]){color:#697382!important;border-color:#3f4753!important;background:#151922!important;box-shadow:none!important;cursor:default!important;pointer-events:none!important}.command-row:has(.command-pill:not([data-id="selector-gallery"])) .command-desc{color:#59616d!important}.command-pill[data-id="selector-gallery"]{color:#fff4f4!important;border-color:#ff5a67!important;background:linear-gradient(180deg,rgba(255,83,96,.48),rgba(91,19,31,.94))!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.32),0 0 14px rgba(255,61,76,.34)!important;text-shadow:0 1px 2px #26070b!important}.command-pill[data-id="selector-gallery"]:hover{border-color:#ffb0b7!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 0 22px rgba(255,61,76,.58)!important}</style>`;
+      const mapAvailability = `<style>.command-pill:not([data-id="selector-gallery"]){color:#697382!important;border-color:#3f4753!important;background:#151922!important;box-shadow:none!important;cursor:default!important;pointer-events:none!important}.command-row:has(.command-pill:not([data-id="selector-gallery"])) .command-desc{color:#59616d!important}.command-pill[data-id="selector-gallery"]{color:#fff4f4!important;border-color:#ff5a67!important;background:linear-gradient(180deg,rgba(255,83,96,.48),rgba(91,19,31,.94))!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.32),0 0 14px rgba(255,61,76,.34)!important;text-shadow:0 1px 2px #26070b!important}.command-pill[data-id="selector-gallery"]:hover{border-color:#ffb0b7!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 0 22px rgba(255,61,76,.58)!important}.cluster h3.selected,.center-node.selected,.command-pill.selected{color:#ffb347!important}.code-scroll ::selection{color:#ffb347;background:#614018}</style>`;
       page = page.replaceAll('HTML Desktop', 'Ready Player One')
         .replace('Ready Player One Code Map', 'Ready Player One Code Map')
         .replace('<h1>Visual Code</h1>', '<h1>Ready Player One — Edit Code</h1>')
         .replace('<strong>READY PLAYER<br>ONE</strong>', '<strong style="display:block;color:#fff;font-size:1rem;line-height:1.05;text-align:center">READY PLAYER<br>ONE</strong>')
         .replace('HTML Desktop Map', 'Ready Player One Map')
         .replace('HTML Desktop System Map', 'Ready Player One System Map')
-        .replace('</body>', `${selectorConsoleGallery}${selectorPreviewStyle}${bridge}${browser}${editorLayoutStyle}${exitSavePrompt}${compactEditorModalStyle}${mapAvailability}</body>`);
+        .replace('</body>', `${selectorConsoleGallery}${selectorPreviewStyle}${bridge}${browser}${editorLayoutStyle}${editorResizeScript}${commentHighlight}${exitSavePrompt}${compactEditorModalStyle}${mapAvailability}</body>`);
       visualCodePageCache = page;
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(visualCodePageCache);
@@ -10278,11 +10293,41 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/edit-code/selector-locks') {
+      const lockPath = path.join(root, 'edit-code-selector-locks.json');
+      let locks = {};
+      try { locks = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch {}
+      sendJson(res, 200, { ok:true, locks });
+      return;
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/edit-code/selector-locks') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const key = String(body.key || '');
+      const file = String(body.file || '').replace(/\\/g, '/');
+      const allowedFiles = new Set(['ui/nes-cartridge-theme.js','ui/snes-cartridge-theme.js','ui/gba-cartridge-theme.js','ui/local-media-theme.js','ui/mame-box-theme.js']);
+      if (!/^selector-\d+$/.test(key) || !allowedFiles.has(file)) { sendJson(res, 400, { ok:false, error:'That selector cannot be locked.' }); return; }
+      const lockPath = path.join(root, 'edit-code-selector-locks.json');
+      let locks = {};
+      try { locks = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch {}
+      if (body.locked) locks[key] = { file, locked:true, lockedAt:new Date().toISOString() }; else delete locks[key];
+      fs.writeFileSync(lockPath, JSON.stringify(locks, null, 2), 'utf8');
+      sendJson(res, 200, { ok:true, locks });
+      return;
+    }
+
     if (req.method === 'PUT' && url.pathname === '/api/edit-code/file') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const requested = String(body.path || '').replace(/\\/g, '/');
       const allowed = new Set(['.js','.cjs','.mjs','.html','.css','.json','.md','.ps1','.py','.sh','.xml']);
       const absolute = path.resolve(root, requested);
+      const lockPath = path.join(root, 'edit-code-selector-locks.json');
+      let selectorLocks = {};
+      try { selectorLocks = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch {}
+      if (Object.values(selectorLocks).some(lock => lock?.locked && lock.file === requested)) {
+        sendJson(res, 423, { ok:false, error:'This selector code is locked. Unlock it from Selector before saving changes.' });
+        return;
+      }
       if (!requested || !absolute.startsWith(root + path.sep) || !allowed.has(path.extname(absolute).toLowerCase()) || !fs.existsSync(absolute) || fs.statSync(absolute).size > 1024 * 1024 || typeof body.code !== 'string' || Buffer.byteLength(body.code, 'utf8') > 1024 * 1024) {
         sendJson(res, 400, { ok:false, error:'The selected RP1 file cannot be saved.' });
         return;
@@ -12679,13 +12724,15 @@ ${check}
         sendJson(res, 409, { ok: false, error: "Automatic layout artwork requires a live Batocera machine with SSH access." });
         return;
       }
-      const supported = new Set(["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "xbox", "xbox360", "mame", "movies"]);
+      const supported = new Set(["nes", "snes", "gba", "n64", "gamecube", "wii", "wiiu", "ps1", "ps2", "ps3", "ps4", "psvita", "xbox", "xbox360", "mame", "movies"]);
       const systems = [...new Set((Array.isArray(body.systems) ? body.systems : []).map(value => String(value || "").toLowerCase()).filter(value => supported.has(value)))];
       if (!systems.length) {
         sendJson(res, 400, { ok: false, error: "No supported console layouts were requested." });
         return;
       }
-      await installNintendoPicturePresentation(device, systems);
+      const standardSystems = systems.filter(system => system !== "psvita");
+      if (standardSystems.length) await installNintendoPicturePresentation(device, standardSystems);
+      if (systems.includes("psvita")) await installPsVitaConsolePicture(device);
       await execSsh(device, 'sh -c "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 & echo OK"', 15000);
       sendJson(res, 200, { ok: true, systems });
       return;

@@ -9980,7 +9980,9 @@
       card.dataset.reachable = String(reachable);
       card.dataset.searching = String(searching);
       card.dataset.communicating = String(communicating);
-      card.dataset.adHocDisplay = String(Boolean(status?.adHocDisplay));
+      const wifiPreferred = status?.preferredConnection === "wifi" || (!status?.adHocDisplay && (online || reachable));
+      const directPreferred = status?.preferredConnection === "ad-hoc" || (!wifiPreferred && Boolean(status?.adHocDisplay && status?.directDisplayConnected));
+      card.dataset.adHocDisplay = String(directPreferred);
       card.dataset.host = host;
       if (status?.mac) card.dataset.mac = String(status.mac).toLowerCase();
       card.dataset.platform = status?.platform || card.dataset.platform || "batocera";
@@ -9995,7 +9997,7 @@
       card.classList.toggle("reachable", reachable && !online && !communicating);
       card.classList.toggle("searching", searching && !online && !reachable);
       card.classList.toggle("communicating", communicating);
-      card.classList.toggle("ad-hoc-display", Boolean(status?.adHocDisplay));
+      card.classList.toggle("ad-hoc-display", directPreferred);
       card.classList.toggle("offline", !online && !reachable && !searching && !communicating);
       card.hidden = card.dataset.platform === 'batocera-usb' && !(online || reachable);
       if (card.classList.contains("selected")) updateSystemPickerAvailability(card);
@@ -10015,7 +10017,7 @@
       const connectionStates = {
         "usb-c": Boolean(status?.usb),
         ethernet: Boolean(status?.directDisplayConnected || status?.directDisplayConfigured),
-        wifi: Boolean(online && !status?.usb)
+        wifi: Boolean(wifiPreferred && !status?.usb)
       };
       for (const [type, svg] of Object.entries(connectionDefinitions)) {
         let symbol = connectionSymbols.querySelector(`[data-connection="${type}"]`);
@@ -10038,8 +10040,8 @@
         const hostName = String(status?.hostName || status?.displayName || "").trim();
         meta.textContent = status?.platform === 'windows' ? (status.displayName || host || 'Windows PC') : status?.usb
           ? `${host || "USB"} • ${!online ? "Disconnected" : status.usbMode === "direct" ? "Direct" : "Staged"}`
-          : status?.adHocDisplay && status?.directDisplayConnected ? `${status.directDisplayHost || "10.77.0.2"}`
-          : status?.directDisplayConnected ? `${status.directDisplayHost || "10.77.0.2"}`
+          : wifiPreferred ? `${status?.wifiHost || host}`
+          : directPreferred ? `${status?.directDisplayHost || "10.77.0.2"}`
           : searching && !online ? `Looking for IP…${status?.directDisplayHost ? ` • Direct: ${status.directDisplayHost}` : ""}`
           : host ? [hostName && hostName !== title?.textContent ? hostName : "", host].filter(Boolean).join(" • ") : `Looking for IP…${status?.directDisplayHost ? ` • Direct: ${status.directDisplayHost}` : ""}`;
       }

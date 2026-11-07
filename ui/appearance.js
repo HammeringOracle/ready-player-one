@@ -28,6 +28,11 @@
   document.addEventListener('DOMContentLoaded', () => {
     const advanced = document.getElementById('advancedFeatures');
     if (!advanced) return;
+    const tools = advanced.closest('.header-code-tools');
+    const deviceStrip = document.getElementById('deviceStrip');
+    if (tools && deviceStrip && tools.parentElement !== deviceStrip) deviceStrip.append(tools);
+    document.querySelectorAll('#openEditCode').forEach(node => { if (!tools?.contains(node)) node.remove(); });
+    document.querySelectorAll('#advancedFeatures').forEach(node => { if (node !== advanced) node.remove(); });
     const cog = document.createElement('button');
     cog.id = 'appearanceCog'; cog.type = 'button'; cog.title = 'Settings';
     cog.setAttribute('aria-label', 'Settings'); cog.setAttribute('aria-haspopup', 'dialog');
