@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const xml = require('./nes-cartridge-theme')('/userdata/themes/A&B/theme.xml');
+const server = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
 assert.match(xml, /A&amp;B\/theme.xml/);
 assert.match(xml, /READY PLAYER ONE NES PICTURES/);
 assert.match(xml, /<customView name="RP1Pictures" inherits="grid"/);
@@ -12,14 +13,16 @@ assert.equal((xml.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).
 assert.equal((xml.match(/<backgroundEdgeColor>00000000<\/backgroundEdgeColor>/g) || []).length, 2);
 assert.equal((xml.match(/<selectionMode>image<\/selectionMode>/g) || []).length, 2);
 assert.match(xml, /<autoLayoutSelectedZoom>1\.0<\/autoLayoutSelectedZoom>/);
-assert.match(xml, /<maxSize>0\.97 0\.97<\/maxSize>/);
+assert.match(xml, /<maxSize>1\.00 1\.00<\/maxSize>/);
 assert.match(xml, /<margin>0\.001823 0\.003241<\/margin>/);
 assert.match(xml, /<autoLayout>6 2<\/autoLayout>/);
 assert.match(xml, /<ninepatch name="gridtile\.background:selected">/);
-assert.match(xml, /<cornerSize>0 0<\/cornerSize><padding>-8 -8<\/padding>/);
+assert.match(xml, /<cornerSize>0 0<\/cornerSize><padding>0 0<\/padding>/);
 assert.match(xml, /rp1-nes-selector\.png/);
 assert.match(xml, /<color>F2C94CFF<\/color>/);
 assert(xml.includes('<animateColor>4FA9FFFF</animateColor><animateColorTime>720</animateColorTime>'));
 assert.match(xml, /<storyboard repeat="forever">/);
 assert.match(xml, /<animation property="scale" from="0\.965" to="1\.0" duration="720" autoReverse="true"/);
+assert.match(server, /system === "nes" \? \[34, 32, 28, 24, 20, 13, 6\]/);
+assert.match(server, /: \[34, 29, 24, 19, 14, 9, 4\];/);
 console.log('NES picture-theme generation checks passed.');

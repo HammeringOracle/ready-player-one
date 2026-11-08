@@ -60,9 +60,17 @@ function findWindowsPortOwner() {
   });
 }
 
-async function stopOutdatedRp1Backend() {
+function isWindowsRp1Backend(pid) {
+  if (process.platform !== "win32" || !Number.isInteger(pid) || pid <= 0) return Promise.resolve(false);
+  const script = `$p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' -ErrorAction SilentlyContinue;if($p -and $p.CommandLine -match '[\\\\/]ui[\\\\/]start-server\\.js(?:"|\\s|$)' -and $p.CommandLine -match 'Ready Player One'){exit 0};exit 1`;
+  return new Promise(resolve => {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script], { windowsHide: true, timeout: 5000 }, error => resolve(!error));
+  });
+}
+
+async function stopOutdatedRp1Backend(knownPid = 0) {
   if (process.platform !== "win32") return false;
-  const pid = await findWindowsPortOwner();
+  const pid = knownPid || await findWindowsPortOwner();
   if (!pid) return false;
   return new Promise((resolve, reject) => {
     // The health probe positively identified this listener as RP1 before this
@@ -81,6 +89,14 @@ async function waitForBackendExit() {
   throw new Error("The outdated Ready Player One backend did not stop.");
 }
 
+async function waitForPortRelease() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (!await findWindowsPortOwner()) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("The unresponsive Ready Player One backend did not release its port.");
+}
+
 (async () => {
   const health = await readHealthWithRetry();
   if (health?.status === 200 && health.body?.app === "ready-player-one") {
@@ -93,11 +109,20 @@ async function waitForBackendExit() {
     await waitForBackendExit();
   } else if (health) {
     throw new Error(`Port ${port} is occupied by a program that is not Ready Player One. It was not stopped.`);
-  } else if (process.platform === "win32" && await findWindowsPortOwner()) {
-    // A busy RP1 backend can occasionally take longer than a health probe,
-    // especially during large transfer batches. Never blindly start another
-    // listener when Windows confirms that the port is already occupied.
-    throw new Error(`Port ${port} is already in use and its health check did not answer. Close the existing program or wait a moment, then try again.`);
+  } else if (process.platform === "win32") {
+    const pid = await findWindowsPortOwner();
+    if (pid) {
+      // A crashed or blocked RP1 backend can outlive its desktop window and
+      // hold the port forever. Replace it only after its Windows command line
+      // positively identifies ui/start-server.js inside Ready Player One.
+      // Unknown listeners remain protected.
+      if (!await isWindowsRp1Backend(pid)) {
+        throw new Error(`Port ${port} is occupied by another program. Ready Player One did not stop it.`);
+      }
+      console.log(`Replacing unresponsive Ready Player One backend process ${pid}.`);
+      await stopOutdatedRp1Backend(pid);
+      await waitForPortRelease();
+    }
   }
   require("./server");
 })().catch(error => {

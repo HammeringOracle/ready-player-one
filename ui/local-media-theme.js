@@ -19,6 +19,8 @@ module.exports = function localMediaTheme(base, system) {
   // The circular selector has a protected transparent edge so its glow cannot
   // be clipped by the grid tile. Expand its tile footprint to keep the ring
   // fully outside the unchanged disc artwork.
+  // All disc artwork is normalized to the same canonical visible diameter,
+  // so every optical system must use the same selector footprint as well.
   const selectorPadding = isDisc ? '-40 -40' : system === 'n64' ? '-28 -28' : '-18 -18';
   return `<!-- READY PLAYER ONE ${label} PICTURES -->
 <theme>
@@ -51,8 +53,8 @@ module.exports = function localMediaTheme(base, system) {
     </image>
     ${system === 'wiiu' ? `<text name="gridtile"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>
     <text name="gridtile:selected"><size>1 0.115</size><singleLineScroll>false</singleLineScroll><alignment>center</alignment></text>` : ''}
-    ${isMovies ? `<text name="gridtile"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.030</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>F5F7FAFF</color></text>
-    <text name="gridtile:selected"><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.030</fontSize><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>FFFFFFFF</color></text>` : ''}
+    ${isMovies ? `<text name="gridtile"><size>1 0.105</size><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.027</fontSize><lineSpacing>1.0</lineSpacing><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>F5F7FAFF</color></text>
+    <text name="gridtile:selected"><size>1 0.105</size><fontPath>/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf</fontPath><fontSize>0.027</fontSize><lineSpacing>1.0</lineSpacing><singleLineScroll>false</singleLineScroll><alignment>center</alignment><color>FFFFFFFF</color></text>` : ''}
     <ninepatch name="gridtile.background:selected">
       <path>/userdata/roms/${folder}/media/rp1-${system}-selector.png</path>
       <cornerSize>${selectorCorners}</cornerSize><padding>${selectorPadding}</padding>${selectorAnimationXml()}<zIndex>100</zIndex>

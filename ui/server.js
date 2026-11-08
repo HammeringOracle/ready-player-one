@@ -40,6 +40,25 @@ function displayGameTitle(system, fileName) {
   return cleanRomName(fileName);
 }
 
+function formatMovieGridTitle(value, lineLimit = 30) {
+  const title = String(value || "").replace(/\s+/g, " ").trim();
+  if (title.length <= lineLimit) return title;
+  const splitLine = text => {
+    const candidate = text.slice(0, lineLimit + 1);
+    const space = candidate.lastIndexOf(" ");
+    return space >= Math.floor(lineLimit * 0.6) ? space : lineLimit;
+  };
+  const firstBreak = splitLine(title);
+  const first = title.slice(0, firstBreak).trimEnd();
+  const remainder = title.slice(firstBreak).trimStart();
+  if (remainder.length <= lineLimit) return `${first}\n${remainder}`;
+  const ellipsisLimit = lineLimit - 1;
+  const secondCandidate = remainder.slice(0, ellipsisLimit + 1);
+  const secondSpace = secondCandidate.lastIndexOf(" ");
+  const secondBreak = secondSpace >= Math.floor(ellipsisLimit * 0.6) ? secondSpace : ellipsisLimit;
+  return `${first}\n${remainder.slice(0, secondBreak).trimEnd()}…`;
+}
+
 function compareNaturalGameTitles(leftTitle, rightTitle) {
   const left = String(leftTitle || "").trim();
   const right = String(rightTitle || "").trim();
@@ -2570,6 +2589,29 @@ async function installMovies(device) {
   return getMoviesStatus(device);
 }
 
+async function normalizeMovieGamelistTitles(device) {
+  const script = `import os,re,xml.etree.ElementTree as ET
+path="/userdata/roms/movies/gamelist.xml"
+def format_title(value,limit=30):
+ title=re.sub(r"\\s+"," ",value or "").strip()
+ if len(title)<=limit:return title
+ candidate=title[:limit+1];space=candidate.rfind(" ");first_break=space if space>=int(limit*0.6) else limit
+ first=title[:first_break].rstrip();rest=title[first_break:].lstrip()
+ if len(rest)<=limit:return first+"\\n"+rest
+ ellipsis_limit=limit-1;candidate=rest[:ellipsis_limit+1];space=candidate.rfind(" ");second_break=space if space>=int(ellipsis_limit*0.6) else ellipsis_limit
+ return first+"\\n"+rest[:second_break].rstrip()+"…"
+if os.path.isfile(path):
+ tree=ET.parse(path);changed=False
+ for game in tree.getroot().findall("game"):
+  node=game.find("name")
+  if node is not None:
+   formatted=format_title(node.text)
+   if formatted!=node.text:node.text=formatted;changed=True
+ if changed:
+  temporary=path+".rp1-titles";tree.write(temporary,encoding="utf-8",xml_declaration=True);os.replace(temporary,path)`;
+  await execUploadedArtworkScript(device, script, 30000);
+}
+
 async function getPiKaraokeStatus(device) {
   const command = [
     "root=/userdata/system/ready-player-one/pikaraoke;",
@@ -3907,12 +3949,23 @@ async function decorateAdHocDisplayPresence(statuses) {
   if (!deviceName) return result;
   const normalStatus = result[deviceName] || {};
   const savedDevice = readDeviceSettings()[deviceName] || {};
-  const normalHost = String(normalStatus.host || savedDevice.discoveredHost || savedDevice.host || "").trim();
+  const normalHostCandidates = [...new Set([
+    normalStatus.wifiHost,
+    normalStatus.host,
+    savedDevice.discoveredHost,
+    savedDevice.host
+  ].map(value => String(value || "").trim()).filter(host => host && host !== "10.77.0.2"))];
+  const normalHostChecks = await Promise.all(normalHostCandidates.map(async host => ({
+    host,
+    reachable: await isTcpPortOpen(host, 22, 900)
+  })));
+  const verifiedNormalHost = normalHostChecks.find(check => check.reachable)?.host || normalHostCandidates[0] || "";
   // Magenta is a fallback-presence state, not an instruction to start Ad Hoc
   // Display. A healthy Wi-Fi or normal LAN connection always keeps the normal
   // machine color, even when the direct cable is also attached.
-  const normalNetworkReady = Boolean(normalStatus.online || normalStatus.reachable ||
-    normalStatus.checks?.ssh || normalStatus.checks?.smb || normalStatus.checks?.web);
+  const normalNetworkReady = Boolean(normalHostChecks.some(check => check.reachable) ||
+    ((normalStatus.host && normalStatus.host !== "10.77.0.2") && (normalStatus.online || normalStatus.reachable ||
+      normalStatus.checks?.ssh || normalStatus.checks?.smb || normalStatus.checks?.web)));
   const directDisplayConnected = await isTcpPortOpen("10.77.0.2", 22, 900, "10.77.0.1");
   normalStatus.directDisplayConfigured = true;
   normalStatus.directDisplayConnected = directDisplayConnected;
@@ -3920,7 +3973,7 @@ async function decorateAdHocDisplayPresence(statuses) {
     delete normalStatus.adHocDisplay;
     delete normalStatus.adHocDisplayHost;
     normalStatus.preferredConnection = "wifi";
-    if (normalHost && normalHost !== "10.77.0.2") normalStatus.wifiHost = normalHost;
+    if (verifiedNormalHost) normalStatus.wifiHost = verifiedNormalHost;
     return result;
   }
   result[deviceName] = {
@@ -5196,13 +5249,13 @@ PY`;
     await execSsh(device, command, 30000);
     const installed = await execSsh(device, `cat /userdata/roms/${folder}/theme.xml`, 15000);
     if (!installed.includes("<autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom>") ||
-        !installed.includes(`<maxSize>${system === "nes" ? "1.03 1.03" : system === "gba" ? "0.98 0.98" : system === "n64" ? "0.88 0.88" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
+        !installed.includes(`<maxSize>${system === "nes" ? "1.00 1.00" : system === "gba" ? "0.98 0.98" : system === "n64" ? "0.88 0.88" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "1.10 1.10" : ["wiiu", "mame", "movies"].includes(system) ? "1.08 1.08" : system === "ps4" ? "0.98 0.98" : "0.95 0.95"}</maxSize>`) ||
         !installed.includes("<margin>0.001823 0.003241</margin>") ||
         !installed.includes(`<autoLayout>${["nes", "mame", "ps4", "wiiu", "movies"].includes(system) ? "6 2" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "5 2" : "4 2"}</autoLayout>`) ||
         (system === "wiiu" && (installed.match(/<size>1 0\.115<\/size>/g) || []).length !== 2) ||
-        (system === "movies" && (installed.match(/<fontSize>0\.030<\/fontSize>/g) || []).length !== 2) ||
+        (system === "movies" && ((installed.match(/<size>1 0\.105<\/size>/g) || []).length !== 2 || (installed.match(/<fontSize>0\.027<\/fontSize>/g) || []).length !== 2 || (installed.match(/<lineSpacing>1\.0<\/lineSpacing>/g) || []).length !== 2)) ||
         !new RegExp(`<padding>${["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-18 -18" : "0 0"}<\\/padding>\\s*<selectionMode>image<\\/selectionMode>`).test(installed) ||
-        !installed.includes(`<cornerSize>${system === "nes" ? "0 0" : system === "snes" ? "11 11" : system === "gba" ? "28 28" : system === "n64" ? "96 96" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "-8 -8" : system === "snes" ? "-22 -22" : system === "n64" ? "-28 -28" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
+        !installed.includes(`<cornerSize>${system === "nes" ? "0 0" : system === "snes" ? "11 11" : system === "gba" ? "28 28" : system === "n64" ? "96 96" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "0 0" : ["ps4", "wiiu", "movies"].includes(system) ? "8 8" : "32 32"}</cornerSize><padding>${system === "nes" ? "0 0" : system === "snes" ? "-22 -22" : system === "n64" ? "-28 -28" : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? "-40 -40" : "-18 -18"}</padding>`) ||
         (installed.match(/<size>1 1<\/size>/g) || []).length < 2 ||
         (installed.match(/<backgroundColor>00000000<\/backgroundColor>/g) || []).length !== 2 ||
         (installed.match(/<selectionMode>image<\/selectionMode>/g) || []).length !== 2 ||
@@ -5216,7 +5269,10 @@ PY`;
     }
     // Rewriting the Movies game-grid theme must not discard the large Movies
     // image used by the system carousel.
-    if (system === "movies") await installMediaSystemBackground(device, "movies");
+    if (system === "movies") {
+      await normalizeMovieGamelistTitles(device);
+      await installMediaSystemBackground(device, "movies");
+    }
   }
   await installRp1CollectionCoverPresentation(device);
 }
@@ -5275,7 +5331,7 @@ async function uploadNintendoPictureSelector(device, system) {
   const snesShape = "$path.StartFigure();$path.AddArc(24,24,11,11,180,90);$path.AddLine(30,24,482,24);$path.AddArc(477,24,11,11,270,90);$path.AddLine(488,30,488,482);$path.AddArc(477,477,11,11,0,90);$path.AddLine(482,488,30,488);$path.AddArc(24,477,11,11,90,90);$path.AddLine(24,482,24,30);$path.CloseFigure()";
   // Follow the wide GBA shell: a rounded raised crown, short shoulder ledges,
   // inset vertical sides, and gently rounded lower corners.
-  const gbaShape = "$path.StartFigure();$path.AddArc(22,14,36,36,180,90);$path.AddLine(40,14,472,14);$path.AddArc(454,14,36,36,270,90);$path.AddLine(490,32,490,66);$path.AddLine(490,66,478,78);$path.AddLine(478,78,478,270);$path.AddArc(450,258,28,28,0,90);$path.AddLine(464,286,48,286);$path.AddArc(34,258,28,28,90,90);$path.AddLine(34,272,34,78);$path.AddLine(34,78,22,66);$path.AddLine(22,66,22,32);$path.CloseFigure()";
+  const gbaShape = "$path.StartFigure();$path.AddArc(22,14,31,31,180,90);$path.AddLine(38,14,474,14);$path.AddArc(459,14,31,31,270,90);$path.AddLine(490,30,490,66);$path.AddLine(490,66,482,78);$path.AddLine(482,78,482,274);$path.AddArc(458,262,24,24,0,90);$path.AddLine(470,286,42,286);$path.AddArc(30,262,24,24,90,90);$path.AddLine(30,274,30,78);$path.AddLine(30,78,22,66);$path.AddLine(22,66,22,30);$path.CloseFigure()";
   // Match the original NES shell: tall body, lower side steps, and squared
   // cartridge feet. This intentionally is not a rounded square.
   const nesShape = "$path.StartFigure();$path.AddArc(14,10,24,24,180,90);$path.AddLine(26,10,486,10);$path.AddArc(474,10,24,24,270,90);$path.AddLine(498,22,498,448);$path.AddBezier(498,448,498,455,486,459,470,460);$path.AddLine(470,460,470,544);$path.AddArc(450,544,20,20,0,90);$path.AddLine(460,564,52,564);$path.AddArc(42,544,20,20,90,90);$path.AddLine(42,554,42,460);$path.AddBezier(42,460,26,459,14,455,14,448);$path.AddLine(14,448,14,22);$path.CloseFigure()";
@@ -5292,7 +5348,15 @@ async function uploadNintendoPictureSelector(device, system) {
   const shape = system === "nes" ? nesShape : system === "snes" ? snesShape : system === "gba" ? gbaShape : system === "n64" ? n64Shape : system === "movies" ? moviesShape : ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system) ? wiiShape : ["ps4", "wiiu"].includes(system) ? ps4Shape : standardShape;
   // Feather the selector through several translucent strokes. The wider halo
   // remains visible after EmulationStation scales and color-tints the PNG.
-  const penWidths = system === "nes" ? [24, 20, 16, 12, 8, 5, 3] : [34, 29, 24, 19, 14, 9, 4];
+  // Movies is displayed in a six-column grid versus N64's four columns. Draw
+  // its source selector roughly 1.5x thicker so both resolve to the same on-screen
+  // line and glow girth after Batocera scales their tiles.
+  const penWidths = system === "movies" ? [48, 42, 34, 27, 20, 13, 6]
+    // NES also uses six columns, but its cartridge outline sits close to the
+    // PNG edge. Keep the same outer halo footprint as N64 while thickening the
+    // inner glow and core so its final on-screen girth matches N64.
+    : system === "nes" ? [34, 32, 28, 24, 20, 13, 6]
+    : [34, 29, 24, 19, 14, 9, 4];
   const script = [
     "Add-Type -AssemblyName System.Drawing",
     `$canvas=[System.Drawing.Bitmap]::new(${width},${height},[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)`,
@@ -5372,7 +5436,7 @@ async function cacheNintendoFallbackArtwork(system, fileName) {
   }
   if (!fs.existsSync(template)) throw new Error(`Missing local covers/${system}/${templateName} fallback.`);
   const safe = cleanRomName(fileName).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "game";
-  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : ""}`).digest("hex").slice(0, 8);
+  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : system === "gamecube" ? "|rp1-gamecube-disc-fill-v2" : ""}`).digest("hex").slice(0, 8);
   const cacheDir = path.join(root, "scraper-cache", system);
   fs.mkdirSync(cacheDir, { recursive: true });
   const localPath = path.join(cacheDir, `${safe}-${suffix}-fallback.png`);
@@ -5594,11 +5658,12 @@ async function cacheLocalConsoleArtwork(sourcePath, system, fileName) {
 
 async function cacheNesPictureArtwork(sourcePath, fileName, system = "nes") {
   const safe = cleanRomName(fileName).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80) || "game";
-  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : ""}`).digest("hex").slice(0, 8);
+  const discSystem = ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system);
+  const discNormalizationVersion = discSystem ? "|rp1-disc-canonical-v3" : "";
+  const suffix = crypto.createHash("sha1").update(`${fileName}${system === "n64" ? "|rp1-n64-original-v2" : ""}${discNormalizationVersion}`).digest("hex").slice(0, 8);
   const cacheDir = path.join(root, "scraper-cache", system);
   fs.mkdirSync(cacheDir, { recursive: true });
   const sourceExtension = path.extname(sourcePath).toLowerCase();
-  const discSystem = ["gamecube", "wii", "ps1", "ps2", "ps3", "xbox", "xbox360"].includes(system);
   const extension = discSystem ? ".png" : ([".jpg", ".jpeg", ".png", ".webp"].includes(sourceExtension) ? sourceExtension : ".png");
   const localPath = path.join(cacheDir, `${safe}-${suffix}-picture${extension}`);
   // N64 cartridge art is already a finished transparent asset. Preserve it
@@ -5616,17 +5681,24 @@ async function cacheNesPictureArtwork(sourcePath, fileName, system = "nes") {
     // genuinely transparent exterior, regardless of defects in the source PNG.
     const script = [
       "Add-Type -AssemblyName System.Drawing",
+      "Add-Type -TypeDefinition 'using System;using System.Drawing;using System.Drawing.Imaging;using System.Runtime.InteropServices;public static class Rp1AlphaBounds{public static Rectangle Find(Bitmap b){Rectangle all=new Rectangle(0,0,b.Width,b.Height);BitmapData d=b.LockBits(all,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);try{int stride=Math.Abs(d.Stride);byte[] p=new byte[stride*b.Height];Marshal.Copy(d.Scan0,p,0,p.Length);int minX=b.Width,minY=b.Height,maxX=-1,maxY=-1;for(int y=0;y<b.Height;y++){int row=y*stride;for(int x=0;x<b.Width;x++){if(p[row+x*4+3]>8){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}}}return maxX<minX||maxY<minY?all:new Rectangle(minX,minY,maxX-minX+1,maxY-minY+1);}finally{b.UnlockBits(d);}}}' -ReferencedAssemblies System.Drawing",
       `$source=[System.Drawing.Bitmap]::FromFile(${powershellSingleQuoted(sourcePath)})`,
-      "$side=[Math]::Min($source.Width,$source.Height)",
-      "$left=[int](($source.Width-$side)/2);$top=[int](($source.Height-$side)/2)",
-      "$target=[System.Drawing.Bitmap]::new($side,$side,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
+      // Measure the visible source instead of assuming that its file bounds
+      // are the disc bounds. Disc packs mix tightly cropped scans with PNGs
+      // carrying transparent padding, which previously made neighboring
+      // selectors appear to change size.
+      "$bounds=[Rp1AlphaBounds]::Find($source)",
+      "$canvasSide=1024;$target=[System.Drawing.Bitmap]::new($canvasSide,$canvasSide,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)",
       "$graphics=[System.Drawing.Graphics]::FromImage($target);$graphics.SmoothingMode='AntiAlias';$graphics.InterpolationMode='HighQualityBicubic';$graphics.PixelOffsetMode='HighQuality';$graphics.Clear([System.Drawing.Color]::Transparent)",
-      // Put every disc on the same transparent canvas at the same diameter.
-      // Source packs mix edge-to-edge scans with files that have their own
-      // margin; without normalization the selector is covered inconsistently.
-      "$margin=[Math]::Max(2,[int]($side*0.055));$diameter=$side-(2*$margin)",
+      // Every optical-disc system now uses one canonical 1024px canvas and
+      // one 93% visible diameter. Physical disc size and source-file padding
+      // must not change the selector footprint in Batocera.
+      "$margin=36;$diameter=952",
       "$disc=[System.Drawing.Drawing2D.GraphicsPath]::new();$disc.AddEllipse($margin,$margin,$diameter,$diameter);$graphics.SetClip($disc)",
-      "$destination=[System.Drawing.Rectangle]::new($margin,$margin,$diameter,$diameter);$sourceRect=[System.Drawing.Rectangle]::new($left,$top,$side,$side)",
+      // Map the measured visible boundary itself to the canonical circle.
+      // This also removes asymmetric transparent edges inside nominally
+      // square source files without changing selector geometry per game.
+      "$destination=[System.Drawing.Rectangle]::new($margin,$margin,$diameter,$diameter);$sourceRect=$bounds",
       "$graphics.DrawImage($source,$destination,$sourceRect,[System.Drawing.GraphicsUnit]::Pixel)",
       "$graphics.ResetClip()",
       `$target.Save(${powershellSingleQuoted(localPath)},[System.Drawing.Imaging.ImageFormat]::Png)`,
@@ -5847,7 +5919,7 @@ async function ensureArtworkPresentation(device, system) {
   verifiedArtworkPresentations.add(key);
 }
 
-async function execUploadedArtworkScript(device, script) {
+async function execUploadedArtworkScript(device, script, timeoutMs = 90000) {
   const digest = crypto.createHash('sha1').update(script).digest('hex').slice(0, 16);
   const remoteScript = `/userdata/system/.rp1-artwork-${digest}.py`;
   return sftpWithDevice(device, async (sftp, client) => {
@@ -5857,7 +5929,7 @@ async function execUploadedArtworkScript(device, script) {
     } finally {
       await execOnSshClient(client, `rm -f ${shellSingleQuoted(remoteScript)}`).catch(() => {});
     }
-  });
+  }, timeoutMs);
 }
 
 async function publishConsoleSystem(device, system, entries, artwork, ensurePresentation = true) {
@@ -5881,19 +5953,9 @@ async function publishConsoleSystemUnlocked(device, system, entries, artwork, en
   await sftpWithDevice(device, async sftp => {
     await mkdirpSftp(sftp, mediaDir);
     for (const item of artwork) await fastPutSftp(sftp, item.localPath, `${mediaDir}/${item.fileName}`);
-  });
-  // Full-resolution PNGs decode on Batocera's UI thread and make a cover tile
-  // visibly jump as it arrives. Downscale only oversized cache artwork into a
-  // temporary PNG, then atomically replace it only when the result is smaller.
-  // The fit-inside scale preserves the whole cover and its aspect ratio.
-  const uploadedPngs = artwork
-    .map(item => `${mediaDir}/${item.fileName}`)
-    .filter(fileName => path.posix.extname(fileName).toLowerCase() === ".png");
-  if (uploadedPngs.length) {
-    const remoteFiles = uploadedPngs.map(shellSingleQuoted).join(" ");
-    // Keep PNG alpha while shrinking large covers; rgb24 flattened transparent N64 art to its hidden green pixels.
-    await execSsh(device, `for cover in ${remoteFiles}; do [ -f "$cover" ] && [ "$(wc -c < "$cover")" -gt 1048576 ] || continue; tmp="${'$'}{cover}.rp1-opt-${'$'}{RANDOM}.png"; if timeout 90 ffmpeg -v error -y -i "$cover" -vf 'scale=640:640:force_original_aspect_ratio=decrease' -frames:v 1 -pix_fmt rgba -compression_level 9 "$tmp" && [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -lt "$(wc -c < "$cover")" ]; then mv -f "$tmp" "$cover"; else rm -f "$tmp"; fi; done`, 120000);
-  }
+  }, 90000);
+  // Preserve every cover at its original cached resolution and quality.
+  // RP1 must not destructively resize artwork after uploading it to Batocera.
   if (!entries.length) return;
   const xml = `<?xml version="1.0"?>\n<gameList>\n${entries.join("\n")}\n</gameList>\n`;
   const encoded = Buffer.from(xml, "utf8").toString("base64");
@@ -6005,6 +6067,34 @@ for entry in entries:
   if (ensurePresentation) await ensureArtworkPresentation(device, system);
 }
 
+// Publishing many covers must produce one EmulationStation refresh, not one
+// restart per batch. A quiet-period debounce is reset by every successful
+// batch and deferred while a game or publisher is active.
+const artworkRefreshTimers = new Map();
+function scheduleArtworkMachineRefresh(deviceName, delayMs = 20000) {
+  const existing = artworkRefreshTimers.get(deviceName);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(async () => {
+    artworkRefreshTimers.delete(deviceName);
+    if (retryingArtwork) {
+      scheduleArtworkMachineRefresh(deviceName, 5000);
+      return;
+    }
+    try {
+      const device = await getRuntimeDevice(deviceName);
+      if (!device || device.access !== 'ssh') return;
+      const result = await execSsh(device, `if pgrep -f '[r]etroarch|[x]enia|[r]pcs3|[c]emu|[d]olphin|[p]csx2' >/dev/null 2>&1; then echo BUSY; exit 0; fi
+sh -c '(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 &'; echo REFRESHED`, 15000);
+      if (/BUSY/.test(String(result || ''))) scheduleArtworkMachineRefresh(deviceName, 10000);
+    } catch (error) {
+      console.error('Deferred artwork refresh:', error.message);
+      scheduleArtworkMachineRefresh(deviceName, 15000);
+    }
+  }, delayMs);
+  timer.unref?.();
+  artworkRefreshTimers.set(deviceName, timer);
+}
+
 const artworkPublishQueue = require('./artwork-publish-queue')(
   path.join(root, 'pending-artwork.json'),
   async job => {
@@ -6013,13 +6103,7 @@ const artworkPublishQueue = require('./artwork-publish-queue')(
     await publishConsoleSystem(device, job.system, job.entries, job.artwork, job.ensurePresentation !== false);
   },
   async job => {
-    const device = await getRuntimeDevice(job.deviceName);
-    if (!device || device.access !== 'ssh') return;
-    // Batocera's addgames API is absent or incomplete on some releases. The
-    // durable gamelist is already verified; refresh EmulationStation when it
-    // is idle so delayed queue recovery becomes visible without user action.
-    await execSsh(device, `if pgrep -f '[r]etroarch|[x]enia|[r]pcs3|[c]emu|[d]olphin|[p]csx2' >/dev/null 2>&1; then exit 0; fi
-sh -c '(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 &'`, 15000);
+    scheduleArtworkMachineRefresh(job.deviceName);
     if (job.transferFileName) {
       const transfer = transferJobs.get(JSON.stringify([job.deviceName, job.system, job.transferFileName]));
       if (transfer?.completed) {
@@ -6032,7 +6116,11 @@ sh -c '(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emula
 );
 let retryingArtwork = false;
 async function retryPendingArtwork() {
-  if (retryingArtwork || consoleScrapeJob.running) return;
+  // Publishing is independent from matching/scanning. A stalled or long NES
+  // rescan must never hold already-matched, durable cover jobs indefinitely.
+  // The queue's busy set prevents the scanner and retry worker from publishing
+  // the same job twice when their work overlaps.
+  if (retryingArtwork) return;
   retryingArtwork = true;
   try {
     const groups = new Map();
@@ -6043,7 +6131,20 @@ async function retryPendingArtwork() {
     }
     for (const jobs of groups.values()) {
       for (let offset = 0; offset < jobs.length; offset += 25) {
-        await artworkPublishQueue.retryBatch(jobs.slice(offset, offset + 25).map(job => job.id));
+        const batchIds = jobs.slice(offset, offset + 25).map(job => job.id);
+        try {
+          // A dropped SSH/SFTP callback must not hold the global publisher
+          // lock forever. Keep advancing other due batches; the queue's busy
+          // set prevents a timed-out batch from being started twice while its
+          // original operation is still unwinding.
+          await withRejectingTimeout(
+            artworkPublishQueue.retryBatch(batchIds),
+            120000,
+            'Artwork publish batch timed out and will retry automatically.'
+          );
+        } catch (error) {
+          console.error('Artwork publishing batch:', error.message);
+        }
       }
     }
   } catch (error) { console.error('Artwork publishing retry:', error.message); }
@@ -6060,9 +6161,37 @@ artworkStartupRetry.unref();
 
 async function existingScrapedRomNames(device, system) {
   try {
-    const output = await execSsh(device, `curl -fsS http://127.0.0.1:1234/systems/${systemFolders[system]}/games`, 30000);
-    const games = JSON.parse(output);
-    return new Set((Array.isArray(games) ? games : []).filter(game => game.image).map(game => path.posix.basename(String(game.path || ""))));
+    const remoteRoot = `/userdata/roms/${systemFolders[system]}`;
+    const script = `import hashlib,json,os,xml.etree.ElementTree as ET
+root=${JSON.stringify(remoteRoot)}
+gamelist=os.path.join(root,"gamelist.xml")
+covered=[]
+if os.path.isfile(gamelist):
+ try:
+  tree=ET.parse(gamelist)
+  for game in tree.getroot().findall("game"):
+   rom=game.findtext("path") or ""
+   image=game.findtext("image") or ""
+   if not rom or not image: continue
+   media=image if os.path.isabs(image) else os.path.normpath(os.path.join(root,image))
+   if os.path.isfile(media) and os.path.getsize(media)>0:
+    digest=hashlib.sha256()
+    with open(media,"rb") as source:
+     for chunk in iter(lambda:source.read(1048576),b""): digest.update(chunk)
+    covered.append([os.path.basename(rom.replace("\\\\","/")),os.path.basename(media),os.path.getsize(media),digest.hexdigest()])
+ except Exception: pass
+print(json.dumps(covered))
+`;
+    const output = await execUploadedArtworkScript(device, script);
+    const rows = JSON.parse(String(output || "[]").trim() || "[]");
+    const cacheDir = path.join(root, "scraper-cache", system);
+    return new Set((Array.isArray(rows) ? rows : []).filter(row => {
+      if (!Array.isArray(row) || row.length < 4 || path.basename(String(row[1] || "")) !== String(row[1] || "")) return false;
+      const localImage = path.join(cacheDir, row[1]);
+      return fs.existsSync(localImage) && fs.statSync(localImage).isFile()
+        && fs.statSync(localImage).size === Number(row[2] || 0)
+        && crypto.createHash("sha256").update(fs.readFileSync(localImage)).digest("hex") === String(row[3] || "");
+    }).map(row => path.posix.basename(String(row[0] || ""))));
   } catch { return new Set(); }
 }
 
@@ -6093,6 +6222,9 @@ async function listBatoceraRomFiles(device, system) {
     });
   }
   files = hideMameSupportFiles(system, files);
+  files.sort((left, right) => compareNaturalGameTitles(
+    displayGameTitle(system, left), displayGameTitle(system, right)
+  ));
   if (system !== "ps1") return files;
   // A cue/bin PlayStation game is one game. The BIN is a data track, not a
   // second library entry; publish the label and artwork against the CUE/M3U.
@@ -6239,13 +6371,14 @@ async function publishTransferredRomArtwork(device, deviceName, system, fileName
     return { status: "not-configured", matched: false, artwork: false };
   }
   let metadata = await scrapeConsoleGame(settings, system, fileName);
+  if (metadata && system === "movies") metadata = { ...metadata, name: formatMovieGridTitle(metadata.name || displayGameTitle(system, fileName)) };
   progress(40, metadata ? "Picture match found" : "No Picture Matches — preparing default");
   if (!metadata && usesLocalOnlyArtwork(system)) {
     const fallbackSystem = system === "3dsen" ? "nes" : system;
     const image = styledFallbackArtworkSystems.has(fallbackSystem) && hasLocalConsoleCoverFolder(system)
       ? await cacheNintendoFallbackArtwork(fallbackSystem, fileName)
       : await cacheGenericConsoleFallbackArtwork(system, fileName);
-    const fallbackMetadata = { name: displayGameTitle(system, fileName), desc: "", releasedate: "", rating: "", players: "" };
+    const fallbackMetadata = { name: system === "movies" ? formatMovieGridTitle(displayGameTitle(system, fileName)) : displayGameTitle(system, fileName), desc: "", releasedate: "", rating: "", players: "" };
     const entries = [consoleGameXml(consoleArtworkRomPath(system, fileName), fallbackMetadata, `./media/images/${image.fileName}`)];
     // Never assume the destination already has the current layout. The first
     // transfer in a session verifies/repairs it; later transfers reuse that
@@ -6844,7 +6977,7 @@ async function installPsVitaConsolePicture(device) {
   const vitaSelectorAnimation = require("./selector-animation").selectorAnimationXml();
   const command = `set -e; settings=/userdata/system/configs/emulationstation/es_settings.cfg; theme=$(sed -n 's/.*name="ThemeSet" value="\\([^\"]*\\)".*/\\1/p' "$settings" | head -n1); base=/userdata/themes/$theme/theme.xml; test -f "$base" || base=/usr/share/emulationstation/themes/es-theme-carbon/theme.xml; image=/userdata/themes/$theme/art/consoles/psvita.png; test -s "$image" || image=/usr/share/emulationstation/themes/es-theme-carbon/art/consoles/psvita.png; test -s "$image"; cat > /userdata/roms/psvita/theme.xml <<EOF
 <!-- READY PLAYER ONE PS VITA CONSOLE PICTURE -->
-<theme><formatVersion>7</formatVersion><include>$base</include><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$image</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><customView name="Icons" inherits="grid"><imagegrid name="gamegrid"><itemTemplate><container name="contentRoot"><container name="inside"><image name="imageOfGame"><minSize>0 0</minSize><maxSize>1 0.84</maxSize><origin>0.5</origin><pos>0.5 0.42</pos><linearSmooth>true</linearSmooth></image></container></container></itemTemplate></imagegrid><ninepatch name="gridtile.background:selected"><path>/userdata/roms/psvita/media/rp1-psvita-selector.png</path><cornerSize>8 8</cornerSize><padding>-18 -18</padding>${vitaSelectorAnimation}<zIndex>100</zIndex></ninepatch></customView></theme>
+<theme><formatVersion>7</formatVersion><include>$base</include><view name="system"><image name="backgroundMachines" extra="true"><visible>true</visible><path>$image</path><pos>0.5 0.5</pos><origin>0.5 0.5</origin><size>0.64 1.138</size><color>FFFFFF70</color><linearSmooth>true</linearSmooth><zIndex>11</zIndex></image><image name="ControllerOverlay" extra="true"><visible>false</visible></image></view><customView name="Icons" inherits="grid"><imagegrid name="gamegrid"><autoLayoutSelectedZoom>1.0</autoLayoutSelectedZoom><autoLayout>4 2</autoLayout><margin>0.001823 0.003241</margin><imageSource>image</imageSource><gameImage>/userdata/roms/psvita/media/rp1-psvita-blank.png</gameImage></imagegrid><gridtile name="default"><size>1 1</size><padding>0 0</padding><selectionMode>image</selectionMode><backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor></gridtile><gridtile name="selected"><size>1 1</size><padding>0 0</padding><selectionMode>image</selectionMode><backgroundColor>00000000</backgroundColor><backgroundCenterColor>00000000</backgroundCenterColor><backgroundEdgeColor>00000000</backgroundEdgeColor></gridtile><image name="gridtile.image"><maxSize>1 0.84</maxSize><color>FFFFFFFF</color><roundCorners>0</roundCorners><linearSmooth>true</linearSmooth><zIndex>30</zIndex></image><ninepatch name="gridtile.background:selected"><path>/userdata/roms/psvita/media/rp1-psvita-selector.png</path><cornerSize>8 8</cornerSize><padding>-18 -18</padding>${vitaSelectorAnimation}<zIndex>100</zIndex></ninepatch></customView></theme>
 EOF
 python - <<'PY'
 import xml.etree.ElementTree as ET
@@ -11298,17 +11431,9 @@ print(node.get('value') if node is not None else '__RP1_DEFAULT__')
       // removal that actually fails is restored immediately by the frontend,
       // while successful removals are committed atomically by /api/systems/remove.
       const reconciledVisibleSystems = Array.isArray(savedVisibleSystems) ? [...savedVisibleSystems] : null;
-      // RP1 owns Kodi's standalone launcher and removes that launcher when the
-      // Kodi console is unchecked.  Therefore a Kodi console reported by the
-      // live machine is authoritative and must repair an older saved checkbox
-      // list that predates Kodi support.  Do not broadly merge ROM folders:
-      // Batocera ships many empty built-in folders the user did not select.
-      if (Array.isArray(reconciledVisibleSystems) && systems.includes("kodi") && !reconciledVisibleSystems.includes("kodi")) {
-        reconciledVisibleSystems.push("kodi");
-        const settings = readDeviceSettings();
-        settings[deviceName] = {...(settings[deviceName] || {}), visibleSystems: reconciledVisibleSystems};
-        writeDeviceSettings(settings);
-      }
+      // Never merge a live machine system into an existing saved selection.
+      // Inventory is used to seed a machine once; afterward an explicit RP1
+      // uncheck remains authoritative for every system, including Kodi.
       sendJson(res, 200, {ok:true, systems, visibleSystems:reconciledVisibleSystems, supportedSystems:[...Object.keys(systemFolders), 'all', 'favorites']});
       return;
     }
@@ -12293,6 +12418,11 @@ ${check}
         const installedResetName = body.system === "psvita" ? psVitaPointerFileName(body.fileName) : body.fileName;
         if (job.resetNeeded) markSoftResetNeeded(body.device, body.system, installedResetName, job.finishedAt);
         scheduleTransferPersistence(true);
+        // A cover attempt made while another ROM stream was active is
+        // intentionally deferred. The completion of every ROM—especially the
+        // final one—must wake the durable publisher so covers cannot remain
+        // queued until an unrelated timer or manual Scrape action.
+        wakePendingArtworkPublisher();
         sendJson(res, 200, { ok: true, item, artwork, presentation, job });
       } catch (error) {
         const requeueAfterCancel = job.requeueAfterCancel;
@@ -12771,9 +12901,10 @@ ${check}
       }
       const installedFiles = new Map();
       for (const system of requested) installedFiles.set(system, await listBatoceraRomFiles(device, system));
-      await clearLegacyNintendoArtwork(device, requested);
+      const overwrite = Boolean(body.overwrite);
+      if (overwrite) await clearLegacyNintendoArtwork(device, requested);
       await installNintendoPicturePresentation(device, requested);
-      await runConsoleScrape(device, requested, true, body.device, "This PC");
+      await runConsoleScrape(device, requested, overwrite, body.device, "This PC");
       await execSsh(device, 'sh -c "(batocera-es-swissknife --restart >/dev/null 2>&1 || /etc/init.d/S31emulationstation restart >/dev/null 2>&1 || (/etc/init.d/S31emulationstation stop >/dev/null 2>&1; /etc/init.d/S31emulationstation start >/dev/null 2>&1)) >/dev/null 2>&1 & echo OK"', 15000);
       const matchedFiles = [];
       const unmatchedFiles = [];

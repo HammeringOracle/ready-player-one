@@ -4951,6 +4951,9 @@
     });
     let selectedDevice = "Batocera";
     let selectedDeviceOnline = false;
+    // Ad Hoc is a Moonlight display path only. It must never be treated as a
+    // library, transfer, configuration, or console-management connection.
+    let selectedDeviceDisplayOnly = false;
     let selectedDeviceHost = "";
     let startupGreenMachineSelected = false;
     const deviceInstanceIds = new Map();
@@ -5043,8 +5046,25 @@
     function psVitaTitleId(fileName) {
       return String(fileName || '').match(/(?:^|[^A-Za-z0-9])(PCS[A-Z]\d{5})(?=[^A-Za-z0-9]|$)/i)?.[1]?.toUpperCase() || '';
     }
+    function movieIdentity(fileName) {
+      let title = String(fileName || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').replace(/[._]+/g, ' ');
+      const year = title.match(/\b(?:19|20)\d{2}\b/);
+      if (year) title = `${title.slice(0, year.index)} ${year[0]}`;
+      else title = title.replace(/\b(?:2160p|1080p|720p|bluray|webrip|web-dl|x26[45]|h26[45]|aac\d*(?:\.\d)?|yts)\b.*$/i, '');
+      return title.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
+    function matchingWarehouseFileName(system, fileName) {
+      if (system !== 'movies') return fileName;
+      const identity = movieIdentity(fileName);
+      return ((window.warehouseLibrary || fallbackLibrary).movies?.warehouse || [])
+        .find(item => movieIdentity(item[0]) === identity)?.[0] || fileName;
+    }
     function machineHasGame(fileName, system = selectedSystem) {
       if (activeNames.has(fileName)) return true;
+      if (system === 'movies') {
+        const identity = movieIdentity(fileName);
+        return Boolean(identity && [...activeNames].some(installed => movieIdentity(installed) === identity));
+      }
       if (system !== 'psvita') return false;
       const titleId = psVitaTitleId(fileName);
       return Boolean(titleId && [...activeNames].some(installed => psVitaTitleId(installed) === titleId));
@@ -5498,6 +5518,11 @@
       explicitlyUncheckedSystems.clear();
       const visible = readVisibleSystems();
       const detected = detectedSystemsFor(systemPickerDevice);
+      // Batocera inventory seeds a machine only until RP1 has saved its first
+      // explicit selection. After that, the saved list is authoritative:
+      // built-in/empty folders such as Ports, C64, and PC Engine must not
+      // silently re-check themselves every time this picker opens.
+      const hasSavedVisibility = localStorage.getItem(visibilityStorageKey(systemPickerDevice)) !== null;
       const alphabeticalRows = [...rows].sort((left, right) => systemLabelForRow(left).localeCompare(systemLabelForRow(right), undefined, { sensitivity: "base", numeric: true }));
       systemPickerGrid.innerHTML = alphabeticalRows.map(row => {
         const system = row.dataset.system;
@@ -5506,7 +5531,7 @@
         const label = systemLabelForRow(row);
         const pickerLabel = ['atari800', 'atarist'].includes(system)
           ? `Atari<span class="atari-model">${label.replace(/^Atari\s+/i, '')}</span>` : label;
-        return `<label class="system-picker-option${unsupported ? ' unsupported' : ''}"${unsupported ? ' title="Not Supported"' : ''}><input type="checkbox" value="${system}" ${!unsupported && (visible.has(system) || detected.has(system)) ? "checked" : ""} ${unsupported ? 'disabled' : ''}><span>${pickerLabel}</span>${unsupported ? '<span class="support-note">Not Supported</span>' : requirement}</label>`;
+        return `<label class="system-picker-option${unsupported ? ' unsupported' : ''}"${unsupported ? ' title="Not Supported"' : ''}><input type="checkbox" value="${system}" ${!unsupported && (visible.has(system) || (!hasSavedVisibility && detected.has(system))) ? "checked" : ""} ${unsupported ? 'disabled' : ''}><span>${pickerLabel}</span>${unsupported ? '<span class="support-note">Not Supported</span>' : requirement}</label>`;
       }).join("");
       updateSystemRequirementWarning();
       systemPickerModal.classList.add("open");
@@ -5546,12 +5571,10 @@
       const machines = automaticSetupPlatform && targetStatus?.online && (targetStatus.access === 'ssh' || targetStatus.platform==='retrobat') ? [visibilityDevice] : [];
       const previous = readVisibleSystems(visibilityDevice);
       const detected = detectedSystemsFor(visibilityDevice);
-      // Only this edit's checkbox changes are actionable. A legacy unchecked
-      // system must never turn unrelated unchecked consoles into deletions.
-      // A live Batocera system is different: the picker checks it, and an
-      // explicit uncheck removes that actual machine-side system.
-      const removalCandidates = new Set([...previous, ...detected, ...explicitlyUncheckedSystems]);
-      const removed = new Set([...removalCandidates].filter(system => !selected.has(system)));
+      // The confirmation is a change log for this modal session. Systems that
+      // were unchecked before it opened must not reappear as removals merely
+      // because Batocera still reports a built-in or empty system folder.
+      const removed = new Set([...explicitlyUncheckedSystems].filter(system => !selected.has(system)));
       // A detected system is already on Batocera. Once removed it drops from
       // the next inventory, so checking it later correctly restores it.
       const added = new Set([...selected].filter(system => !previous.has(system) && !detected.has(system)));
@@ -7186,6 +7209,15 @@
     }
     async function loadActiveList(key = selectedSystem) {
       if (!readVisibleSystems().has(key)) return;
+      if (selectedDeviceDisplayOnly && !selectedDeviceOnline) {
+        // Keep the last confirmed inventory visible, but do not retry the
+        // saved Wi-Fi address or show a connection error while the machine is
+        // intentionally attached only for Ad Hoc Display.
+        activeListNeedsRetry = false;
+        clearLibraryConnectionMessage();
+        activeList.classList.remove('empty-state');
+        return;
+      }
       // Progress owns an already-visible active pane. Background inventory
       // must not replace its DOM while copies are connecting or retrying.
       if (key === selectedSystem && transferJobsForActivePane().length) {
@@ -7195,6 +7227,14 @@
       }
       const requestDevice = selectedDevice;
       const requestScope = `${requestDevice}\u0000${key}`;
+      if (consoleRemovalScopes.has(requestScope)) {
+        // Bulk removal owns the visible inventory. Directory reads taken while
+        // concurrent deletes are in flight are necessarily partial and must
+        // never replace the stable bottom-up row sequence.
+        clearLibraryConnectionMessage();
+        activeList.classList.remove('empty-state');
+        return;
+      }
       const scopeChanged = activeListScope !== requestScope;
       // Refreshes for the same visible pane are cooperative. Incrementing the
       // generation for every poll caused two healthy N64 responses to mark one
@@ -7632,7 +7672,7 @@
         const response = await fetch(`${apiBase}/api/console-artwork/sync-layout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device, systems: [system] })
+          body: JSON.stringify({ device, systems: [system], overwrite: false })
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || 'Picture lookup failed.');
@@ -7769,13 +7809,13 @@
       throw new Error(`Active ${String(system).toUpperCase()} transfers did not stop in time. Remove All was not started.`);
     }
 
-    function clearRemovedConsoleSelectionState(device, system) {
+    function clearRemovedConsoleSelectionState(device, system, { preserveInventory = false, preserveSelections = false } = {}) {
       const scope = pendingResetScope(device, system);
       const selectionPrefix = `${scope}\u0000`;
       clearOptimisticConsoleTransfer(device, system);
       transferDisplayJobs.delete(scope);
       pendingResetGamesByScope.set(scope, new Set());
-      saveRemoteLibrarySnapshot(scope, []);
+      if (!preserveInventory) saveRemoteLibrarySnapshot(scope, []);
       for (const key of [...optimisticWarehouseSelections.keys()]) {
         if (key.startsWith(selectionPrefix)) optimisticWarehouseSelections.delete(key);
       }
@@ -7786,7 +7826,11 @@
         if (key.startsWith(selectionPrefix)) trackedTransferKeys.delete(key);
       }
       if (device !== selectedDevice || system !== selectedSystem) return;
-      activeNames = new Set();
+      if (!preserveInventory) activeNames = new Set();
+      if (preserveSelections) {
+        markWarehouseChecks();
+        return;
+      }
       warehouseList.querySelectorAll(".game").forEach(game => {
         const checkbox = game.querySelector(".game-check");
         if (checkbox) checkbox.checked = false;
@@ -7802,10 +7846,10 @@
       updateStopRemovalHeader();
       try {
       await stopConsoleTransfersForRemoval(device, system);
-      // The requested end state is empty. Persist and paint that state before
-      // the first delete so polling cannot re-check the center pane while the
-      // machine is still draining its old inventory.
-      clearRemovedConsoleSelectionState(device, system);
+      // Stop stale transfer intent, but retain every installed check until its
+      // exact machine deletion succeeds. If removal stops, fails, or RP1 is
+      // reopened mid-run, surviving ROMs must still be checked.
+      clearRemovedConsoleSelectionState(device, system, { preserveInventory: true, preserveSelections: true });
 
       // The machine inventory is authoritative. The center pane can be
       // filtered, incomplete, or missing titles that no longer exist locally.
@@ -7816,11 +7860,6 @@
       // order so the visible deletion wave starts at the bottom and moves up.
       const orderedItems = [...(result.items || [])].sort(compareActiveGameNames);
       const names = [...new Set(activeLayoutNames(system, orderedItems))].reverse();
-
-      const selections = readDeviceTransferSelections(device);
-      selections[system] = [];
-      localStorage.setItem(transferQueueStorageKey(device), JSON.stringify(selections));
-      if (device === selectedDevice) transferLayoutSelections = selections;
 
       // Remove stopped queue records as well so clearing the selection cannot
       // be undone by startup resume on the next launch.
@@ -7837,13 +7876,16 @@
       beginFooterRemoval(names.length, device, system);
       if (device === selectedDevice && system === selectedSystem) {
         activeList.querySelectorAll('.device-game').forEach(row => { row.hidden = false; });
+        // Establish one stable starting viewport. Native scroll anchoring can
+        // otherwise reposition the pane after every removed child.
+        activeList.style.overflowAnchor = 'none';
+        activeList.scrollTop = activeList.scrollHeight;
       }
       if (!names.length) {
         const localTotal = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []).length;
         footerProgressByScope.set(footerProgressScope(device, system), { completed: 0, total: localTotal, active: false });
         clearRemovedConsoleSelectionState(device, system);
         finishFooterRemoval(true);
-        await loadActiveList(system);
         return;
       }
 
@@ -7864,7 +7906,7 @@
               continue;
             }
             try {
-              await removeFromSelectedDevice(fileName, { device, system, deferStorageRefresh: true, deferVisualCommit: true });
+              await removeFromSelectedDevice(fileName, { device, system, deferStorageRefresh: true, deferVisualCommit: true, deferVisualProgress: true });
               completed[index].resolve({ ok: true, fileName });
             } catch (error) {
               completed[index].resolve({ ok: false, fileName, error });
@@ -7894,13 +7936,16 @@
       if (device === selectedDevice) await loadDeviceStorage();
       const stopped = consoleRemovalStopRequests.has(removalScope);
       if (!failures.length && !stopped) {
+        const selections = readDeviceTransferSelections(device);
+        selections[system] = [];
+        localStorage.setItem(transferQueueStorageKey(device), JSON.stringify(selections));
+        if (device === selectedDevice) transferLayoutSelections = selections;
         const localTotal = activeLayoutNames(system, (window.warehouseLibrary || fallbackLibrary)[system]?.warehouse || []).length;
         footerProgressByScope.set(footerProgressScope(device, system), { completed: 0, total: localTotal, active: false });
         clearRemovedConsoleSelectionState(device, system);
       }
       finishFooterRemoval(failures.length === 0 && !stopped);
       transferInstalledCache = { device: "", at: 0, systems: {} };
-      if (device === selectedDevice && system === selectedSystem) await loadActiveList(system);
       if (stopped && device === selectedDevice && system === selectedSystem) {
         saveSelectionSet(system, new Set(activeNames));
         syncStatus.textContent = `Removal stopped. ${activeNames.size} game${activeNames.size === 1 ? '' : 's'} remain installed.`;
@@ -7910,7 +7955,11 @@
         consoleRemovalScopes.delete(removalScope);
         consoleRemovalStopRequests.delete(removalScope);
         updateStopRemovalHeader();
-        if (device === selectedDevice && system === selectedSystem) updateWarehouseAllControl();
+        if (device === selectedDevice && system === selectedSystem) {
+          activeList.style.removeProperty('overflow-anchor');
+          updateWarehouseAllControl();
+          await loadActiveList(system);
+        }
       }
     }
 
@@ -9359,6 +9408,25 @@
       markWarehouseChecks();
     }
 
+    function mirrorActiveRemovalToWarehouse(device, system, fileName, removing) {
+      const selectionKey = transferSelectionKey(device, system, fileName);
+      const warehouseFileName = matchingWarehouseFileName(system, fileName);
+      if (removing) {
+        optimisticWarehouseSelections.set(selectionKey, false);
+        setLayoutSelection(system, warehouseFileName, false);
+      } else {
+        optimisticWarehouseSelections.delete(selectionKey);
+        if (machineHasGame(warehouseFileName, system)) setLayoutSelection(system, warehouseFileName, true);
+      }
+      if (device !== selectedDevice || system !== selectedSystem) return;
+      const control = warehouseGameControls.get(warehouseFileName);
+      if (control?.checkbox) {
+        control.checkbox.checked = !removing;
+        control.checkbox.dataset.installed = String(!removing && machineHasGame(fileName, system));
+      }
+      updateWarehouseAllControl();
+    }
+
     async function removeFromSelectedDevice(fileName, scope = {}) {
       const targetDevice = scope.device || selectedDevice;
       const targetSystem = scope.system || selectedSystem;
@@ -9377,6 +9445,10 @@
         ? [...activeList.querySelectorAll('.device-game')].find(row => row.dataset.name === fileName)
         : null;
       const paintRemoval = (percent = 100, stage = "Deleting ROM") => {
+        // Bulk workers finish in parallel, but the ordered completion barrier
+        // owns all visible row movement. Never let background workers compete
+        // for the scroll position.
+        if (scope.deferVisualProgress) return;
         if (!removalRow?.isConnected) return;
         removalRow.classList.add('removal-pending');
         removalRow.querySelectorAll('.transfer-row-progress,.transfer-row-percent,.transfer-row-stage').forEach(element => element.remove());
@@ -9488,6 +9560,12 @@
             }
             optimisticActiveRemovals.add(clickedRemovalKey);
 
+            // Both panes are two views of one machine selection. Mirror the
+            // uncheck before any network wait so an inventory/status refresh
+            // cannot leave the middle pane checked while the right pane is
+            // visibly removing the same game.
+            mirrorActiveRemovalToWarehouse(selectedDevice, selectedSystem, fileName, true);
+
             try {
               if (row.classList.contains("transfer-queued") || row.classList.contains("transfer-pending")
                 || transferIsPending(fileName, selectedSystem, selectedDevice)) {
@@ -9497,16 +9575,13 @@
                 dismissedTransferKeys.add(transferKey);
                 pendingTransferKeys.delete(transferKey);
                 trackedTransferKeys.delete(transferKey);
-                optimisticWarehouseSelections.set(transferKey, false);
-                setLayoutSelection(system, fileName, false);
                 row.remove();
-                const warehouseControl = warehouseGameControls.get(fileName)?.checkbox;
-                if (warehouseControl) warehouseControl.checked = false;
                 // The removal endpoint atomically cancels this exact transfer,
                 // deletes its partial/final ROM and picture, and deliberately
                 // leaves every other transfer for this console running.
                 await removeFromSelectedDevice(fileName,{device,system});
                 optimisticWarehouseSelections.delete(transferKey);
+                markWarehouseChecks();
                 syncStatus.textContent = `Stopped and removed ${fileName}`;
                 refreshTransferActivity();
                 updateWarehouseAllControl();
@@ -9526,12 +9601,17 @@
             } catch (error) {
               console.error(error);
               syncStatus.textContent = error.message;
+              mirrorActiveRemovalToWarehouse(selectedDevice, selectedSystem, checkbox.closest('.device-game')?.dataset.name || '', false);
               checkbox.checked = true;
               checkbox.closest(".device-game")?.classList.remove("removal-pending");
               if (!checkbox.isConnected) loadActiveList(selectedSystem);
               markWarehouseChecks();
             } finally {
               optimisticActiveRemovals.delete(clickedRemovalKey);
+              if (!checkbox.isConnected || !checkbox.checked) {
+                optimisticWarehouseSelections.delete(clickedRemovalKey);
+                markWarehouseChecks();
+              }
             }
           }
         });
@@ -9897,6 +9977,7 @@
       if (storageBadge) storageBadge.textContent = storageHeaderText(currentStorageFree, currentStorageTotal);
       transferLayoutSelections = readDeviceTransferSelections(selectedDevice);
       selectedDeviceOnline = card.dataset.online === "true";
+      selectedDeviceDisplayOnly = card.dataset.adHocDisplay === "true";
       selectedDeviceHost = card.dataset.host || "";
       selectTopSystemOnNextVisibleList = true;
       applyVisibleSystems(readVisibleSystems());
@@ -10048,7 +10129,13 @@
 
       if (card.classList.contains("selected")) {
         selectedDeviceOnline = online;
+        selectedDeviceDisplayOnly = directPreferred && !wifiPreferred;
         selectedDeviceHost = host;
+        if (selectedDeviceDisplayOnly) {
+          activeListNeedsRetry = false;
+          clearLibraryConnectionMessage();
+          activeList.classList.remove('empty-state');
+        }
         if (installationChanged) {
           reconnectRetryQueue = reconnectRetryQueue.filter(item => item.device !== deviceId);
           saveReconnectRetryQueue();
@@ -10133,7 +10220,13 @@
         // not linger as a stale local snapshot after a reboot or USB swap.
         initializeMachineSystems({refresh: selectedDeviceOnline});
         scheduleEmptyConsoleInventoryRetry(selectedDevice);
-        if (!selectedDeviceOnline) {
+        if (selectedDeviceDisplayOnly) {
+          // The direct cable is exclusively a display link. The card already
+          // communicates that state; the library pane should remain quiet.
+          activeListNeedsRetry = false;
+          clearLibraryConnectionMessage();
+          activeList.classList.remove('empty-state');
+        } else if (!selectedDeviceOnline) {
           // A quick card probe may miss an otherwise working SSH connection.
           // Keep confirmed games visible while the direct library request runs.
           if (!activeList.querySelector('.device-game')) {
